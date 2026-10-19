@@ -1,0 +1,33 @@
+name: Commit and tag release
+description: Commit a validated release patch and atomically push its tag
+inputs:
+  version:
+    description: Release version and tag
+    required: true
+  token:
+    description: Repository-scoped GitHub App installation token
+    required: true
+  app-slug:
+    description: GitHub App slug returned by create-github-app-token
+    required: true
+  message:
+    description: Release commit message
+    required: true
+  branch:
+    description: Protected release branch
+    default: main
+  annotated:
+    description: Create an annotated tag
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ inputs.token }}
+        APP_SLUG: ${{ inputs.app-slug }}
+        MESSAGE: ${{ inputs.message }}
+        BRANCH: ${{ inputs.branch }}
+        ANNOTATED: ${{ inputs.annotated }}
+      run: bash "$GITHUB_ACTION_PATH/commit.sh"

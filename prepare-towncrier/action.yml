@@ -1,0 +1,39 @@
+name: Prepare Towncrier release
+description: Resolve a version, build the changelog, run prek, and write a release patch
+inputs:
+  bump:
+    description: Version bump passed to release-creator tags
+    default: auto
+  version:
+    description: Explicit version for repositories with custom version selection
+    default: ""
+  changelog:
+    description: Changelog path
+    required: true
+  format:
+    description: Changelog format, either markdown or none
+    default: none
+  link-fragments:
+    description: Resolve named fragments and authors with release-creator
+    default: "true"
+  patch:
+    description: Path for the generated Git patch
+    required: true
+outputs:
+  version:
+    description: Resolved release version
+    value: ${{ steps.prepare.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      shell: bash
+      env:
+        BUMP: ${{ inputs.bump }}
+        VERSION: ${{ inputs.version }}
+        CHANGELOG: ${{ inputs.changelog }}
+        FORMAT: ${{ inputs.format }}
+        LINK_FRAGMENTS: ${{ inputs.link-fragments }}
+        PATCH: ${{ inputs.patch }}
+        GH_TOKEN: ${{ github.token }}
+      run: bash "$GITHUB_ACTION_PATH/prepare.sh"

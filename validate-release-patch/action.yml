@@ -1,0 +1,41 @@
+name: Validate release patch
+description: Apply the prepared patch to the original main commit and rerun prek
+inputs:
+  version:
+    description: Release version
+    required: true
+  patch:
+    description: Path to the downloaded patch
+    required: true
+  changelog:
+    description: Changelog path
+    required: true
+  fragments:
+    description: Fragment directory
+    required: true
+  heading-prefix:
+    description: Literal prefix of the version heading
+    default: "## "
+  branch:
+    description: Protected release branch
+    default: main
+  remote:
+    description: Git remote containing the release branch
+    default: origin
+  expected-sha:
+    description: Exact branch commit used for release preparation
+    default: ""
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        PATCH: ${{ inputs.patch }}
+        CHANGELOG: ${{ inputs.changelog }}
+        FRAGMENTS: ${{ inputs.fragments }}
+        HEADING_PREFIX: ${{ inputs.heading-prefix }}
+        BRANCH: ${{ inputs.branch }}
+        REMOTE: ${{ inputs.remote }}
+        EXPECTED_SHA: ${{ inputs.expected-sha }}
+      run: bash "$GITHUB_ACTION_PATH/validate.sh"

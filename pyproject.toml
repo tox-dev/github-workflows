@@ -1,0 +1,52 @@
+[project]
+name = "github-workflows"
+version = "0.0.0"
+description = "Shared release actions for tox-dev repositories"
+requires-python = ">=3.15"
+dependencies = []
+
+[dependency-groups]
+test = [ "pytest>=9", "ruff>=0.17", "ty>=0.0.84" ]
+release = [ "release-creator>=0.4.1", "towncrier>=26.9", "prek>=0.2" ]
+
+[tool.pytest]
+addopts = [ "--import-mode=importlib" ]
+testpaths = [ "tests" ]
+
+[tool.ruff]
+line-length = 120
+format.preview = true
+lint.select = [ "ALL" ]
+lint.ignore = [
+  "CPY",
+  "incorrect-blank-line-before-class",
+  "missing-trailing-comma",
+  "multi-line-summary-second-line",
+  "single-line-implicit-string-concatenation",
+]
+lint.per-file-ignores."tests/**/*.py" = [
+  "assert",
+  "D",
+  "FBT",
+  "implicit-namespace-package",
+]
+lint.preview = true
+
+[tool.towncrier]
+name = "github-workflows"
+directory = "changelog.d"
+filename = "docs/changelog.md"
+template = "release_creator.fragments:template.jinja2"
+title_format = false
+type = [
+  { directory = "feature", name = "Added", showcontent = true },
+  { directory = "change", name = "Changes", showcontent = true },
+  { directory = "bugfix", name = "Fixed", showcontent = true },
+  { directory = "doc", name = "Documentation", showcontent = true },
+  { directory = "breaking", name = "Breaking changes", showcontent = true },
+  { directory = "security", name = "Security", showcontent = true },
+  { directory = "performance", name = "Performance", showcontent = true },
+  { directory = "deprecation", name = "Deprecated", showcontent = true },
+  { directory = "removal", name = "Removed", showcontent = true },
+  { directory = "packaging", name = "Packaging", showcontent = true },
+]

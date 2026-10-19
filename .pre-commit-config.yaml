@@ -1,0 +1,19 @@
+default_language_version:
+  python: python3.15
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: mdformat
+        name: mdformat
+        entry: mdformat --wrap 120
+        language: system
+        types: [markdown]
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint

@@ -1,0 +1,145 @@
+name: Check
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: Install locked tools
+        run: |
+          uv venv --python 3.15 .venv
+          uv pip sync --preview-features pylock --python .venv/bin/python pylock.toml
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Check Actions and shell scripts
+        run: |
+          shellcheck prepare-towncrier/*.sh validate-release-patch/*.sh commit-and-tag/*.sh
+      - name: Check Python tests
+        run: |
+          ruff format --check .
+          ruff check . --output-format=concise
+          ty check tests
+      - name: Exercise release actions
+        run: pytest -q
+      - name: Check repository formatting
+        run: prek run --all-files
+  changelog:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: Require release notes
+        env:
+          SKIP_NEWS: ${{ contains(github.event.pull_request.labels.*.name, 'skip news') }}
+          BOT_AUTHOR: ${{ github.event.pull_request.user.type == 'Bot' }}
+        run: |
+          set -euo pipefail
+          if git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD" -- 'changelog.d/*.md' | grep -q .; then
+            uv run --no-default-groups --group release towncrier check --compare-with "origin/${GITHUB_BASE_REF}"
+          elif [[ "$SKIP_NEWS" != true && "$BOT_AUTHOR" != true ]]; then
+            echo '::error::add a changelog fragment or apply the skip news label'
+            exit 1
+          fi
+  release-dry-run:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: Install locked release tools
+        run: |
+          uv venv --python 3.15 .venv
+          uv pip sync --preview-features pylock --python .venv/bin/python pylock.toml
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Rehearse a squash merge
+        id: fixture
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git checkout -B release-validation "$BASE_SHA"
+          git merge --squash "$HEAD_SHA"
+          printf 'Validate the release pipeline on this pull request.\n' > "changelog.d/+validation-${PR_NUMBER}.bugfix.md"
+          git add -A
+          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com commit -m "Validate release pipeline (#${PR_NUMBER})"
+          git init --bare "$RUNNER_TEMP/release-origin.git"
+          git remote set-url origin "$RUNNER_TEMP/release-origin.git"
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: prepare
+        uses: ./prepare-towncrier
+        with:
+          changelog: docs/changelog.md
+          format: markdown
+          patch: ${{ runner.temp }}/release.patch
+      - name: Restore the source commit
+        run: git reset --hard HEAD
+      - uses: ./validate-release-patch
+        with:
+          version: ${{ steps.prepare.outputs.version }}
+          patch: ${{ runner.temp }}/release.patch
+          changelog: docs/changelog.md
+          fragments: changelog.d
+          expected-sha: ${{ steps.fixture.outputs.sha }}
+      - name: Render tagged notes
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com commit -m "release $VERSION"
+          git tag "$VERSION"
+          previous=$(git tag --list | release-creator tags "$VERSION" --previous)
+          args=()
+          if [[ -n "$previous" ]]; then
+            args+=(--previous "$previous")
+          fi
+          release-creator notes --changelog docs/changelog.md --tag "$VERSION" --repository "$GITHUB_REPOSITORY" "${args[@]}" > "$RUNNER_TEMP/release-notes.md"
+          test -s "$RUNNER_TEMP/release-notes.md"
+  gate:
+    name: Required checks pass
+    if: always()
+    needs: [check, changelog, release-dry-run]
+    runs-on: ubuntu-26.04
+    steps:
+      - env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          jq -e '
+            all(
+              to_entries[];
+              .value.result == "success" or
+              (.key == "changelog" and .value.result == "skipped") or
+              (.key == "release-dry-run" and .value.result == "skipped")
+            )
+          ' <<< "$NEEDS_JSON"

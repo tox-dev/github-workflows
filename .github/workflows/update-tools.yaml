@@ -1,0 +1,38 @@
+name: Update release tools
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 2"
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+jobs:
+  update:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: Refresh the release lock
+        run: |
+          uv pip compile --upgrade --group release --group test --python-version 3.15 --format pylock.toml --output-file pylock.toml pyproject.toml
+      - id: update
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ github.token }}
+          branch: automation/update-release-tools
+          add-paths: pylock.toml
+          commit-message: "🔧 build: refresh release tool lock"
+          title: "🔧 build: refresh release tool lock"
+          body: "Refresh the locked tools used by release preparation and CI."
+      - name: Run checks on the update branch
+        if: steps.update.outputs.pull-request-operation == 'created' || steps.update.outputs.pull-request-operation == 'updated'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.update.outputs.pull-request-branch }}
+        run: gh workflow run check.yaml --ref "$BRANCH"
