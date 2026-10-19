@@ -11,8 +11,9 @@ repos:
       - id: mdformat
         name: mdformat
         entry: mdformat --wrap 120
-        language: system
+        language: python
         types: [markdown]
+        additional_dependencies: [mdformat-gfm>=1]
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:
