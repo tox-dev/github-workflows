@@ -6,33 +6,36 @@ lazy from pathlib import Path
 from conftest import action, run
 
 
-def test_validate_applies_patch(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
-    assert (
-        action(
-            repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0"
-        ).returncode
-        == 0
-    )
+def test_validate_applies_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(
-        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0"
-    )
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode == 0, result.stderr
     assert "0.2.0" in (repository / "CHANGELOG.md").read_text()
     assert run(repository, "git", "diff", "--cached", "--name-only").stdout.strip()
 
 
-def test_validate_rejects_stale_branch(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
-    assert (
-        action(
-            repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0"
-        ).returncode
-        == 0
+def test_validate_custom_remote_branch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
+    run(repository, "git", "reset", "--hard", "HEAD")
+    run(repository, "git", "remote", "add", "release-remote", str(tmp_path / "remote.git"))
+    run(repository, "git", "push", "release-remote", "HEAD:release")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        BRANCH="release",
+        REMOTE="release-remote",
+        EXPECTED_SHA="",
     )
+    assert result.returncode == 0, result.stderr
+    assert run(repository, "git", "diff", "--cached", "--name-only").stdout.strip()
+
+
+def test_validate_rejects_stale_branch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     run(repository, "git", "reset", "--hard", "HEAD")
     result = action(
         repository,
@@ -46,20 +49,14 @@ def test_validate_rejects_stale_branch(
     assert "changed during release preparation" in result.stderr
 
 
-def test_validate_rejects_dirty_checkout(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
+def test_validate_rejects_dirty_checkout(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / "CHANGELOG.md").write_text("Changed before validation.\n")
-    result = action(
-        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0"
-    )
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "clean checkout" in result.stderr
 
 
-def test_validate_rejects_noop_patch(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
+def test_validate_rejects_noop_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (tmp_path / "release.patch").write_text(
         dedent("""\
             diff --git a/CHANGELOG.md b/CHANGELOG.md
@@ -70,65 +67,39 @@ def test_validate_rejects_noop_patch(
             +<!-- towncrier release notes start -->
             """),
     )
-    result = action(
-        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0"
-    )
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "release patch contains no changes" in result.stderr
 
 
-def test_validate_rejects_unexpected_path(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
-    (repository / "pyproject.toml").write_text(
-        (repository / "pyproject.toml").read_text() + "\n# changed\n"
-    )
-    (tmp_path / "release.patch").write_text(
-        run(repository, "git", "diff", "--binary").stdout
-    )
+def test_validate_rejects_unexpected_path(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    (repository / "pyproject.toml").write_text((repository / "pyproject.toml").read_text() + "\n# changed\n")
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
     run(repository, "git", "restore", ".")
-    result = action(
-        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0"
-    )
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "unexpected release path" in result.stderr
 
 
-def test_validate_rejects_missing_heading(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
+def test_validate_rejects_missing_heading(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / "CHANGELOG.md").write_text("# Changelog\n\nOther notes.\n")
-    (tmp_path / "release.patch").write_text(
-        run(repository, "git", "diff", "--binary").stdout
-    )
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
     run(repository, "git", "restore", ".")
-    result = action(
-        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0"
-    )
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "has no section" in result.stderr
 
 
-def test_validate_rejects_embedded_heading(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
-    (repository / "CHANGELOG.md").write_text(
-        "# Changelog\n\n- Link to ## 0.2.0 (2026-10-19)\n"
-    )
-    (tmp_path / "release.patch").write_text(
-        run(repository, "git", "diff", "--binary").stdout
-    )
+def test_validate_rejects_embedded_heading(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    (repository / "CHANGELOG.md").write_text("# Changelog\n\n- Link to ## 0.2.0 (2026-10-19)\n")
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
     run(repository, "git", "restore", ".")
-    result = action(
-        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0"
-    )
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "has no section" in result.stderr
 
 
-def test_validate_rejects_prek_changes(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
+def test_validate_rejects_prek_changes(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / ".pre-commit-config.yaml").write_text(
         "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
         "        name: release-check\n"
@@ -138,12 +109,7 @@ def test_validate_rejects_prek_changes(
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Check release tree")
     run(repository, "git", "push", "origin", "main")
-    assert (
-        action(
-            repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0"
-        ).returncode
-        == 0
-    )
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     run(repository, "git", "reset", "--hard", "HEAD")
     result = action(
         repository,
@@ -157,9 +123,7 @@ def test_validate_rejects_prek_changes(
     assert "prek failed" in result.stderr
 
 
-def test_validate_rejects_untracked_prek_output(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
+def test_validate_rejects_untracked_prek_output(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / ".pre-commit-config.yaml").write_text(
         "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
         "        name: release-check\n"
@@ -169,12 +133,7 @@ def test_validate_rejects_untracked_prek_output(
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Check release tree")
     run(repository, "git", "push", "origin", "main")
-    assert (
-        action(
-            repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0"
-        ).returncode
-        == 0
-    )
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     run(repository, "git", "reset", "--hard", "HEAD")
     result = action(
         repository,

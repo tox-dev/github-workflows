@@ -45,9 +45,7 @@ def repository(tmp_path: Path) -> Path:
         "        name: release-check\n        entry: bash -c true\n"
         "        language: system\n        pass_filenames: false\n",
     )
-    (worktree / "CHANGELOG.md").write_text(
-        "# Changelog\n\n<!-- towncrier release notes start -->\n"
-    )
+    (worktree / "CHANGELOG.md").write_text("# Changelog\n\n<!-- towncrier release notes start -->\n")
     (worktree / "changelog.d").mkdir()
     run(worktree, "git", "add", ".")
     run(worktree, "git", "commit", "-m", "Initial files")
@@ -113,23 +111,14 @@ def action(
         stdout.append(result.stdout)
         stderr.append(result.stderr)
         if result.returncode:
-            return subprocess.CompletedProcess(
-                command, result.returncode, "".join(stdout), "".join(stderr)
-            )
+            return subprocess.CompletedProcess(command, result.returncode, "".join(stdout), "".join(stderr))
         if name == "prepare-towncrier" and script.name == "prepare-towncrier-0.sh":
-            environment["VERSION"] = (
-                (tmp_path / "output")
-                .read_text()
-                .split("version=", 1)[1]
-                .splitlines()[0]
-            )
+            environment["VERSION"] = (tmp_path / "output").read_text().split("version=", 1)[1].splitlines()[0]
     return subprocess.CompletedProcess(command, 0, "".join(stdout), "".join(stderr))
 
 
 def run(directory: Path, *command: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command, cwd=directory, text=True, capture_output=True, check=True
-    )
+    return subprocess.run(command, cwd=directory, text=True, capture_output=True, check=True)
 
 
 __all__ = [
