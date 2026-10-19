@@ -22,18 +22,32 @@ inputs:
 outputs:
   version:
     description: Resolved release version
-    value: ${{ steps.prepare.outputs.version }}
+    value: ${{ steps.version.outputs.version }}
 runs:
   using: composite
   steps:
-    - id: prepare
+    - id: version
+      name: Select release version
       shell: bash
       env:
         BUMP: ${{ inputs.bump }}
         VERSION: ${{ inputs.version }}
+      run: bash "$GITHUB_ACTION_PATH/prepare.sh" version
+    - name: Link fragments and authors
+      shell: bash
+      env:
+        LINK_FRAGMENTS: ${{ inputs.link-fragments }}
+        GH_TOKEN: ${{ github.token }}
+      run: bash "$GITHUB_ACTION_PATH/prepare.sh" fragments
+    - name: Build and format changelog
+      shell: bash
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
         CHANGELOG: ${{ inputs.changelog }}
         FORMAT: ${{ inputs.format }}
-        LINK_FRAGMENTS: ${{ inputs.link-fragments }}
+      run: bash "$GITHUB_ACTION_PATH/prepare.sh" changelog
+    - name: Run checks and write patch
+      shell: bash
+      env:
         PATCH: ${{ inputs.patch }}
-        GH_TOKEN: ${{ github.token }}
-      run: bash "$GITHUB_ACTION_PATH/prepare.sh"
+      run: bash "$GITHUB_ACTION_PATH/prepare.sh" patch

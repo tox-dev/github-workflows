@@ -22,7 +22,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - shell: bash
+    - name: Check staged release
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        ANNOTATED: ${{ inputs.annotated }}
+      run: bash "$GITHUB_ACTION_PATH/commit.sh" check
+    - name: Commit, tag, and push
+      shell: bash
       env:
         VERSION: ${{ inputs.version }}
         GH_TOKEN: ${{ inputs.token }}
@@ -30,4 +37,4 @@ runs:
         MESSAGE: ${{ inputs.message }}
         BRANCH: ${{ inputs.branch }}
         ANNOTATED: ${{ inputs.annotated }}
-      run: bash "$GITHUB_ACTION_PATH/commit.sh"
+      run: bash "$GITHUB_ACTION_PATH/commit.sh" push

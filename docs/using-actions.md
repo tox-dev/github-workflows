@@ -5,6 +5,10 @@ still owns its dispatch form, build, ecosystem upload, GitHub Release, environme
 checked-in [prepare workflow](../.github/workflows/prepare-release.yaml) is a working caller; this repository uses the
 Actions from its own checkout until its first release.
 
+Each Action exposes its phases as named entries in the GitHub job log. Preparation selects the version, links fragments,
+builds the changelog, then checks and writes the patch. Validation verifies the branch, inspects the patch, then runs
+`prek`. The final Action checks the staged changes before it commits, tags, and atomically pushes them.
+
 Install `release-creator`, Towncrier, and `prek` from the caller's checked-in `pylock.toml` before preparation or
 validation. Check out full Git history and tags with `fetch-depth: 0` and set `persist-credentials: false`. Run the
 prepare and validate steps before minting a write token.

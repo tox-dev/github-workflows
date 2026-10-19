@@ -28,14 +28,22 @@ inputs:
 runs:
   using: composite
   steps:
-    - shell: bash
+    - name: Verify release source
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.branch }}
+        REMOTE: ${{ inputs.remote }}
+        EXPECTED_SHA: ${{ inputs.expected-sha }}
+      run: bash "$GITHUB_ACTION_PATH/validate.sh" source
+    - name: Apply and inspect release patch
+      shell: bash
       env:
         VERSION: ${{ inputs.version }}
         PATCH: ${{ inputs.patch }}
         CHANGELOG: ${{ inputs.changelog }}
         FRAGMENTS: ${{ inputs.fragments }}
         HEADING_PREFIX: ${{ inputs.heading-prefix }}
-        BRANCH: ${{ inputs.branch }}
-        REMOTE: ${{ inputs.remote }}
-        EXPECTED_SHA: ${{ inputs.expected-sha }}
-      run: bash "$GITHUB_ACTION_PATH/validate.sh"
+      run: bash "$GITHUB_ACTION_PATH/validate.sh" patch
+    - name: Run prek on release patch
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/validate.sh" prek
