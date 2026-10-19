@@ -37,6 +37,29 @@ def test_prepare_custom_changelog_and_patch(repository: Path, tmp_path: Path, ac
     assert "HISTORY.md" in patch.read_text()
 
 
+def test_prepare_custom_fragment_directory(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    project = repository / "pyproject.toml"
+    project.write_text(project.read_text().replace('directory = "changelog.d"', 'directory = "docs/changelog.d"'))
+    (repository / "docs").mkdir()
+    (repository / "changelog.d").rename(repository / "docs/changelog.d")
+    run(repository, "git", "add", "-A")
+    run(repository, "git", "commit", "-m", "Move release fragments")
+    run(repository, "git", "push", "origin", "main")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "prepare-towncrier",
+        version="",
+        FRAGMENTS="docs/changelog.d",
+        LINK_FRAGMENTS="true",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "version=0.2.0" in (tmp_path / "output").read_text()
+    assert "Add a new feature." in (repository / "CHANGELOG.md").read_text()
+    assert "docs/changelog.d/feature.feature.md" in (tmp_path / "release.patch").read_text()
+
+
 def test_prepare_renders_github_notes(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     result = run(

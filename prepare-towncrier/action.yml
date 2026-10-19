@@ -10,6 +10,9 @@ inputs:
   changelog:
     description: Changelog path
     required: true
+  fragments:
+    description: Towncrier fragment directory, relative to the repository root
+    default: changelog.d
   format:
     description: Changelog format, either markdown or none
     default: none
@@ -32,6 +35,7 @@ runs:
       env:
         BUMP: ${{ inputs.bump }}
         VERSION: ${{ inputs.version }}
+        FRAGMENTS: ${{ inputs.fragments }}
       run: |
         set -euo pipefail
         if [[ -n $(git status --porcelain) ]]; then
@@ -39,7 +43,7 @@ runs:
           exit 1
         fi
         if [[ -z "$VERSION" ]]; then
-          VERSION=$(git tag --list | release-creator tags --next "$BUMP")
+          VERSION=$(git tag --list | release-creator tags --next "$BUMP" --directory "$FRAGMENTS")
         fi
         git tag --list | release-creator tags "$VERSION" --require-newer
         printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
@@ -47,6 +51,7 @@ runs:
       shell: bash
       env:
         LINK_FRAGMENTS: ${{ inputs.link-fragments }}
+        FRAGMENTS: ${{ inputs.fragments }}
         GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
@@ -55,7 +60,7 @@ runs:
           exit 1
         fi
         if [[ "$LINK_FRAGMENTS" == true ]]; then
-          release-creator fragments --repository "$GITHUB_REPOSITORY" --git --resolve-authors
+          release-creator fragments --directory "$FRAGMENTS" --repository "$GITHUB_REPOSITORY" --git --resolve-authors
         fi
     - name: Build and format changelog
       shell: bash
