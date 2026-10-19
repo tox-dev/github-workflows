@@ -4,6 +4,7 @@ import os
 import subprocess  # ruff: ignore[suspicious-subprocess-import]  # Run release scripts in real Git repositories.
 from pathlib import Path
 from textwrap import dedent
+from uuid import uuid4
 
 import pytest
 
@@ -86,6 +87,58 @@ def test_prepare_selects_minor_from_feature(repository: Path, tmp_path: Path) ->
     result = action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="")
     assert result.returncode == 0, result.stderr
     assert "version=0.2.0" in (tmp_path / "output").read_text()
+
+
+def test_prepare_links_named_fragments(repository: Path, tmp_path: Path) -> None:
+    result = action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0", LINK_FRAGMENTS="true")
+    assert result.returncode == 0, result.stderr
+    assert "Add a new feature." in (repository / "CHANGELOG.md").read_text()
+
+
+def test_prepare_rejects_untracked_output(repository: Path, tmp_path: Path) -> None:
+    (repository / ".pre-commit-config.yaml").write_text(
+        "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
+        "        name: release-check\n        entry: bash -c 'touch extra-output'\n"
+        "        language: system\n        pass_filenames: false\n",
+    )
+    run(repository, "git", "add", ".")
+    run(repository, "git", "commit", "-m", "Write untracked output")
+    run(repository, "git", "push", "origin", "main")
+    result = action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0")
+    assert result.returncode != 0
+    assert "created untracked files" in result.stderr
+
+
+def test_prepare_rejects_empty_release(repository: Path, tmp_path: Path) -> None:
+    (repository / "changelog.d/feature.feature.md").unlink()
+    run(repository, "git", "add", "-u")
+    run(repository, "git", "commit", "-m", "Remove unused fragment")
+    run(repository, "git", "push", "origin", "main")
+    result = action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0")
+    assert result.returncode != 0
+    assert "has no release notes" in result.stderr
+
+
+def test_prepare_rejects_empty_patch(repository: Path, tmp_path: Path) -> None:
+    (repository / "CHANGELOG.md").write_text(
+        "# Changelog\n\n<!-- towncrier release notes start -->\n\n"
+        '<a name="release-0-2-0"></a>\n\n## 0.2.0 (2026-10-19)\n\n### Added\n\n- Add a feature.\n',
+    )
+    run(repository, "git", "add", "CHANGELOG.md")
+    run(repository, "git", "commit", "-m", "Record existing notes")
+    run(repository, "git", "push", "origin", "main")
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    (tools / "towncrier").symlink_to("/usr/bin/true")
+    result = action(
+        repository,
+        tmp_path,
+        "prepare-towncrier/prepare.sh",
+        version="0.2.0",
+        PATH=f"{tools}:{os.environ['PATH']}",
+    )
+    assert result.returncode != 0
+    assert "produced no patch" in result.stderr
 
 
 def test_prepare_formats_markdown(repository: Path, tmp_path: Path) -> None:
@@ -194,6 +247,23 @@ def test_validate_rejects_prek_changes(repository: Path, tmp_path: Path) -> None
     assert "prek failed" in result.stderr
 
 
+def test_validate_rejects_untracked_prek_output(repository: Path, tmp_path: Path) -> None:
+    (repository / ".pre-commit-config.yaml").write_text(
+        "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
+        "        name: release-check\n"
+        "        entry: bash -c 'if [[ $VALIDATE_REHEARSAL == 1 ]]; then touch extra-output; fi'\n"
+        "        language: system\n        pass_filenames: false\n",
+    )
+    run(repository, "git", "add", ".")
+    run(repository, "git", "commit", "-m", "Check release tree")
+    run(repository, "git", "push", "origin", "main")
+    assert action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0").returncode == 0
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(repository, tmp_path, "validate-release-patch/validate.sh", version="0.2.0", VALIDATE_REHEARSAL="1")
+    assert result.returncode != 0
+    assert "prek changed the validated release patch" in result.stderr
+
+
 @pytest.mark.parametrize("annotated", [pytest.param("false", id="lightweight"), pytest.param("true", id="annotated")])
 def test_commit_and_tag_pushes_atomically(repository: Path, tmp_path: Path, annotated: str) -> None:
     assert action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0").returncode == 0
@@ -278,8 +348,17 @@ def action(
         }
         | extra_env
     )
+    command = ["bash", str(source / script)]
+    if coverage_binary := os.environ.get("KCOV_BIN"):
+        Path(os.environ["KCOV_OUTPUT"]).mkdir(parents=True, exist_ok=True)
+        command = [
+            coverage_binary,
+            f"--include-path={source}",
+            str(Path(os.environ["KCOV_OUTPUT"]) / uuid4().hex),
+            str(source / script),
+        ]
     return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]  # Use explicit argv.
-        ["bash", str(source / script)],  # ruff: ignore[start-process-with-partial-path]  # Run checked-in script.
+        command,  # Run the checked-in script.
         cwd=repository,
         env=environment,
         text=True,

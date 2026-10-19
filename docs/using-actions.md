@@ -22,7 +22,7 @@ reads its fragment directory and changelog path from the caller's `pyproject.tom
 - **Side effects:** Links named fragments to their merged PRs, builds the changelog, consumes release fragments, runs
   `prek`, changes the working tree, and writes `patch`. It does not commit, tag, push, or publish.
 - **Failure:** Rejects a dirty checkout, an invalid or older version, a failed formatter or `prek` run, untracked
-  output, or an empty patch.
+  output, a release without user-facing notes, or an empty patch.
 
 ```yaml
   - id: prepare

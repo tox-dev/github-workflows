@@ -24,7 +24,8 @@ prek run --all-files
 ```
 
 `prek` formats shell with `shfmt` and YAML with `yamlfmt`; it also runs ShellCheck and zizmor. Run `prek` again after
-accepting formatter changes. CI runs these checks and tests the composite Actions on a GitHub runner.
+accepting formatter changes. CI instruments all three Bash scripts with `kcov` and requires 100% line coverage. It also
+tests the composite Actions on a GitHub runner.
 
 ## Change an Action
 

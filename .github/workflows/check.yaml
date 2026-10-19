@@ -29,7 +29,26 @@ jobs:
           ruff check . --output-format=concise
           ty check tests
       - name: Exercise release actions
-        run: pytest -q
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y kcov
+          KCOV_BIN=kcov KCOV_OUTPUT="$RUNNER_TEMP/shell-coverage" pytest -q
+          kcov --merge "$RUNNER_TEMP/shell-coverage-merged" "$RUNNER_TEMP/shell-coverage"/*
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = next(Path(os.environ["RUNNER_TEMP"], "shell-coverage-merged").rglob("codecov.json"))
+          coverage = json.loads(report.read_text())["coverage"]
+          expected = {
+              "prepare-towncrier/prepare.sh",
+              "validate-release-patch/validate.sh",
+              "commit-and-tag/commit.sh",
+          }
+          if set(coverage) != expected or any(not lines or not all(lines.values()) for lines in coverage.values()):
+              raise SystemExit(f"Shell coverage is below 100%: {coverage}")
+          PY
       - name: Check repository formatting
         run: prek run --all-files
   changelog:

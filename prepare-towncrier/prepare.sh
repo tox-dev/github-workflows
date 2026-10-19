@@ -11,28 +11,29 @@ if [[ -z "$VERSION" ]]; then
 fi
 git tag --list | release-creator tags "$VERSION" --require-newer
 
-case "$LINK_FRAGMENTS" in
-true) release-creator fragments --repository "$GITHUB_REPOSITORY" --git --resolve-authors ;;
-false) ;;
-*)
+if [[ "$LINK_FRAGMENTS" != true && "$LINK_FRAGMENTS" != false ]]; then
 	echo '::error::link-fragments must be true or false' >&2
 	exit 1
-	;;
-esac
+fi
+if [[ "$LINK_FRAGMENTS" == true ]]; then
+	release-creator fragments --repository "$GITHUB_REPOSITORY" --git --resolve-authors
+fi
 
 towncrier build --yes --version "$VERSION"
-case "$FORMAT" in
-markdown)
+if [[ "$FORMAT" != markdown && "$FORMAT" != none ]]; then
+	echo '::error::format must be markdown or none' >&2
+	exit 1
+fi
+if [[ "$FORMAT" == markdown ]]; then
 	if ! prek run mdformat --files "$CHANGELOG"; then
 		prek run mdformat --files "$CHANGELOG"
 	fi
-	;;
-none) ;;
-*)
-	echo '::error::format must be markdown or none' >&2
+fi
+notes=$(release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$GITHUB_REPOSITORY")
+if [[ "$notes" != *'### '* ]]; then
+	echo '::error::release preparation has no release notes' >&2
 	exit 1
-	;;
-esac
+fi
 
 prek run --all-files
 if [[ -n $(git ls-files --others --exclude-standard) ]]; then

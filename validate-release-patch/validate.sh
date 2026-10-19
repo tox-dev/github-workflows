@@ -25,12 +25,12 @@ while IFS= read -r -d '' path; do
 done < <(git diff --cached --name-only -z)
 
 heading_found=false
-while IFS= read -r line; do
+mapfile -t changelog_lines <"$CHANGELOG"
+for line in "${changelog_lines[@]}"; do
 	if [[ "$line" == "$HEADING_PREFIX$VERSION ("* ]]; then
 		heading_found=true
-		break
 	fi
-done <"$CHANGELOG"
+done
 if [[ "$heading_found" != true ]]; then
 	echo "::error::$CHANGELOG has no section for $VERSION" >&2
 	exit 1
