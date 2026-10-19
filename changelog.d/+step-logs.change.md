@@ -1,1 +1,1 @@
-Show each release phase as a named GitHub Actions step.
+Run release commands directly in named GitHub Actions steps.

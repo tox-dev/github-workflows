@@ -120,13 +120,10 @@ creates that release. An ecosystem publisher also verifies its package artifacts
 
 ## Test before a live release
 
-The local tests run the Bash scripts with real Git, Towncrier, `release-creator`, and `prek` in temporary repositories.
-They exercise failures and a push to a temporary bare remote. They do not run GitHub Actions.
-
 The PR's [`release-dry-run` job](../.github/workflows/check.yaml) runs all three composite Actions on a GitHub runner.
 It makes a synthetic squash commit and a local bare remote, prepares and validates a patch, commits and tags that local
-remote, then renders GitHub notes. It uploads the patch and notes for review. It does not write a release ref to GitHub
-or publish a package.
+remote, then renders GitHub notes. It also checks rejection of a dirty checkout, a stale branch, and an invalid tag. It
+uploads the patch and notes for review. It does not write a release ref to GitHub or publish a package.
 
 Before a consumer switches to these Actions, rehearse that consumer's own release path at its PR head. Check its
 selected version, changelog, patch paths, tagged tree, package artifacts, and notes. Keep the existing workflow until

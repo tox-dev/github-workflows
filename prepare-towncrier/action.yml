@@ -32,22 +32,68 @@ runs:
       env:
         BUMP: ${{ inputs.bump }}
         VERSION: ${{ inputs.version }}
-      run: bash "$GITHUB_ACTION_PATH/prepare.sh" version
+      run: |
+        set -euo pipefail
+        if [[ -n $(git status --porcelain) ]]; then
+          echo '::error::release preparation requires a clean checkout' >&2
+          exit 1
+        fi
+        if [[ -z "$VERSION" ]]; then
+          VERSION=$(git tag --list | release-creator tags --next "$BUMP")
+        fi
+        git tag --list | release-creator tags "$VERSION" --require-newer
+        printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
     - name: Link fragments and authors
       shell: bash
       env:
         LINK_FRAGMENTS: ${{ inputs.link-fragments }}
         GH_TOKEN: ${{ github.token }}
-      run: bash "$GITHUB_ACTION_PATH/prepare.sh" fragments
+      run: |
+        set -euo pipefail
+        if [[ "$LINK_FRAGMENTS" != true && "$LINK_FRAGMENTS" != false ]]; then
+          echo '::error::link-fragments must be true or false' >&2
+          exit 1
+        fi
+        if [[ "$LINK_FRAGMENTS" == true ]]; then
+          release-creator fragments --repository "$GITHUB_REPOSITORY" --git --resolve-authors
+        fi
     - name: Build and format changelog
       shell: bash
       env:
         VERSION: ${{ steps.version.outputs.version }}
         CHANGELOG: ${{ inputs.changelog }}
         FORMAT: ${{ inputs.format }}
-      run: bash "$GITHUB_ACTION_PATH/prepare.sh" changelog
+      run: |
+        set -euo pipefail
+        towncrier build --yes --version "$VERSION"
+        if [[ "$FORMAT" != markdown && "$FORMAT" != none ]]; then
+          echo '::error::format must be markdown or none' >&2
+          exit 1
+        fi
+        if [[ "$FORMAT" == markdown ]]; then
+          if ! prek run mdformat --files "$CHANGELOG"; then
+            prek run mdformat --files "$CHANGELOG"
+          fi
+        fi
+        notes=$(release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$GITHUB_REPOSITORY")
+        if [[ "$notes" != *'### '* ]]; then
+          echo '::error::release preparation has no release notes' >&2
+          exit 1
+        fi
     - name: Run checks and write patch
       shell: bash
       env:
         PATCH: ${{ inputs.patch }}
-      run: bash "$GITHUB_ACTION_PATH/prepare.sh" patch
+      run: |
+        set -euo pipefail
+        prek run --all-files
+        if [[ -n $(git ls-files --others --exclude-standard) ]]; then
+          echo '::error::release preparation created untracked files' >&2
+          exit 1
+        fi
+        git diff --check
+        git diff HEAD --binary >"$PATCH"
+        if [[ ! -s "$PATCH" ]]; then
+          echo '::error::release preparation produced no patch' >&2
+          exit 1
+        fi

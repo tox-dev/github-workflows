@@ -21,10 +21,10 @@ top-level workflow:
 
 ## Test and release
 
-`check.yaml` runs the format and security hooks, then tests the scripts with a temporary bare Git remote, Towncrier,
-`release-creator`, and `prek`. The tests cover preparation, stale branches, patch paths, and atomic tagging without
-publishing a release. Each caller must also rehearse its own release generation and patch validation from an exact
-default-branch commit before switching to the shared Actions.
+`check.yaml` runs the format, shell, and security checks. Its release rehearsal invokes the Actions on a GitHub runner
+against a temporary bare Git remote. It checks preparation, stale branch rejection, patch validation, and atomic tagging
+without publishing a release. Each caller must also rehearse its own release generation and patch validation from an
+exact default-branch commit before switching to the shared Actions.
 
 This repository prepares its own release with the local Actions. On a release tag, `release.yaml` checks the tagged
 source, renders the GitHub description from `CHANGELOG.md`, and publishes a GitHub Release. A tag ruleset protects

@@ -6,31 +6,7 @@ requires-python = ">=3.15"
 dependencies = []
 
 [dependency-groups]
-test = [ "pytest>=9", "ruff>=0.17", "ty>=0.0.84" ]
-release = [ "release-creator>=0.4.1", "towncrier>=26.9", "prek>=0.2" ]
-
-[tool.pytest]
-addopts = [ "--import-mode=importlib" ]
-testpaths = [ "tests" ]
-
-[tool.ruff]
-line-length = 120
-format.preview = true
-lint.select = [ "ALL" ]
-lint.ignore = [
-  "CPY",
-  "incorrect-blank-line-before-class",
-  "missing-trailing-comma",
-  "multi-line-summary-second-line",
-  "single-line-implicit-string-concatenation",
-]
-lint.per-file-ignores."tests/**/*.py" = [
-  "assert",
-  "D",
-  "FBT",
-  "implicit-namespace-package",
-]
-lint.preview = true
+release = [ "release-creator>=0.4.1", "towncrier>=26.9", "prek>=0.2", "yq>=4.4.5" ]
 
 [tool.towncrier]
 name = "github-workflows"

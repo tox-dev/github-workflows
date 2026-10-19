@@ -34,7 +34,7 @@ jobs:
         run: |
           uv venv --python 3.15 .venv
           uv pip sync --preview-features pylock --python .venv/bin/python pylock.toml
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - id: prepare
         uses: $/prepare-towncrier
         with:
@@ -70,7 +70,7 @@ jobs:
         run: |
           uv venv --python 3.15 .venv
           uv pip sync --preview-features pylock --python .venv/bin/python pylock.toml
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - uses: $/validate-release-patch
         with:
           version: ${{ needs.assemble.outputs.version }}

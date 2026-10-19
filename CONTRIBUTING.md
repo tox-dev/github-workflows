@@ -1,7 +1,7 @@
 # Contributing
 
 Changes to a shared Action can affect every caller pinned to its next release. Describe the behavior you are changing
-and exercise it through the script tests and the PR release rehearsal.
+and exercise it through the PR release rehearsal on a GitHub runner.
 
 ## Set up
 
@@ -16,23 +16,19 @@ export PATH="$PWD/.venv/bin:$PATH"
 Run the checks before pushing:
 
 ```bash
-ruff format --check .
-ruff check . --output-format=concise
-ty check tests
-pytest -q
 prek run --all-files
 ```
 
-`prek` formats shell with `shfmt` and YAML with `yamlfmt`; it also runs ShellCheck and zizmor. Run `prek` again after
-accepting formatter changes. CI instruments all three Bash scripts with `kcov` and requires 100% line coverage. It also
-tests the composite Actions on a GitHub runner.
+`prek` formats YAML with `yamlfmt` and runs zizmor. Run it again after accepting formatter changes. CI extracts inline
+shell from the workflows and Actions, then runs ShellCheck and `shfmt` on each block. The PR rehearsal executes the
+composite Actions on a GitHub runner; this repository has no Python test suite.
 
 ## Change an Action
 
-Keep its `action.yml` inputs and the script contract in sync with the [usage guide](docs/using-actions.md). Add a test
-for each changed behavior, including a failure case when the Action rejects input. The script tests use temporary Git
-repositories and a local bare remote. The PR `release-dry-run` job invokes all three composite Actions and uploads the
-patch and rendered GitHub notes; inspect those artifacts when changing input mapping or release output.
+Keep its `action.yml` inputs and step behavior in sync with the [usage guide](docs/using-actions.md). The PR
+`release-dry-run` job invokes all three composite Actions, checks rejected inputs, and uploads the patch and rendered
+GitHub notes. Inspect its steps and artifacts when changing input mapping or release output. Add a runner failure case
+when changing input validation.
 
 The release preparation steps must work without a write token. Keep repository-specific build and publisher steps in the
 caller. Do not add a secret to an Action input when a short-lived, repository-scoped token is sufficient.
