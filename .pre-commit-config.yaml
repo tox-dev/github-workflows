@@ -14,7 +14,19 @@ repos:
         language: python
         types: [markdown]
         additional_dependencies: [mdformat-gfm>=1]
-  - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.12
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.14.1-1
     hooks:
-      - id: actionlint
+      - id: shfmt
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.21.0
+    hooks:
+      - id: yamlfmt
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.31.1
+    hooks:
+      - id: zizmor

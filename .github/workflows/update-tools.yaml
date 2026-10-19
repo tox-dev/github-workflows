@@ -20,7 +20,9 @@ jobs:
           enable-cache: false
       - name: Refresh the release lock
         run: |
-          uv pip compile --upgrade --group release --group test --python-version 3.15 --format pylock.toml --output-file pylock.toml pyproject.toml
+          uv pip compile --upgrade --group release --group test \
+            --python-version 3.15 --format pylock.toml \
+            --output-file pylock.toml pyproject.toml
       - id: update
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
@@ -31,7 +33,7 @@ jobs:
           title: "🔧 build: refresh release tool lock"
           body: "Refresh the locked tools used by release preparation and CI."
       - name: Run checks on the update branch
-        if: steps.update.outputs.pull-request-operation == 'created' || steps.update.outputs.pull-request-operation == 'updated'
+        if: contains(fromJSON('["created","updated"]'), steps.update.outputs.pull-request-operation)
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.update.outputs.pull-request-branch }}

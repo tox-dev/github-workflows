@@ -28,7 +28,6 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           git tag --list | release-creator tags "$TAG"
-          grep -Fq "## $TAG (" docs/changelog.md
           prek run --all-files
           pytest -q
       - name: Publish GitHub Release
@@ -42,5 +41,7 @@ jobs:
           if [[ -n "$previous" ]]; then
             args+=(--previous "$previous")
           fi
-          release-creator notes --changelog docs/changelog.md --tag "$TAG" --repository "$GITHUB_REPOSITORY" "${args[@]}" > "$RUNNER_TEMP/release-notes.md"
+          release-creator notes --changelog CHANGELOG.md --tag "$TAG" \
+            --repository "$GITHUB_REPOSITORY" "${args[@]}" \
+            > "$RUNNER_TEMP/release-notes.md"
           gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"

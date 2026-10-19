@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-import subprocess  # ruff: ignore[suspicious-subprocess-import]  # Exercise the release scripts in real Git repositories.
+import subprocess  # ruff: ignore[suspicious-subprocess-import]  # Run release scripts in real Git repositories.
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -18,7 +19,7 @@ def repository(tmp_path: Path) -> Path:
     run(worktree, "git", "remote", "add", "origin", str(remote))
     (worktree / "pyproject.toml").write_text(
         '[tool.towncrier]\nname = "fixture"\ndirectory = "changelog.d"\n'
-        'filename = "docs/changelog.md"\ntemplate = "release_creator.fragments:template.jinja2"\n'
+        'filename = "CHANGELOG.md"\ntemplate = "release_creator.fragments:template.jinja2"\n'
         'title_format = false\ntype = [{ directory = "feature", name = "Added", showcontent = true }]\n',
     )
     (worktree / ".pre-commit-config.yaml").write_text(
@@ -26,8 +27,7 @@ def repository(tmp_path: Path) -> Path:
         "        name: release-check\n        entry: bash -c true\n"
         "        language: system\n        pass_filenames: false\n",
     )
-    (worktree / "docs").mkdir()
-    (worktree / "docs/changelog.md").write_text("# Changelog\n\n<!-- towncrier release notes start -->\n")
+    (worktree / "CHANGELOG.md").write_text("# Changelog\n\n<!-- towncrier release notes start -->\n")
     (worktree / "changelog.d").mkdir()
     run(worktree, "git", "add", ".")
     run(worktree, "git", "commit", "-m", "Initial files")
@@ -53,7 +53,7 @@ def test_prepare_renders_github_notes(repository: Path, tmp_path: Path) -> None:
         "release-creator",
         "notes",
         "--changelog",
-        "docs/changelog.md",
+        "CHANGELOG.md",
         "--tag",
         "0.2.0",
         "--repository",
@@ -63,10 +63,23 @@ def test_prepare_renders_github_notes(repository: Path, tmp_path: Path) -> None:
 
 
 def test_prepare_rejects_dirty_checkout(repository: Path, tmp_path: Path) -> None:
-    (repository / "docs/changelog.md").write_text("changed\n")
+    (repository / "CHANGELOG.md").write_text("changed\n")
     result = action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0")
     assert result.returncode != 0
     assert "clean checkout" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("option", "value", "error"),
+    [
+        pytest.param("FORMAT", "rst", "format must be markdown or none", id="format"),
+        pytest.param("LINK_FRAGMENTS", "maybe", "link-fragments must be true or false", id="fragment-linking"),
+    ],
+)
+def test_prepare_rejects_invalid_option(repository: Path, tmp_path: Path, option: str, value: str, error: str) -> None:
+    result = action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0", **{option: value})
+    assert result.returncode != 0
+    assert error in result.stderr
 
 
 def test_prepare_selects_minor_from_feature(repository: Path, tmp_path: Path) -> None:
@@ -87,7 +100,8 @@ def test_prepare_formats_markdown(repository: Path, tmp_path: Path) -> None:
     run(repository, "git", "push", "origin", "main")
     result = action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0", FORMAT="markdown")
     assert result.returncode == 0, result.stderr
-    assert max(map(len, (repository / "docs/changelog.md").read_text().splitlines())) <= 120  # ruff: ignore[magic-value-comparison]  # Contract width.
+    changelog_lines = (repository / "CHANGELOG.md").read_text().splitlines()
+    assert max(map(len, changelog_lines)) <= 120  # ruff: ignore[magic-value-comparison]  # Changelog width.
 
 
 def test_validate_applies_patch(repository: Path, tmp_path: Path) -> None:
@@ -95,7 +109,7 @@ def test_validate_applies_patch(repository: Path, tmp_path: Path) -> None:
     run(repository, "git", "reset", "--hard", "HEAD")
     result = action(repository, tmp_path, "validate-release-patch/validate.sh", version="0.2.0")
     assert result.returncode == 0, result.stderr
-    assert "0.2.0" in (repository / "docs/changelog.md").read_text()
+    assert "0.2.0" in (repository / "CHANGELOG.md").read_text()
     assert run(repository, "git", "diff", "--cached", "--name-only").stdout.strip()
 
 
@@ -113,6 +127,29 @@ def test_validate_rejects_stale_branch(repository: Path, tmp_path: Path) -> None
     assert "changed during release preparation" in result.stderr
 
 
+def test_validate_rejects_dirty_checkout(repository: Path, tmp_path: Path) -> None:
+    (repository / "CHANGELOG.md").write_text("Changed before validation.\n")
+    result = action(repository, tmp_path, "validate-release-patch/validate.sh", version="0.2.0")
+    assert result.returncode != 0
+    assert "clean checkout" in result.stderr
+
+
+def test_validate_rejects_noop_patch(repository: Path, tmp_path: Path) -> None:
+    (tmp_path / "release.patch").write_text(
+        dedent("""\
+            diff --git a/CHANGELOG.md b/CHANGELOG.md
+            --- a/CHANGELOG.md
+            +++ b/CHANGELOG.md
+            @@ -3 +3 @@
+            -<!-- towncrier release notes start -->
+            +<!-- towncrier release notes start -->
+            """),
+    )
+    result = action(repository, tmp_path, "validate-release-patch/validate.sh", version="0.2.0")
+    assert result.returncode != 0
+    assert "release patch contains no changes" in result.stderr
+
+
 def test_validate_rejects_unexpected_path(repository: Path, tmp_path: Path) -> None:
     (repository / "pyproject.toml").write_text((repository / "pyproject.toml").read_text() + "\n# changed\n")
     (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
@@ -123,7 +160,7 @@ def test_validate_rejects_unexpected_path(repository: Path, tmp_path: Path) -> N
 
 
 def test_validate_rejects_missing_heading(repository: Path, tmp_path: Path) -> None:
-    (repository / "docs/changelog.md").write_text("# Changelog\n\nOther notes.\n")
+    (repository / "CHANGELOG.md").write_text("# Changelog\n\nOther notes.\n")
     (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
     run(repository, "git", "restore", ".")
     result = action(repository, tmp_path, "validate-release-patch/validate.sh", version="0.2.0")
@@ -132,7 +169,7 @@ def test_validate_rejects_missing_heading(repository: Path, tmp_path: Path) -> N
 
 
 def test_validate_rejects_embedded_heading(repository: Path, tmp_path: Path) -> None:
-    (repository / "docs/changelog.md").write_text("# Changelog\n\n- Link to ## 0.2.0 (2026-10-19)\n")
+    (repository / "CHANGELOG.md").write_text("# Changelog\n\n- Link to ## 0.2.0 (2026-10-19)\n")
     (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
     run(repository, "git", "restore", ".")
     result = action(repository, tmp_path, "validate-release-patch/validate.sh", version="0.2.0")
@@ -144,7 +181,7 @@ def test_validate_rejects_prek_changes(repository: Path, tmp_path: Path) -> None
     (repository / ".pre-commit-config.yaml").write_text(
         "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
         "        name: release-check\n"
-        "        entry: bash -c 'if [[ $VALIDATE_REHEARSAL == 1 ]]; then printf changed >> docs/changelog.md; fi'\n"
+        "        entry: bash -c 'if [[ $VALIDATE_REHEARSAL == 1 ]]; then printf changed >> CHANGELOG.md; fi'\n"
         "        language: system\n        pass_filenames: false\n",
     )
     run(repository, "git", "add", ".")
@@ -185,12 +222,35 @@ def test_commit_and_tag_pushes_atomically(repository: Path, tmp_path: Path, anno
 
 def test_commit_and_tag_rejects_invalid_tag(repository: Path, tmp_path: Path) -> None:
     assert action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0").returncode == 0
-    run(repository, "git", "add", "docs/changelog.md")
+    run(repository, "git", "add", "CHANGELOG.md")
     original_head = run(repository, "git", "rev-parse", "HEAD").stdout
     result = action(repository, tmp_path, "commit-and-tag/commit.sh", version="bad tag")
     assert result.returncode != 0
     assert "invalid release tag" in result.stderr
     assert run(repository, "git", "rev-parse", "HEAD").stdout == original_head
+
+
+def test_commit_and_tag_rejects_empty_patch(repository: Path, tmp_path: Path) -> None:
+    result = action(repository, tmp_path, "commit-and-tag/commit.sh", version="0.2.0")
+    assert result.returncode != 0
+    assert "expected only a staged release patch" in result.stderr
+
+
+def test_commit_and_tag_rejects_unstaged_changes(repository: Path, tmp_path: Path) -> None:
+    (repository / "CHANGELOG.md").write_text("Staged release.\n")
+    run(repository, "git", "add", "CHANGELOG.md")
+    (repository / "CHANGELOG.md").write_text("Unstaged changes.\n")
+    result = action(repository, tmp_path, "commit-and-tag/commit.sh", version="0.2.0")
+    assert result.returncode != 0
+    assert "expected only a staged release patch" in result.stderr
+
+
+def test_commit_and_tag_rejects_invalid_annotated(repository: Path, tmp_path: Path) -> None:
+    (repository / "CHANGELOG.md").write_text("Staged release.\n")
+    run(repository, "git", "add", "CHANGELOG.md")
+    result = action(repository, tmp_path, "commit-and-tag/commit.sh", version="0.2.0", ANNOTATED="maybe")
+    assert result.returncode != 0
+    assert "annotated must be true or false" in result.stderr
 
 
 def action(
@@ -202,7 +262,7 @@ def action(
         | {
             "VERSION": version,
             "BUMP": "auto",
-            "CHANGELOG": "docs/changelog.md",
+            "CHANGELOG": "CHANGELOG.md",
             "FRAGMENTS": "changelog.d",
             "FORMAT": "none",
             "LINK_FRAGMENTS": "false",
@@ -218,8 +278,8 @@ def action(
         }
         | extra_env
     )
-    return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]  # The script path and environment come from this test.
-        ["bash", str(source / script)],  # ruff: ignore[start-process-with-partial-path]  # Bash runs the checked-in release script.
+    return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]  # Use explicit argv.
+        ["bash", str(source / script)],  # ruff: ignore[start-process-with-partial-path]  # Run checked-in script.
         cwd=repository,
         env=environment,
         text=True,
@@ -229,6 +289,6 @@ def action(
 
 
 def run(directory: Path, *command: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]  # All commands are supplied by these tests.
+    return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]  # Use explicit argv.
         command, cwd=directory, text=True, capture_output=True, check=True
     )

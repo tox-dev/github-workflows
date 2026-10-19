@@ -35,7 +35,7 @@ lint.preview = true
 [tool.towncrier]
 name = "github-workflows"
 directory = "changelog.d"
-filename = "docs/changelog.md"
+filename = "CHANGELOG.md"
 template = "release_creator.fragments:template.jinja2"
 title_format = false
 type = [
