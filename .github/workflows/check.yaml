@@ -126,6 +126,13 @@ jobs:
           fi
           release-creator notes --changelog docs/changelog.md --tag "$VERSION" --repository "$GITHUB_REPOSITORY" "${args[@]}" > "$RUNNER_TEMP/release-notes.md"
           test -s "$RUNNER_TEMP/release-notes.md"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dry-run
+          path: |
+            ${{ runner.temp }}/release.patch
+            ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
   gate:
     name: Required checks pass
     if: always()

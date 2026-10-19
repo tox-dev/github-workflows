@@ -131,6 +131,15 @@ def test_validate_rejects_missing_heading(repository: Path, tmp_path: Path) -> N
     assert "has no section" in result.stderr
 
 
+def test_validate_rejects_embedded_heading(repository: Path, tmp_path: Path) -> None:
+    (repository / "docs/changelog.md").write_text("# Changelog\n\n- Link to ## 0.2.0 (2026-10-19)\n")
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
+    run(repository, "git", "restore", ".")
+    result = action(repository, tmp_path, "validate-release-patch/validate.sh", version="0.2.0")
+    assert result.returncode != 0
+    assert "has no section" in result.stderr
+
+
 def test_validate_rejects_prek_changes(repository: Path, tmp_path: Path) -> None:
     (repository / ".pre-commit-config.yaml").write_text(
         "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
@@ -148,7 +157,8 @@ def test_validate_rejects_prek_changes(repository: Path, tmp_path: Path) -> None
     assert "prek failed" in result.stderr
 
 
-def test_commit_and_tag_pushes_atomically(repository: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize("annotated", [pytest.param("false", id="lightweight"), pytest.param("true", id="annotated")])
+def test_commit_and_tag_pushes_atomically(repository: Path, tmp_path: Path, annotated: str) -> None:
     assert action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0").returncode == 0
     run(repository, "git", "reset", "--hard", "HEAD")
     assert action(repository, tmp_path, "validate-release-patch/validate.sh", version="0.2.0").returncode == 0
@@ -163,10 +173,24 @@ def test_commit_and_tag_pushes_atomically(repository: Path, tmp_path: Path) -> N
         APP_SLUG="release-test",
         GH_TOKEN="test-token",  # ruff: ignore[hardcoded-password-func-arg]  # Local Git fixture never sends this token.
         MESSAGE="release 0.2.0",
+        ANNOTATED=annotated,
         PATH=f"{tmp_path}:{os.environ['PATH']}",
     )
     assert result.returncode == 0, result.stderr
     assert run(repository, "git", "ls-remote", "origin", "refs/tags/0.2.0").stdout.strip()
+    assert run(repository, "git", "cat-file", "-t", "refs/tags/0.2.0").stdout.strip() == (
+        "tag" if annotated == "true" else "commit"
+    )
+
+
+def test_commit_and_tag_rejects_invalid_tag(repository: Path, tmp_path: Path) -> None:
+    assert action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0").returncode == 0
+    run(repository, "git", "add", "docs/changelog.md")
+    original_head = run(repository, "git", "rev-parse", "HEAD").stdout
+    result = action(repository, tmp_path, "commit-and-tag/commit.sh", version="bad tag")
+    assert result.returncode != 0
+    assert "invalid release tag" in result.stderr
+    assert run(repository, "git", "rev-parse", "HEAD").stdout == original_head
 
 
 def action(

@@ -20,7 +20,14 @@ while IFS= read -r -d '' path; do
   fi
 done < <(git diff --cached --name-only -z)
 
-if ! grep -Fq "$HEADING_PREFIX$VERSION (" "$CHANGELOG"; then
+heading_found=false
+while IFS= read -r line; do
+  if [[ "$line" == "$HEADING_PREFIX$VERSION ("* ]]; then
+    heading_found=true
+    break
+  fi
+done < "$CHANGELOG"
+if [[ "$heading_found" != true ]]; then
   echo "::error::$CHANGELOG has no section for $VERSION" >&2
   exit 1
 fi
