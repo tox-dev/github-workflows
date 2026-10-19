@@ -27,7 +27,7 @@ def repository(tmp_path: Path) -> Path:
         "        language: system\n        pass_filenames: false\n",
     )
     (worktree / "docs").mkdir()
-    (worktree / "docs/changelog.md").write_text("# Changelog\n")
+    (worktree / "docs/changelog.md").write_text("# Changelog\n\n<!-- towncrier release notes start -->\n")
     (worktree / "changelog.d").mkdir()
     run(worktree, "git", "add", ".")
     run(worktree, "git", "commit", "-m", "Initial files")
@@ -44,6 +44,22 @@ def test_prepare_builds_patch(repository: Path, tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "version=0.2.0" in (tmp_path / "output").read_text()
     assert "0.2.0" in (tmp_path / "release.patch").read_text()
+
+
+def test_prepare_renders_github_notes(repository: Path, tmp_path: Path) -> None:
+    assert action(repository, tmp_path, "prepare-towncrier/prepare.sh", version="0.2.0").returncode == 0
+    result = run(
+        repository,
+        "release-creator",
+        "notes",
+        "--changelog",
+        "docs/changelog.md",
+        "--tag",
+        "0.2.0",
+        "--repository",
+        "tox-dev/fixture",
+    )
+    assert "### Features" in result.stdout
 
 
 def test_prepare_rejects_dirty_checkout(repository: Path, tmp_path: Path) -> None:
