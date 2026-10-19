@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+import yaml
+
+
+@pytest.fixture(scope="session")
+def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    source = Path(__file__).resolve().parents[1]
+    scripts = tmp_path_factory.mktemp("action-steps")
+    for action_name in (
+        "prepare-towncrier",
+        "validate-release-patch",
+        "commit-and-tag",
+    ):
+        action = yaml.safe_load((source / action_name / "action.yml").read_text())
+        for index, step in enumerate(action["runs"]["steps"]):
+            path = scripts / f"{action_name}-{index}.sh"
+            path.write_text(f"#!/usr/bin/env bash\n{step['run']}")
+            path.chmod(0o755)
+    return scripts
+
+
+@pytest.fixture
+def repository(tmp_path: Path) -> Path:
+    remote = tmp_path / "remote.git"
+    run(tmp_path, "git", "init", "--bare", str(remote))
+    worktree = tmp_path / "worktree"
+    run(tmp_path, "git", "init", "-b", "main", str(worktree))
+    run(worktree, "git", "config", "user.name", "Release test")
+    run(worktree, "git", "config", "user.email", "release@example.org")
+    run(worktree, "git", "remote", "add", "origin", str(remote))
+    (worktree / "pyproject.toml").write_text(
+        '[tool.towncrier]\nname = "fixture"\ndirectory = "changelog.d"\n'
+        'filename = "CHANGELOG.md"\ntemplate = "release_creator.fragments:template.jinja2"\n'
+        'title_format = false\ntype = [{ directory = "feature", name = "Added", showcontent = true }]\n',
+    )
+    (worktree / ".pre-commit-config.yaml").write_text(
+        "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
+        "        name: release-check\n        entry: bash -c true\n"
+        "        language: system\n        pass_filenames: false\n",
+    )
+    (worktree / "CHANGELOG.md").write_text(
+        "# Changelog\n\n<!-- towncrier release notes start -->\n"
+    )
+    (worktree / "changelog.d").mkdir()
+    run(worktree, "git", "add", ".")
+    run(worktree, "git", "commit", "-m", "Initial files")
+    run(worktree, "git", "tag", "0.1.0")
+    (worktree / "changelog.d/feature.feature.md").write_text("Add a new feature.\n")
+    run(worktree, "git", "add", ".")
+    run(worktree, "git", "commit", "-m", "Add feature")
+    run(worktree, "git", "push", "-u", "origin", "main", "--tags")
+    return worktree
+
+
+def action(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    name: str,
+    *,
+    version: str,
+    **extra_env: str,
+) -> subprocess.CompletedProcess[str]:
+    environment = (
+        os.environ
+        | {
+            "VERSION": version,
+            "BUMP": "auto",
+            "CHANGELOG": "CHANGELOG.md",
+            "FRAGMENTS": "changelog.d",
+            "FORMAT": "none",
+            "LINK_FRAGMENTS": "false",
+            "PATCH": str(tmp_path / "release.patch"),
+            "GITHUB_OUTPUT": str(tmp_path / "output"),
+            "GITHUB_REPOSITORY": "tox-dev/fixture",
+            "GITHUB_SHA": run(repository, "git", "rev-parse", "HEAD").stdout.strip(),
+            "EXPECTED_SHA": run(repository, "git", "rev-parse", "HEAD").stdout.strip(),
+            "HEADING_PREFIX": "## ",
+            "BRANCH": "main",
+            "REMOTE": "origin",
+            "ANNOTATED": "false",
+        }
+        | extra_env
+    )
+    stdout = []
+    stderr = []
+    for script in sorted(action_scripts.glob(f"{name}-*.sh")):
+        command = ["bash", str(script)]
+        if coverage_binary := os.environ.get("KCOV_BIN"):
+            output = Path(os.environ["KCOV_OUTPUT"])
+            output.mkdir(parents=True, exist_ok=True)
+            command = [
+                coverage_binary,
+                f"--include-path={action_scripts}",
+                str(output / uuid4().hex),
+                str(script),
+            ]
+        result = subprocess.run(
+            command,
+            cwd=repository,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        stdout.append(result.stdout)
+        stderr.append(result.stderr)
+        if result.returncode:
+            return subprocess.CompletedProcess(
+                command, result.returncode, "".join(stdout), "".join(stderr)
+            )
+        if name == "prepare-towncrier" and script.name == "prepare-towncrier-0.sh":
+            environment["VERSION"] = (
+                (tmp_path / "output")
+                .read_text()
+                .split("version=", 1)[1]
+                .splitlines()[0]
+            )
+    return subprocess.CompletedProcess(command, 0, "".join(stdout), "".join(stderr))
+
+
+def run(directory: Path, *command: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command, cwd=directory, text=True, capture_output=True, check=True
+    )
+
+
+__all__ = [
+    "action",
+    "run",
+]

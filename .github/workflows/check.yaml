@@ -25,6 +25,34 @@ jobs:
           echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - name: Check repository formatting
         run: prek run --all-files
+      - name: Check Python tests
+        run: |
+          ruff format --check .
+          ruff check . --output-format=concise
+          ty check tests
+      - name: Measure Action shell coverage
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y kcov
+          KCOV_BIN=kcov KCOV_OUTPUT="$RUNNER_TEMP/shell-coverage" pytest -q
+          kcov --merge "$RUNNER_TEMP/shell-coverage-merged" "$RUNNER_TEMP/shell-coverage"/*
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import yaml
+
+          report = next(Path(os.environ["RUNNER_TEMP"], "shell-coverage-merged").rglob("codecov.json"))
+          coverage = json.loads(report.read_text())["coverage"]
+          expected = {
+              f"{path.parent.name}-{index}.sh"
+              for path in Path().glob("*/action.yml")
+              for index, _ in enumerate(yaml.safe_load(path.read_text())["runs"]["steps"])
+          }
+          if set(coverage) != expected or any(not lines or not all(lines.values()) for lines in coverage.values()):
+              raise SystemExit(f"Action shell coverage is below 100%: {coverage}")
+          PY
       - name: Check inline shell
         run: |
           set -euo pipefail

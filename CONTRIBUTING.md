@@ -17,11 +17,16 @@ Run the checks before pushing:
 
 ```bash
 prek run --all-files
+ruff format --check .
+ruff check .
+ty check tests
+pytest -q
 ```
 
 `prek` formats YAML with `yamlfmt` and runs zizmor. Run it again after accepting formatter changes. CI extracts inline
-shell from the workflows and Actions, then runs ShellCheck and `shfmt` on each block. The PR rehearsal executes the
-composite Actions on a GitHub runner; this repository has no Python test suite.
+shell from the workflows and Actions, then runs ShellCheck and `shfmt` on each block. The tests extract the exact `run:`
+blocks from each composite Action and execute them in temporary Git repositories. CI uses `kcov` to require 100% line
+coverage of those blocks. The PR rehearsal also executes the composite Actions on a GitHub runner to check their wiring.
 
 ## Change an Action
 

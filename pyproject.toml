@@ -7,6 +7,10 @@ dependencies = []
 
 [dependency-groups]
 release = [ "release-creator>=0.4.1", "towncrier>=26.9", "prek>=0.2", "yq>=4.4.5" ]
+test = [ "pytest>=9", "pyyaml>=6", "ruff", "ty" ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [ "INP001" ] # Test modules intentionally have no package marker.
 
 [tool.towncrier]
 name = "github-workflows"

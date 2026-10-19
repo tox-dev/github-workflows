@@ -18,9 +18,9 @@ jobs:
         with:
           python-version: "3.15"
           enable-cache: false
-      - name: Refresh the release lock
+      - name: Refresh the tool lock
         run: |
-          uv pip compile --upgrade --group release \
+          uv pip compile --upgrade --group release --group test \
             --python-version 3.15 --format pylock.toml \
             --output-file pylock.toml pyproject.toml
       - id: update
