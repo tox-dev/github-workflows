@@ -28,9 +28,9 @@ publishing a release. Each caller must also rehearse its own release generation 
 default-branch commit before switching to the shared Actions.
 
 This repository prepares its own release with the local Actions. On a release tag, `release.yaml` checks the tagged
-source, renders the GitHub description from `docs/changelog.md`, and publishes a GitHub Release. Consumers use immutable
-version tags or the full commit SHA; the rollout pins SHAs. There is no PyPI distribution because the shipped product is
-the Actions in this repository.
+source, renders the GitHub description from `docs/changelog.md`, and publishes a GitHub Release. A tag ruleset protects
+release tags; the rollout pins each Action to a full commit SHA. There is no PyPI distribution because the shipped
+product is the Actions in this repository.
 
 The first live tag requires a repository-limited release App and its key in the `release-auth` environment. See
 [`prepare-release.yaml`](.github/workflows/prepare-release.yaml) for the client ID variable and key secret names.
