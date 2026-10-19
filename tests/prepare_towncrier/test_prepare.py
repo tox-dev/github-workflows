@@ -15,6 +15,28 @@ def test_prepare_builds_patch(repository: Path, tmp_path: Path, action_scripts: 
     assert "0.2.0" in (tmp_path / "release.patch").read_text()
 
 
+def test_prepare_custom_changelog_and_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    project = repository / "pyproject.toml"
+    project.write_text(project.read_text().replace("CHANGELOG.md", "HISTORY.md"))
+    (repository / "CHANGELOG.md").rename(repository / "HISTORY.md")
+    run(repository, "git", "add", "-A")
+    run(repository, "git", "commit", "-m", "Use a custom changelog")
+    run(repository, "git", "push", "origin", "main")
+    patch = tmp_path / "custom.patch"
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "prepare-towncrier",
+        version="0.2.0",
+        CHANGELOG="HISTORY.md",
+        PATCH=str(patch),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "0.2.0" in (repository / "HISTORY.md").read_text()
+    assert "HISTORY.md" in patch.read_text()
+
+
 def test_prepare_renders_github_notes(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     result = run(

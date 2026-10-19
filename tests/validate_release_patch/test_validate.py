@@ -34,6 +34,21 @@ def test_validate_custom_remote_branch(repository: Path, tmp_path: Path, action_
     assert run(repository, "git", "diff", "--cached", "--name-only").stdout.strip()
 
 
+def test_validate_rejects_wrong_heading_prefix(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        HEADING_PREFIX="### ",
+    )
+    assert result.returncode != 0
+    assert "has no section" in result.stderr
+
+
 def test_validate_rejects_stale_branch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     run(repository, "git", "reset", "--hard", "HEAD")
