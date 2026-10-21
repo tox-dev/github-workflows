@@ -10,7 +10,7 @@ on:
         description: Public owner/repository to rehearse; leave empty to check this repository
         type: string
       project-type:
-        description: Temporary release rehearsal path (python, jetbrains, or action)
+        description: Temporary release rehearsal path (python, jetbrains, action, or quotaline)
         default: python
         type: string
       head-sha:
@@ -194,10 +194,20 @@ jobs:
       pull-requests: read
     with:
       head-sha: ${{ inputs.head-sha }}
+  quotaline-rehearsal:
+    if: github.event_name == 'workflow_dispatch' && inputs.project-type == 'quotaline'
+    uses: $/.github/workflows/validate-quotaline-release.yaml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      repository: ${{ inputs.repository }}
+      head-sha: ${{ inputs.head-sha }}
+      pull-request: ${{ inputs.pull-request }}
   gate:
     name: Required checks pass
     if: always()
-    needs: [check, changelog, release-dry-run, prepare-graph-dry-run, release-tools-preview, external-rehearsal, jetbrains-rehearsal, action-rehearsal]
+    needs: [check, changelog, release-dry-run, prepare-graph-dry-run, release-tools-preview, external-rehearsal, jetbrains-rehearsal, action-rehearsal, quotaline-rehearsal]
     runs-on: ubuntu-26.04
     steps:
       - env:
@@ -213,6 +223,7 @@ jobs:
               (.key == "release-tools-preview" and .value.result == "skipped") or
               (.key == "external-rehearsal" and .value.result == "skipped") or
               (.key == "jetbrains-rehearsal" and .value.result == "skipped") or
-              (.key == "action-rehearsal" and .value.result == "skipped")
+              (.key == "action-rehearsal" and .value.result == "skipped") or
+              (.key == "quotaline-rehearsal" and .value.result == "skipped")
             )
           ' <<<"$NEEDS_JSON"
