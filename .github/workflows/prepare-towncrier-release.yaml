@@ -53,7 +53,7 @@ on:
     secrets:
       RELEASE_APP_PRIVATE_KEY:
         description: Key held by the caller's release-auth environment
-        required: false
+        required: true
 permissions: {}
 concurrency:
   group: prepare-release

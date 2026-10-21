@@ -1,0 +1,208 @@
+name: Publish GitHub Release
+description: Resume a matching draft or verify an already published release
+inputs:
+  repository:
+    description: Owner and repository containing the tag
+    required: true
+  tag:
+    description: Existing Git tag for the release
+    required: true
+  commit:
+    description: Commit expected at the tag
+    required: true
+  title:
+    description: Exact GitHub Release title
+    required: true
+  notes-file:
+    description: File containing the exact GitHub Release body
+    required: true
+  assets-directory:
+    description: Directory containing only the intended Release assets
+    default: ""
+  prerelease:
+    description: Whether the release is a prerelease
+    default: "false"
+  mode:
+    description: Stage a draft, publish an existing draft, or complete both phases
+    default: complete
+runs:
+  using: composite
+  steps:
+    - name: Verify the tagged release request
+      shell: bash
+      env:
+        GH_REPO: ${{ inputs.repository }}
+        TAG: ${{ inputs.tag }}
+        COMMIT: ${{ inputs.commit }}
+        TITLE: ${{ inputs.title }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+        ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        test -n "$GH_REPO" && test -n "$TAG" && test -n "$TITLE" && test -s "$NOTES_FILE"
+        test "$PRERELEASE" = true || test "$PRERELEASE" = false
+        case "$MODE" in
+        stage | publish | complete) ;;
+        *)
+          echo "::error::invalid release mode: $MODE"
+          exit 1
+          ;;
+        esac
+        test "$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)" = "$COMMIT"
+        printf '[]\n' >"$RUNNER_TEMP/release-assets.json"
+        if [[ -n "$ASSETS_DIRECTORY" ]]; then
+          test -d "$ASSETS_DIRECTORY"
+          test -z "$(find "$ASSETS_DIRECTORY" -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
+          : >"$RUNNER_TEMP/release-assets.tsv"
+          for asset in "$ASSETS_DIRECTORY"/*; do
+            test -f "$asset"
+            name=${asset##*/}
+            case "$name" in
+            *[!a-zA-Z0-9._+-]*)
+              echo "::error::unsafe release asset name: $name"
+              exit 1
+              ;;
+            esac
+            printf '%s\tsha256:%s\n' "$name" "$(sha256sum "$asset" | cut -d' ' -f1)" \
+              >>"$RUNNER_TEMP/release-assets.tsv"
+          done
+          jq -R -s '[split("\n")[] | select(length > 0) | split("\t") | {name: .[0], digest: .[1]}]' \
+            "$RUNNER_TEMP/release-assets.tsv" >"$RUNNER_TEMP/release-assets.json"
+        fi
+    - name: Inspect any existing release
+      shell: bash
+      env:
+        GH_REPO: ${{ inputs.repository }}
+        TAG: ${{ inputs.tag }}
+        TITLE: ${{ inputs.title }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
+          jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-existing.json"
+        jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+          --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+            length <= 1 and all(.[];
+              .name == $title and .body == $body and .prerelease == $prerelease and
+              ((.assets | map(.name) | unique | length) == (.assets | length)) and
+              all(.assets[]; .state == "uploaded" and
+                (.name as $name | .digest as $digest |
+                  any($assets[0][]; .name == $name and .digest == $digest))) and
+              (.draft or (.assets | length) == ($assets[0] | length))
+            )
+          ' "$RUNNER_TEMP/release-existing.json"
+        if [[ "$MODE" == publish ]]; then
+          jq -e 'length == 1' "$RUNNER_TEMP/release-existing.json" >/dev/null
+        fi
+    - name: Create a missing draft
+      shell: bash
+      env:
+        GH_REPO: ${{ inputs.repository }}
+        TAG: ${{ inputs.tag }}
+        COMMIT: ${{ inputs.commit }}
+        TITLE: ${{ inputs.title }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        if [[ "$MODE" != publish ]] && jq -e 'length == 0' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
+          args=(--draft --verify-tag --target "$COMMIT" --title "$TITLE" --notes-file "$NOTES_FILE")
+          if [[ "$PRERELEASE" == true ]]; then args+=(--prerelease); fi
+          gh release create "$TAG" "${args[@]}"
+        fi
+    - name: Upload missing draft assets
+      shell: bash
+      env:
+        GH_REPO: ${{ inputs.repository }}
+        TAG: ${{ inputs.tag }}
+        TITLE: ${{ inputs.title }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+        ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        if [[ "$MODE" != publish && -n "$ASSETS_DIRECTORY" ]]; then
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
+            jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-current.json"
+          jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+            --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+              length == 1 and .[0].name == $title and .[0].body == $body and
+              .[0].prerelease == $prerelease and
+              all(.[0].assets[]; .state == "uploaded" and
+                (.name as $name | .digest as $digest |
+                  any($assets[0][]; .name == $name and .digest == $digest)))
+            ' "$RUNNER_TEMP/release-current.json" >/dev/null
+          if jq -e '.[0].draft' "$RUNNER_TEMP/release-current.json" >/dev/null; then
+            upload_url=$(jq -r '.[0].upload_url | split("{")[0]' "$RUNNER_TEMP/release-current.json")
+            for asset in "$ASSETS_DIRECTORY"/*; do
+              name=${asset##*/}
+              if ! jq -e --arg name "$name" 'any(.[0].assets[]; .name == $name)' \
+                "$RUNNER_TEMP/release-current.json" >/dev/null; then
+                gh api -X POST "$upload_url?name=$name" --input "$asset" \
+                  -H 'Content-Type: application/octet-stream' \
+                  >"$RUNNER_TEMP/release-uploaded.json"
+                jq -e --arg name "$name" --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+                  .name == $name and .state == "uploaded" and
+                  (.digest as $digest | any($assets[0][]; .name == $name and .digest == $digest))
+                ' "$RUNNER_TEMP/release-uploaded.json"
+              fi
+            done
+          fi
+        fi
+    - name: Verify the complete asset set
+      shell: bash
+      env:
+        GH_REPO: ${{ inputs.repository }}
+        TAG: ${{ inputs.tag }}
+        TITLE: ${{ inputs.title }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+        PRERELEASE: ${{ inputs.prerelease }}
+      run: |
+        set -euo pipefail
+        gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
+          jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-complete.json"
+        jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+          --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+            length == 1 and .[0].name == $title and .[0].body == $body and
+            .[0].prerelease == $prerelease and
+            ([.[0].assets[] | select(.state == "uploaded") | {name, digest}] | sort_by(.name)) ==
+            ($assets[0] | sort_by(.name))
+          ' "$RUNNER_TEMP/release-complete.json"
+    - name: Publish the draft
+      shell: bash
+      env:
+        GH_REPO: ${{ inputs.repository }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        if [[ "$MODE" != stage ]] && jq -e '.[0].draft' "$RUNNER_TEMP/release-complete.json" >/dev/null; then
+          release_id=$(jq -r '.[0].id' "$RUNNER_TEMP/release-complete.json")
+          gh api -X PATCH "repos/$GH_REPO/releases/$release_id" -F draft=false >/dev/null
+        fi
+    - name: Verify the final release state
+      shell: bash
+      env:
+        GH_REPO: ${{ inputs.repository }}
+        TAG: ${{ inputs.tag }}
+        TITLE: ${{ inputs.title }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
+          jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-published.json"
+        jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+          --arg mode "$MODE" \
+          --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+            length == 1 and ($mode == "stage" or .[0].draft == false) and .[0].name == $title and
+            .[0].body == $body and .[0].prerelease == $prerelease and
+            ([.[0].assets[] | select(.state == "uploaded") | {name, digest}] | sort_by(.name)) ==
+            ($assets[0] | sort_by(.name))
+          ' "$RUNNER_TEMP/release-published.json"

@@ -52,6 +52,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "validate-bot-credits",
         "refresh-release-lock",
         "refresh-hook-pins",
+        "publish-github-release",
     ):
         action = yaml.safe_load((source / action_name / "action.yml").read_text())
         for index, step in enumerate(action["runs"]["steps"]):
@@ -128,6 +129,7 @@ def action(
             "LOCK": "pylock.toml",
             "GENERATED_NOTES": "",
             "ISSUE_ROLE": "issue",
+            "MODE": "complete",
             "RUN_ID": "42",
             "WORKFLOW_PATH": ".github/workflows/check.yaml",
             "RUNNER_TEMP": str(tmp_path),

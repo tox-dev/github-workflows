@@ -32,8 +32,9 @@ changelog:
     - name: Create release tool environment
       run: uv venv --python 3.15 "$RUNNER_TEMP/release-tools"
     - name: Install locked release tools
-      run: uv pip sync --preview-features pylock --python
-        "$RUNNER_TEMP/release-tools/bin/python" --group release pylock.toml
+      run: >-
+        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python"
+        --group release pylock.toml
     - name: Expose release tools
       run: echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
     - uses: tox-dev/github-workflows/validate-news@SHA
@@ -340,8 +341,7 @@ push the release commit and tag together. Only a dispatch from `main` can reach 
 jobs:
   prepare:
     if: github.ref == 'refs/heads/main'
-    uses:
-      tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
+    uses: tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
     permissions:
       contents: read
       pull-requests: read
@@ -567,6 +567,42 @@ publisher still fetches GitHub's generated notes and creates the Release; this A
 Action writes only `output`. It rejects an invalid tag, a missing heading, an empty body, or a missing comparison link
 when an earlier tag exists. It neither fetches generated notes nor writes a GitHub Release, so a PR job needs only read
 permissions. Fetching generated notes uses GitHub's release endpoint and needs Contents write in the tag publisher.
+
+## Publish a GitHub Release
+
+`publish-github-release` verifies the tag and its rendered notes before writing a GitHub Release. Pass the exact notes
+file and the tag's commit SHA. A retry resumes a matching draft, or succeeds without a write when the published Release
+already matches. Run it in a Contents-write job that downloads the notes and optional assets; it needs no checkout or
+tool installation. For a repository that must upload GitHub assets before PyPI, call it with `mode: stage`, verify
+PyPI's exact artifact set, then call it with `mode: publish` and the same `assets-directory`. The draft stays private
+until the second call succeeds.
+
+```yaml
+  - uses: tox-dev/github-workflows/publish-github-release@SHA
+    env:
+      GH_TOKEN: ${{ github.token }}
+    with:
+      repository: ${{ github.repository }}
+      tag: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+      title: ${{ github.ref_name }}
+      notes-file: ${{ runner.temp }}/release-notes.md
+```
+
+- `repository`, `tag`, `commit`, `title`, and `notes-file` are required. `commit` is the commit the existing tag must
+  resolve to. `title` and the file bytes must match an existing Release exactly.
+- `assets-directory`: Optional directory containing only the assets to attach. The Action compares each filename and
+  SHA256 digest with GitHub's Release asset metadata, uploads missing draft assets, and rejects extra or changed assets.
+- `prerelease`: `true` or `false`; default `false`. It must match an existing Release.
+- `mode`: `complete` (default) creates or resumes a draft and publishes it in one call. `stage` creates or resumes a
+  draft and uploads assets without publishing. `publish` requires an existing draft and publishes it after checking the
+  tag, notes, and complete asset set again.
+
+**Output:** No named output. **Remote effect:** Depending on `mode`, the Action creates or resumes a draft, uploads
+missing assets, and publishes only after the complete asset set matches. A matching published Release causes no write. A
+different body, title, tag commit, prerelease flag, or asset set fails without changing the existing Release. A failed
+upload leaves the draft for a later retry. An asset in GitHub's incomplete `starter` state requires manual cleanup
+before retrying.
 
 ## Check a caller before switching
 
