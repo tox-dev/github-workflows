@@ -1,0 +1,182 @@
+name: Validate tox release
+on:
+  workflow_call:
+    inputs:
+      head-sha:
+        required: true
+        type: string
+      pull-request:
+        required: true
+        type: string
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  rehearse:
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Limit the rehearsal target
+        env:
+          PR_NUMBER: ${{ inputs.pull-request }}
+        run: test "$PR_NUMBER" = 4193
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          repository: tox-dev/tox
+          ref: refs/pull/${{ inputs.pull-request }}/head
+      - name: Verify the exact pull request head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ inputs.head-sha }}
+          PR_NUMBER: ${{ inputs.pull-request }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(gh api "repos/tox-dev/tox/pulls/$PR_NUMBER" --jq .head.sha)" = "$HEAD_SHA"
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: Install locked release and package tools
+        run: |
+          uv venv --python 3.15 "$RUNNER_TEMP/release-tools"
+          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" \
+            --group release --group pkg-meta pylock.toml
+          echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
+      - name: Add a local release fragment
+        env:
+          PR_NUMBER: ${{ inputs.pull-request }}
+        run: |
+          mkdir -p docs/changelog
+          printf 'Verify a user-visible tox fix for :issue:`31`.\n' \
+            >"docs/changelog/+validation-${PR_NUMBER}.bugfix.rst"
+          git add "docs/changelog/+validation-${PR_NUMBER}.bugfix.rst"
+          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com \
+            commit -m "Validate tox release (#${PR_NUMBER})"
+      - name: Create a local validation remote
+        run: |
+          git init --bare "$RUNNER_TEMP/rehearsal.git"
+          git remote add rehearsal "$RUNNER_TEMP/rehearsal.git"
+          git push rehearsal HEAD:refs/heads/main
+      - name: Reject an unsupported fragment name
+        env:
+          PR_NUMBER: ${{ inputs.pull-request }}
+        run: |
+          set -euo pipefail
+          mv "docs/changelog/+validation-${PR_NUMBER}.bugfix.rst" \
+            "docs/changelog/validation-${PR_NUMBER}.bugfix.rst"
+          if git tag --list | release-creator tags --next auto --directory docs/changelog; then
+            echo '::error::unsupported fragment was accepted' >&2
+            exit 1
+          fi
+          mv "docs/changelog/validation-${PR_NUMBER}.bugfix.rst" \
+            "docs/changelog/+validation-${PR_NUMBER}.bugfix.rst"
+      - name: Reject an invalid release tag
+        run: |
+          if release-creator tags v4.67; then
+            echo '::error::invalid release tag was accepted' >&2
+            exit 1
+          fi
+      - name: Dirty the release checkout
+        run: touch untracked-release-file
+      - id: dirty_prepare
+        name: Reject a dirty release checkout
+        uses: $/prepare-towncrier
+        continue-on-error: true
+        with:
+          changelog: docs/changelog.rst
+          fragments: docs/changelog
+          format: rst
+          patch: ${{ runner.temp }}/dirty-release.patch
+      - name: Check dirty checkout rejection
+        env:
+          OUTCOME: ${{ steps.dirty_prepare.outcome }}
+        run: |
+          test "$OUTCOME" = failure
+          rm untracked-release-file
+      - id: candidate
+        name: Record local candidate
+        run: echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+      - id: prepare
+        uses: $/prepare-towncrier
+        with:
+          changelog: docs/changelog.rst
+          fragments: docs/changelog
+          format: rst
+          repository: tox-dev/tox
+          patch: ${{ runner.temp }}/release.patch
+      - name: Restore the local candidate
+        run: git reset --hard HEAD
+      - id: stale_validate
+        name: Reject a stale release branch
+        uses: $/validate-release-patch
+        continue-on-error: true
+        with:
+          version: ${{ steps.prepare.outputs.version }}
+          patch: ${{ runner.temp }}/release.patch
+          changelog: docs/changelog.rst
+          fragments: docs/changelog
+          remote: rehearsal
+          expected-sha: "0000000000000000000000000000000000000000"
+          repository: tox-dev/tox
+      - name: Check stale branch rejection
+        env:
+          OUTCOME: ${{ steps.stale_validate.outcome }}
+        run: test "$OUTCOME" = failure
+      - uses: $/validate-release-patch
+        with:
+          version: ${{ steps.prepare.outputs.version }}
+          patch: ${{ runner.temp }}/release.patch
+          changelog: docs/changelog.rst
+          fragments: docs/changelog
+          remote: rehearsal
+          expected-sha: ${{ steps.candidate.outputs.sha }}
+          repository: tox-dev/tox
+      - name: Commit the local release tree
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com \
+            commit -m "Rehearse tox $VERSION"
+      - name: Tag the local release tree
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: git tag "$VERSION"
+      - uses: $/render-release-notes
+        with:
+          tag: ${{ steps.prepare.outputs.version }}
+          changelog: docs/changelog.rst
+          repository: tox-dev/tox
+          artifact-url: https://pypi.org/project/tox/${{ steps.prepare.outputs.version }}/
+          output: ${{ runner.temp }}/release-notes.md
+      - name: Check rendered notes
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          grep -Fq '### Bug fixes' "$RUNNER_TEMP/release-notes.md"
+          grep -Fq "https://pypi.org/project/tox/$VERSION/" "$RUNNER_TEMP/release-notes.md"
+          grep -Fq "https://github.com/tox-dev/tox/compare/4.67.1...$VERSION" "$RUNNER_TEMP/release-notes.md"
+      - uses: $/build-python-distribution
+        with:
+          python-version: "3.15"
+      - name: Check distribution metadata and wheel contents
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          twine check dist/*
+          check-wheel-contents dist/*.whl
+          test -f "dist/tox-${VERSION}.tar.gz"
+          test "$(find dist -maxdepth 1 -type f -name "tox-${VERSION}-*.whl" | wc -l)" -eq 1
+      - name: Remove the local tag
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: git tag -d "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tox-release-rehearsal
+          path: |
+            ${{ runner.temp }}/release-notes.md
+            dist/*
+          if-no-files-found: error
