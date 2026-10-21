@@ -141,6 +141,8 @@ jobs:
       fragments: changelog.d
       link-fragments: false
       dry-run: true
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: dry-run-fixture
   release-tools-preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
