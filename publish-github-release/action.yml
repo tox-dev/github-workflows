@@ -53,6 +53,7 @@ runs:
         test "$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)" = "$COMMIT"
         printf '[]\n' >"$RUNNER_TEMP/release-assets.json"
         if [[ -n "$ASSETS_DIRECTORY" ]]; then
+          shopt -s nullglob
           test -d "$ASSETS_DIRECTORY"
           test -z "$(find "$ASSETS_DIRECTORY" -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
           : >"$RUNNER_TEMP/release-assets.tsv"
@@ -60,7 +61,7 @@ runs:
             test -f "$asset"
             name=${asset##*/}
             case "$name" in
-            *[!a-zA-Z0-9._+-]*)
+            .* | *[[:cntrl:]]*)
               echo "::error::unsafe release asset name: $name"
               exit 1
               ;;
@@ -113,7 +114,7 @@ runs:
         if [[ "$MODE" != publish ]] && jq -e 'length == 0' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
           args=(--draft --verify-tag --target "$COMMIT" --title "$TITLE" --notes-file "$NOTES_FILE")
           if [[ "$PRERELEASE" == true ]]; then args+=(--prerelease); fi
-          gh release create "$TAG" "${args[@]}"
+          gh release create "$TAG" --repo "$GH_REPO" "${args[@]}"
         fi
     - name: Upload missing draft assets
       shell: bash
@@ -128,6 +129,7 @@ runs:
       run: |
         set -euo pipefail
         if [[ "$MODE" != publish && -n "$ASSETS_DIRECTORY" ]]; then
+          shopt -s nullglob
           gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
             jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-current.json"
           jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
@@ -144,7 +146,7 @@ runs:
               name=${asset##*/}
               if ! jq -e --arg name "$name" 'any(.[0].assets[]; .name == $name)' \
                 "$RUNNER_TEMP/release-current.json" >/dev/null; then
-                gh api -X POST "$upload_url?name=$name" --input "$asset" \
+                gh api -X POST "$upload_url?name=$(jq -nr --arg name "$name" '$name | @uri')" --input "$asset" \
                   -H 'Content-Type: application/octet-stream' \
                   >"$RUNNER_TEMP/release-uploaded.json"
                 jq -e --arg name "$name" --slurpfile assets "$RUNNER_TEMP/release-assets.json" '

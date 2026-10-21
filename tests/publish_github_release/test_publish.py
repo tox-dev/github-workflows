@@ -8,20 +8,26 @@ from conftest import action, run
 from pytest_httpserver import HTTPServer
 
 
-@pytest.mark.parametrize("with_asset", [False, True], ids=["notes-only", "with-asset"])
+@pytest.mark.parametrize(
+    ("with_asset", "empty_directory"),
+    [(False, False), (False, True), (True, False)],
+    ids=["notes-only", "empty-directory", "with-asset"],
+)
 def test_published_release_is_verified_without_writes(
     repository: Path,
     tmp_path: Path,
     action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     with_asset: bool,
+    empty_directory: bool,
 ) -> None:
     server, environment = github_api
     notes = tmp_path / "notes.md"
     notes.write_text("Release notes.\n")
     assets = tmp_path / "assets"
-    if with_asset:
+    if with_asset or empty_directory:
         assets.mkdir()
+    if with_asset:
         (assets / "fixture.zip").write_bytes(b"release archive")
     commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
     prefix = "/api/v3/repos/tox-dev/fixture"
@@ -61,12 +67,12 @@ def test_published_release_is_verified_without_writes(
         COMMIT=commit,
         TITLE="0.1.0",
         NOTES_FILE=str(notes),
-        ASSETS_DIRECTORY=str(assets) if with_asset else "",
+        ASSETS_DIRECTORY=str(assets) if with_asset or empty_directory else "",
         PRERELEASE="false",
         **environment,
     )
     assert result.returncode == 0, result.stderr
-    assert [request.method for request, _ in server.log] == ["GET"] * (5 if with_asset else 4)
+    assert [request.method for request, _ in server.log] == ["GET"] * (5 if with_asset or empty_directory else 4)
 
 
 @pytest.mark.parametrize(
@@ -167,7 +173,7 @@ def test_asset_name_must_be_safe(
     notes.write_text("Release notes.\n")
     assets = tmp_path / "assets"
     assets.mkdir()
-    (assets / "unsafe name.zip").write_bytes(b"release archive")
+    (assets / "unsafe\nname.zip").write_bytes(b"release archive")
     commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
     server.expect_request("/api/v3/repos/tox-dev/fixture/commits/0.1.0", method="GET").respond_with_json(
         {"sha": commit},
@@ -412,6 +418,7 @@ def test_missing_release_is_created_and_published(
         "publish-github-release",
         version="0.1.0",
         GH_REPO="tox-dev/fixture",
+        GITHUB_REPOSITORY="other/checkout",
         TAG="0.1.0",
         COMMIT=commit,
         TITLE="0.1.0",
@@ -434,23 +441,25 @@ def test_missing_release_is_created_and_published(
 
 
 @pytest.mark.parametrize("mode", ["stage", "complete"])
+@pytest.mark.parametrize("asset_name", ["fixture.zip", "fixture+linux.zip", "Fixture signed.zip"])
 def test_draft_release_resumes_missing_asset(
     repository: Path,
     tmp_path: Path,
     action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     mode: str,
+    asset_name: str,
 ) -> None:
     server, environment = github_api
     notes = tmp_path / "notes.md"
     notes.write_text("Release notes.\n")
     assets = tmp_path / "assets"
     assets.mkdir()
-    (assets / "fixture.zip").write_bytes(b"release archive")
+    (assets / asset_name).write_bytes(b"release archive")
     digest = f"sha256:{sha256(b'release archive').hexdigest()}"
     commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
     prefix = "/api/v3/repos/tox-dev/fixture"
-    asset = {"name": "fixture.zip", "digest": digest, "state": "uploaded"}
+    asset = {"name": asset_name, "digest": digest, "state": "uploaded"}
     release = {
         "id": 42,
         "tag_name": "0.1.0",
@@ -470,7 +479,7 @@ def test_draft_release_resumes_missing_asset(
     )
     server.expect_ordered_request(
         f"{prefix}/releases/42/assets",
-        query_string="name=fixture.zip",
+        query_string=f"name={asset_name.replace('+', '%2B').replace(' ', '%20')}",
         method="POST",
         data=b"release archive",
     ).respond_with_json(asset, status=201)

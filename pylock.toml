@@ -5,6 +5,7 @@ extras = []
 dependency-groups = [
     "project-runtime",
     "release",
+    "hooks",
     "test",
 ]
 default-groups = []
@@ -743,7 +744,7 @@ sha256 = "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67"
 name = "markdown-it-py"
 version = "4.2.0"
 index = "https://pypi.org/simple"
-marker = "\"release\" in dependency_groups"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a76b9ee4bbaeae59370dc8bfd2f6c01f3630c35eb134/markdown_it_py-4.2.0.tar.gz"
@@ -1059,7 +1060,7 @@ sha256 = "39dbacefc411633db5b4378b066a9aca70a3d7e2922c9e578d825f844026eeba"
 name = "mdformat"
 version = "1.0.0"
 index = "https://pypi.org/simple"
-marker = "\"release\" in dependency_groups"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/3f/05/32b5e14b192b0a8a309f32232c580aefedd9d06017cb8fe8fce34bec654c/mdformat-1.0.0.tar.gz"
@@ -1081,7 +1082,7 @@ sha256 = "bca015d65a1d063a02e885a91daee303057bc7829c2cd37b2075a50dbb65944b"
 name = "mdformat-gfm"
 version = "1.0.0"
 index = "https://pypi.org/simple"
-marker = "\"release\" in dependency_groups"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/56/6f/a626ebb142a290474401b67e2d61e73ce096bf7798ee22dfe6270f924b3f/mdformat_gfm-1.0.0.tar.gz"
@@ -1103,7 +1104,7 @@ sha256 = "7305a50efd2a140d7c83505b58e3ac5df2b09e293f9bbe72f6c7bee8c678b005"
 name = "mdit-py-plugins"
 version = "0.6.1"
 index = "https://pypi.org/simple"
-marker = "\"release\" in dependency_groups"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/59/fc/f8d0863f8862f25602c0404d75568e89fb6b4109804645e5cdfb1be5cf56/mdit_py_plugins-0.6.1.tar.gz"
@@ -1125,7 +1126,7 @@ sha256 = "214c82fb2ac524472ab6a5bcab1de80f73b50443e187f401bfd77efbc7c6481d"
 name = "mdurl"
 version = "0.1.2"
 index = "https://pypi.org/simple"
-marker = "\"release\" in dependency_groups"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz"
@@ -1147,7 +1148,7 @@ sha256 = "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8"
 name = "packaging"
 version = "26.3"
 index = "https://pypi.org/simple"
-marker = "\"release\" in dependency_groups or \"test\" in dependency_groups"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups or \"test\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/7d/fa/3944b40b07da9ce895c0e6303a5ab7d53da063554f534556b134a54d6093/packaging-26.3.tar.gz"
@@ -1431,7 +1432,7 @@ sha256 = "530179cc51a1816d512b15635b3dc931295ae12efb183783ad31190a5d425d2b"
 name = "pyyaml"
 version = "6.0.3"
 index = "https://pypi.org/simple"
-marker = "\"release\" in dependency_groups or \"test\" in dependency_groups"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups or \"test\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz"
@@ -1443,20 +1444,20 @@ sha256 = "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
 
 [[packages]]
 name = "release-creator"
-version = "0.4.2.dev39+g80ecd0e95"
-marker = "\"release\" in dependency_groups"
+version = "0.4.2.dev44+g7db94b1b8"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups"
 
 [packages.vcs]
 type = "git"
 url = "https://github.com/tox-dev/release-creator"
-requested-revision = "80ecd0e952a0e0c50d08129ec89aaa8306ea0b05"
-commit-id = "80ecd0e952a0e0c50d08129ec89aaa8306ea0b05"
+requested-revision = "7db94b1b86ee6559f22970f605a0eef7c4bff02e"
+commit-id = "7db94b1b86ee6559f22970f605a0eef7c4bff02e"
 
 [[packages]]
 name = "tomli-w"
 version = "1.2.0"
 index = "https://pypi.org/simple"
-marker = "\"release\" in dependency_groups or \"test\" in dependency_groups"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups or \"test\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/19/75/241269d1da26b624c0d5e110e8149093c759b7a286138f4efd61a60e75fe/tomli_w-1.2.0.tar.gz"
@@ -1932,7 +1933,7 @@ sha256 = "7820aeaef23f1f59a96458edfc7f9d3deac937155718de15f1c9a64471e15551"
 name = "wcwidth"
 version = "0.9.3"
 index = "https://pypi.org/simple"
-marker = "\"release\" in dependency_groups"
+marker = "\"hooks\" in dependency_groups or \"release\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/69/4a/82d61476a1ccc20d43d0805724c5de4baa4971131a8db1816705ef53fe16/wcwidth-0.9.3.tar.gz"

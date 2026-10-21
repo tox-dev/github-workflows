@@ -1,0 +1,112 @@
+name: Reconcile PyPI artifacts
+description: Stage missing files or verify the exact published distribution set
+inputs:
+  project:
+    description: PyPI project name
+    required: true
+  version:
+    description: PyPI release version
+    required: true
+  dist:
+    description: Directory containing the complete expected distribution set
+    required: true
+  mode:
+    description: Stage missing files or verify the complete release
+    required: true
+  missing-dir:
+    description: Fresh output directory for files absent from PyPI in stage mode
+    default: missing
+  wait-seconds:
+    description: Maximum PyPI JSON propagation wait in verify mode
+    default: "120"
+  lock:
+    description: Full project pylock containing the release group
+    default: pylock.toml
+  python-version:
+    description: Python version used for the locked release tool
+    default: "3.15"
+  local-tool-source:
+    description: Install release-creator from this tagged checkout instead of the lock's project wheel
+    default: "false"
+outputs:
+  missing-count:
+    description: Number of files absent from PyPI before staging
+    value: ${{ steps.stage.outputs.missing_count }}
+  manifest:
+    description: Path to the filename allowlist produced in stage mode
+    value: ${{ steps.manifest.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - name: Check reconciliation inputs
+      shell: bash
+      env:
+        PROJECT: ${{ inputs.project }}
+        VERSION: ${{ inputs.version }}
+        DIST: ${{ inputs.dist }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        test -n "$PROJECT" && test -n "$VERSION" && test -d "$DIST"
+        case "$MODE" in
+        stage | verify) ;;
+        *)
+          echo "::error::invalid PyPI reconciliation mode: $MODE" >&2
+          exit 1
+          ;;
+        esac
+    - name: Install locked release tool
+      shell: bash
+      env:
+        LOCK: ${{ inputs.lock }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        LOCAL_TOOL_SOURCE: ${{ inputs.local-tool-source }}
+      run: |
+        set -euo pipefail
+        uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/pypi-reconcile"
+        if [[ "$LOCAL_TOOL_SOURCE" == true ]]; then
+          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/pypi-reconcile/bin/python" \
+            --group release --group build --group project-runtime "$LOCK"
+          uv pip install --python "$RUNNER_TEMP/pypi-reconcile/bin/python" --no-deps --no-build-isolation .
+        else
+          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/pypi-reconcile/bin/python" \
+            --group release "$LOCK"
+        fi
+    - id: stage
+      name: Stage files missing from PyPI
+      if: inputs.mode == 'stage'
+      shell: bash
+      env:
+        PROJECT: ${{ inputs.project }}
+        VERSION: ${{ inputs.version }}
+        DIST: ${{ inputs.dist }}
+        MISSING_DIR: ${{ inputs.missing-dir }}
+      run: >-
+        "$RUNNER_TEMP/pypi-reconcile/bin/release-creator" artifacts --project "$PROJECT" --version "$VERSION" --dist "$DIST" --mode stage --missing-dir "$MISSING_DIR" --github-output "$GITHUB_OUTPUT"
+    - id: manifest
+      name: Record missing artifact names
+      if: inputs.mode == 'stage'
+      shell: bash
+      env:
+        MISSING_DIR: ${{ inputs.missing-dir }}
+      run: |
+        set -euo pipefail
+        test -d "$MISSING_DIR"
+        test -z "$(find "$MISSING_DIR" -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
+        shopt -s nullglob
+        : >"$RUNNER_TEMP/pypi-missing-names.txt"
+        for artifact in "$MISSING_DIR"/*; do
+          printf '%s\n' "${artifact##*/}" >>"$RUNNER_TEMP/pypi-missing-names.txt"
+        done
+        LC_ALL=C sort -o "$RUNNER_TEMP/pypi-missing-names.txt" "$RUNNER_TEMP/pypi-missing-names.txt"
+        echo "path=$RUNNER_TEMP/pypi-missing-names.txt" >>"$GITHUB_OUTPUT"
+    - name: Verify files published on PyPI
+      if: inputs.mode == 'verify'
+      shell: bash
+      env:
+        PROJECT: ${{ inputs.project }}
+        VERSION: ${{ inputs.version }}
+        DIST: ${{ inputs.dist }}
+        WAIT_SECONDS: ${{ inputs.wait-seconds }}
+      run: >-
+        "$RUNNER_TEMP/pypi-reconcile/bin/release-creator" artifacts --project "$PROJECT" --version "$VERSION" --dist "$DIST" --mode verify --wait-seconds "$WAIT_SECONDS"

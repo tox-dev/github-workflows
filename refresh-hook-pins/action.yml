@@ -21,7 +21,7 @@ runs:
       run: |
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/hook-tools"
         uv pip sync --preview-features pylock --python "$RUNNER_TEMP/hook-tools/bin/python" \
-          --group release "$GITHUB_ACTION_PATH/../pylock.toml"
+          --group release --group hooks "$GITHUB_ACTION_PATH/../pylock.toml"
     - id: cutoff
       name: Set dependency age cutoff
       shell: bash

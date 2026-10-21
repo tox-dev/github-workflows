@@ -30,6 +30,10 @@ on:
         description: Python version for the locked release tools
         type: string
         default: "3.15"
+      local-tool-source:
+        description: Install release-creator from the tagged checkout for its own release
+        type: boolean
+        default: false
       link-fragments:
         description: Link merged fragments to their pull requests
         type: boolean
@@ -75,6 +79,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: ${{ inputs.python-version }}
           enable-cache: false
       - name: Install locked release tools
@@ -85,6 +90,14 @@ jobs:
           uv venv --python "$PYTHON_VERSION" .venv
           uv pip sync --preview-features pylock --python .venv/bin/python --group release "$LOCK"
           echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
+      - name: Install the tagged release tool
+        if: inputs.local-tool-source
+        env:
+          LOCK: ${{ inputs.lock }}
+        run: |
+          uv pip sync --preview-features pylock --python .venv/bin/python \
+            --group release --group fix --group build --group project-runtime "$LOCK"
+          uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
       - id: prepare
         uses: $/prepare-towncrier
         with:
@@ -120,6 +133,7 @@ jobs:
           path: ${{ runner.temp }}/release-patch
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: ${{ inputs.python-version }}
           enable-cache: false
       - name: Install locked release tools
@@ -130,6 +144,14 @@ jobs:
           uv venv --python "$PYTHON_VERSION" .venv
           uv pip sync --preview-features pylock --python .venv/bin/python --group release "$LOCK"
           echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
+      - name: Install the tagged release tool
+        if: inputs.local-tool-source
+        env:
+          LOCK: ${{ inputs.lock }}
+        run: |
+          uv pip sync --preview-features pylock --python .venv/bin/python \
+            --group release --group fix --group build --group project-runtime "$LOCK"
+          uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
       - uses: $/validate-release-patch
         with:
           version: ${{ needs.assemble.outputs.version }}

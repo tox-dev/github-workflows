@@ -50,6 +50,10 @@ on:
         description: Python version for release tooling and package build
         default: "3.15"
         type: string
+      local-tool-source:
+        description: Install release-creator from this checkout for its own release rehearsal
+        default: false
+        type: boolean
       source:
         description: Package source directory
         default: .
@@ -73,6 +77,7 @@ jobs:
           ref: ${{ inputs.head-sha || github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: ${{ inputs.python-version }}
           enable-cache: false
       - name: Install locked check tools
@@ -82,6 +87,12 @@ jobs:
         run: |
           uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/release-tools"
           uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release "$LOCK"
+      - name: Install locked local check tools
+        if: inputs.local-tool-source
+        env:
+          LOCK: ${{ inputs.lock }}
+        run: >-
+          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release --group fix "$LOCK"
       - name: Run tagged source checks
         run: >-
           "$RUNNER_TEMP/release-tools/bin/prek" run --all-files
@@ -124,6 +135,7 @@ jobs:
           echo "base=$(jq -r .base <<<"$metadata")" >>"$GITHUB_OUTPUT"
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: ${{ inputs.python-version }}
           enable-cache: false
       - name: Install locked release tools
@@ -135,6 +147,14 @@ jobs:
           uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/release-tools"
           uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release "$LOCK"
           echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
+      - name: Install the local release tool
+        if: inputs.local-tool-source
+        env:
+          LOCK: ${{ inputs.lock }}
+        run: |
+          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" \
+            --group release --group fix --group build --group project-runtime "$LOCK"
+          uv pip install --python "$RUNNER_TEMP/release-tools/bin/python" --no-deps --no-build-isolation .
       - if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         uses: $/validate-bot-credits
       - name: Fetch the multiple-author fixture
@@ -441,6 +461,7 @@ jobs:
           lock: ${{ inputs.lock }}
           python-version: ${{ inputs.python-version }}
           source: ${{ inputs.source }}
+          local-tool-source: ${{ inputs.local-tool-source }}
       - uses: $/validate-python-distribution
         with:
           lock: ${{ inputs.lock }}

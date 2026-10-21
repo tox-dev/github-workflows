@@ -28,6 +28,7 @@ changelog:
         persist-credentials: false
     - uses: astral-sh/setup-uv@SETUP_UV_SHA
       with:
+        version: latest-known
         python-version: '3.15'
     - name: Create release tool environment
       run: uv venv --python 3.15 "$RUNNER_TEMP/release-tools"
@@ -162,6 +163,7 @@ release-tools-preview:
         persist-credentials: false
     - uses: astral-sh/setup-uv@SETUP_UV_SHA
       with:
+        version: latest-known
         python-version: '3.15'
     - id: lock
       uses: tox-dev/github-workflows/refresh-release-lock@SHA
@@ -193,6 +195,7 @@ hook-pins-preview:
         persist-credentials: false
     - uses: astral-sh/setup-uv@SETUP_UV_SHA
       with:
+        version: latest-known
         python-version: '3.15'
     - uses: tox-dev/github-workflows/refresh-hook-pins@SHA
 ```
@@ -274,7 +277,8 @@ the link text from `PyPI release`; `issue-role` selects whether reStructuredText
 pull requests. `lock` defaults to `pylock.toml` and must have a `release` group with `release-creator`, Towncrier, and
 `prek`. `python-version` defaults to `3.15`; `source` defaults to the repository root for `uv build`. `artifact-prefix`
 defaults to empty; set it while comparing this workflow with an existing PR rehearsal so the two jobs use distinct
-artifact names.
+artifact names. Set `local-tool-source: true` for release-creator's own release: the keyless jobs install the tagged
+checkout from its locked release, fix, build, and runtime groups instead of using a published release-creator wheel.
 
 For an RST changelog, use `format: rst` when the caller has a `docstrfmt` hook; otherwise use `format: none`. The
 workflow creates `.rst` test fragments from the changelog suffix and checks RST PR references in the assembled section.
@@ -341,7 +345,8 @@ push the release commit and tag together. Only a dispatch from `main` can reach 
 jobs:
   prepare:
     if: github.ref == 'refs/heads/main'
-    uses: tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
+    uses:
+      tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
     permissions:
       contents: read
       pull-requests: read
@@ -365,8 +370,10 @@ back to the caller. A successful run pushes a tag, which the caller's tag workfl
 `bump`, `tag-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, `numbered-prs`, and `annotated` have the
 same meanings as the `prepare-towncrier` inputs below. `release-auth-deployment` defaults to `true`; set it to `false`
 if the current App-key job uses `release-auth` without creating a GitHub Deployment. `dry-run: true` runs the first two
-jobs at a same-repository PR head and skips the App-key job. The caller can place repository-specific checks in a
-preceding job and make this job depend on it. The tag-triggered ecosystem publisher stays in the caller repository.
+jobs at a same-repository PR head and skips the App-key job. `local-tool-source: true` installs release-creator from the
+tagged checkout with locked third-party dependencies in both keyless jobs; use it for release-creator itself. The caller
+can place repository-specific checks in a preceding job and make this job depend on it. The tag-triggered ecosystem
+publisher stays in the caller repository.
 
 ## Prepare Towncrier release
 
@@ -499,6 +506,8 @@ publisher without publishing the artifacts.
 - `python-version`: Managed Python used for the build; default `3.15`.
 - `lock`: Full project lock containing the build backend; default `pylock.toml`.
 - `source`: Source directory passed to `uv build`; default `.`.
+- `local-tool-source`: `false` (default). Set `true` only when the tagged source is release-creator itself; the keyless
+  planner installs it from that checkout after syncing locked backend and runtime dependencies.
 - `out-dir`: Directory for the wheel and sdist; default `dist`. Validate files in this directory before upload.
 
 **Output:** No named output. **Working-tree effect:** Writes a wheel and sdist to `out-dir`. The checkout must be clean
@@ -567,6 +576,46 @@ publisher still fetches GitHub's generated notes and creates the Release; this A
 Action writes only `output`. It rejects an invalid tag, a missing heading, an empty body, or a missing comparison link
 when an earlier tag exists. It neither fetches generated notes nor writes a GitHub Release, so a PR job needs only read
 permissions. Fetching generated notes uses GitHub's release endpoint and needs Contents write in the tag publisher.
+
+## Reconcile PyPI artifacts
+
+`reconcile-pypi-artifacts` compares the complete local distribution directory with PyPI's filenames and SHA256 digests.
+Run `stage` in a read-only job before trusted publishing. It returns `missing-count` and a `manifest` path listing files
+PyPI lacks. Upload only that small manifest between jobs, along with the original distribution artifact. Do not upload
+the stage job's copied files. The OIDC job downloads the original files and manifest, then calls `select-pypi-artifacts`
+to copy only named original bytes into a fresh upload directory. It needs no checkout or release-tool installation. Call
+the pinned PyPI publisher on that directory only when `selected-count` is nonzero.
+
+After upload, run `reconcile-pypi-artifacts` with `mode: verify` in another read-only job against the original complete
+distribution set. It waits up to 120 seconds for a complete PyPI JSON response. A different digest, unexpected or yanked
+file, or API error other than a missing release fails immediately. The GitHub Release writer must depend on this
+verification. A full workflow rerun restages missing files. For a failed-jobs rerun after a partial upload, set PyPI
+publisher `skip-existing: true` only for this selected subset; the separate full-set verification still rejects changed
+or extra files before GitHub publication.
+
+```yaml
+  - id: pypi
+    uses: tox-dev/github-workflows/reconcile-pypi-artifacts@SHA
+    with:
+      project: example
+      version: ${{ github.ref_name }}
+      dist: dist
+      mode: stage
+      missing-dir: missing
+```
+
+`project`, `version`, `dist`, and `mode` are required. `mode` is `stage` or `verify`. `missing-dir` defaults to
+`missing` and must be a fresh directory outside `dist`. `wait-seconds` defaults to 120 for verify. `lock` defaults to
+`pylock.toml`, whose `release` group supplies the command; `python-version` defaults to 3.15. Set
+`local-tool-source: "true"` only when releasing release-creator itself: it installs the tagged checkout without
+resolving dependencies after installing its locked release, build, and runtime groups. This Action writes only the
+missing directory, manifest, and `missing-count`; it never uploads to PyPI. Use `mode: verify` after the OIDC job,
+including when `missing-count` was zero.
+
+`select-pypi-artifacts` takes `dist`, `manifest`, `output-dir`, and `expected-count` from stage's `missing-count`. The
+output directory must be fresh and outside `dist`. It rejects unknown, duplicate, unsafe, or symlinked filenames and
+copies bytes only from `dist`. Its `selected-count` output controls the PyPI upload step. The manifest supplies names
+only; it is not a source of publishable bytes.
 
 ## Publish a GitHub Release
 

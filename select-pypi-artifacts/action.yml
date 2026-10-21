@@ -1,0 +1,57 @@
+name: Select PyPI artifacts
+description: Copy validated build files named by the keyless PyPI stage
+inputs:
+  dist:
+    description: Original validated distribution directory
+    required: true
+  manifest:
+    description: File listing the staged missing artifact names
+    required: true
+  output-dir:
+    description: Fresh directory passed to the PyPI upload action
+    required: true
+  expected-count:
+    description: missing-count returned by the keyless stage
+    required: true
+outputs:
+  selected-count:
+    description: Number of original distribution files selected for upload
+    value: ${{ steps.select.outputs.count }}
+runs:
+  using: composite
+  steps:
+    - id: select
+      name: Copy selected validated files
+      shell: bash
+      env:
+        DIST: ${{ inputs.dist }}
+        MANIFEST: ${{ inputs.manifest }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        EXPECTED_COUNT: ${{ inputs.expected-count }}
+      run: |
+        set -euo pipefail
+        test -d "$DIST" && test -f "$MANIFEST" && test ! -e "$OUTPUT_DIR"
+        dist_path=$(realpath "$DIST")
+        output_path=$(realpath -m "$OUTPUT_DIR")
+        case "$output_path" in
+        "$dist_path" | "$dist_path"/*)
+          echo '::error::output directory overlaps the validated distribution' >&2
+          exit 1
+          ;;
+        esac
+        mkdir "$OUTPUT_DIR"
+        count=0
+        while IFS= read -r name; do
+          case "$name" in
+          '' | .* | *[!a-zA-Z0-9._+-]*)
+            echo "::error::invalid distribution filename: $name" >&2
+            exit 1
+            ;;
+          esac
+          test -f "$DIST/$name" && test ! -L "$DIST/$name" && test ! -e "$OUTPUT_DIR/$name"
+          cp -- "$DIST/$name" "$OUTPUT_DIR/$name"
+          cmp -s "$DIST/$name" "$OUTPUT_DIR/$name"
+          count=$((count + 1))
+        done <"$MANIFEST"
+        test "$count" = "$EXPECTED_COUNT"
+        echo "count=$count" >>"$GITHUB_OUTPUT"

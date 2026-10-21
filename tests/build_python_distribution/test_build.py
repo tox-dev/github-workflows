@@ -81,6 +81,38 @@ def test_build_python_distribution_rejects_dirty_source(
     assert "tagged source is dirty" in result.stderr
 
 
+def test_build_python_distribution_uses_interpreter_patch_for_constraints(
+    build_repository: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    project = build_repository / "pyproject.toml"
+    project.write_text(
+        project.read_text()
+        .replace('requires-python = ">=3.15"', 'requires-python = ">=3.14"')
+        .replace(
+            'requires = ["hatchling"]',
+            "requires = [\"hatchling\", \"colorama; python_full_version >= '3.14.1' and python_version < '3.15'\"]",
+        )
+        + '\n[tool.uv]\ndependency-groups.release = { requires-python = ">=3.15" }\n',
+    )
+    run(build_repository, "release-creator", "locks", "--output", "pylock.toml", "--tool-python", ">=3.15")
+    run(build_repository, "git", "add", ".")
+    run(build_repository, "git", "commit", "-m", "Add patch-specific backend dependency")
+    result = action(
+        build_repository,
+        tmp_path,
+        action_scripts,
+        "build-python-distribution",
+        version="0.2.0",
+        PYTHON_VERSION="3.14",
+        SOURCE=".",
+        OUT_DIR=str(tmp_path / "dist"),
+        RUNNER_TEMP=str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "colorama==" in (tmp_path / "build-constraints.txt").read_text()
+    assert (tmp_path / "dist/fixture-0.2.0-py3-none-any.whl").is_file()
+
+
 def test_build_python_distribution_does_not_run_hooks(
     build_repository: Path, tmp_path: Path, action_scripts: Path
 ) -> None:

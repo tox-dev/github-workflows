@@ -10,6 +10,9 @@ inputs:
   source:
     description: Distribution source directory
     default: .
+  local-tool-source:
+    description: Install release-creator from this tagged checkout before planning the build
+    default: "false"
   out-dir:
     description: Directory for the wheel and sdist
     default: dist
@@ -27,22 +30,38 @@ runs:
       shell: bash
       env:
         LOCK: ${{ inputs.lock }}
-        PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
         set -euo pipefail
-        uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/build-planner"
+        uv venv --python 3.15 "$RUNNER_TEMP/build-planner"
         uv pip sync --preview-features pylock --python "$RUNNER_TEMP/build-planner/bin/python" --group release "$LOCK"
+    - name: Select build interpreter
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/build-python"
+    - name: Install the tagged build planner
+      if: inputs.local-tool-source == 'true'
+      shell: bash
+      env:
+        LOCK: ${{ inputs.lock }}
+        SOURCE: ${{ inputs.source }}
+      run: |
+        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/build-planner/bin/python" \
+          --group release --group build --group project-runtime "$LOCK"
+        uv pip install --python "$RUNNER_TEMP/build-planner/bin/python" --no-deps --no-build-isolation "$SOURCE"
     - name: Write backend constraints
       shell: bash
       env:
         LOCK: ${{ inputs.lock }}
-      run: '"$RUNNER_TEMP/build-planner/bin/release-creator" build-constraints --lock "$LOCK" --output "$RUNNER_TEMP/build-constraints.txt"'
+      run: |
+        "$RUNNER_TEMP/build-planner/bin/release-creator" build-constraints --lock "$LOCK" \
+          --python-version "$("$RUNNER_TEMP/build-python/bin/python" -c 'import platform; print(platform.python_version())')" \
+          --output "$RUNNER_TEMP/build-constraints.txt"
     - name: Build wheel and sdist
       shell: bash
       env:
-        PYTHON_VERSION: ${{ inputs.python-version }}
         SOURCE: ${{ inputs.source }}
         OUT_DIR: ${{ inputs.out-dir }}
       run: |
-        uv build --python "$PYTHON_VERSION" --python-preference only-managed --sdist --wheel \
+        uv build --python "$RUNNER_TEMP/build-python/bin/python" --python-preference only-managed --sdist --wheel \
           --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir "$OUT_DIR"
