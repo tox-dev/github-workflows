@@ -273,9 +273,11 @@ Release body. The tag caller alone has a Contents write job that creates the Git
 ## Validate a Python release
 
 `validate-python-release.yaml` runs read-only source checks, notes rendering, a hash-constrained wheel and sdist build,
-and distribution checks for an existing tag. It checks that the fully qualified tag ref resolves to the checked-out
-commit before building. The workflow uses `$/` for its own Actions, so a caller pinned to a workflow commit runs those
-Actions from the same commit.
+and distribution checks. On tag events, it checks that the fully qualified tag ref resolves to the checked-out commit
+before building. On pull requests, it checks the exact PR head, squashes it onto the event base, adds a local validation
+fragment, and uses `prepare-towncrier` to assemble and locally tag a release candidate. The same render, build, and
+distribution checks then run on that candidate. The workflow uses `$/` for its own Actions, so a caller pinned to a
+workflow commit runs those Actions from the same commit.
 
 Call the pinned workflow from the tag publisher's build job:
 
@@ -293,17 +295,17 @@ build:
     artifact-base-url: https://pypi.org/project/example/
 ```
 
-`changelog` is the rendered changelog path. `fragments` and `format` remain required for existing callers but do not
-affect tagged-source validation. `artifact-base-url` ends just before the version; the workflow appends `1.2.3/` for tag
-`1.2.3`. Set it to the package's actual PyPI project path. `artifact-label` changes the link text from `PyPI release`;
-`issue-role` selects whether reStructuredText `:issue:` references link to issues or pull requests. `lock` defaults to
-`pylock.toml` and must have a `release` group with `release-creator`, Towncrier, and `prek`. `python-version` defaults
-to `3.15`; `source` defaults to the repository root for `uv build`. `artifact-prefix` defaults to empty; set it when a
-tag builds more than one distribution path so the jobs use distinct artifact names. Set `local-tool-source: true` for
-release-creator's own release: the keyless jobs install the tagged checkout from its locked release, fix, build, and
-runtime groups instead of using a published release-creator wheel. `validation-group` defaults to `pkg-meta`; set it to
-`release` when that group contains locked Twine and check-wheel-contents, as in pipx. An absent group can make
-`uv pip sync` succeed without installing either tool.
+`changelog` is the rendered changelog path. `fragments` and `format` select the local PR candidate's Towncrier assembly;
+the tag path reads the existing changelog. `artifact-base-url` ends just before the version; the workflow appends
+`1.2.3/` for tag `1.2.3`. Set it to the package's actual PyPI project path. `artifact-label` changes the link text from
+`PyPI release`; `issue-role` selects whether reStructuredText `:issue:` references link to issues or pull requests.
+`lock` defaults to `pylock.toml` and must have a `release` group with `release-creator`, Towncrier, and `prek`.
+`python-version` defaults to `3.15`; `source` defaults to the repository root for `uv build`. `artifact-prefix` defaults
+to empty; set it when a tag builds more than one distribution path so the jobs use distinct artifact names. Set
+`local-tool-source: true` for release-creator's own release: the keyless jobs install the tagged checkout from its
+locked release, fix, build, and runtime groups instead of using a published release-creator wheel. `validation-group`
+defaults to `pkg-meta`; set it to `release` when that group contains locked Twine and check-wheel-contents, as in pipx.
+An absent group can make `uv pip sync` succeed without installing either tool.
 
 The workflow uploads `python-package-distributions` with the wheel and sdist, and `release-validation-notes` with the
 body rendered from the tagged source. Its notes lack GitHub contributor metadata. The tag-only GitHub Release job must
