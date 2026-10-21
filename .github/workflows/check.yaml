@@ -118,6 +118,17 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+  prepare-graph-dry-run:
+    if: github.event_name == 'pull_request'
+    uses: $/.github/workflows/prepare-towncrier-release.yaml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      changelog: CHANGELOG.md
+      fragments: changelog.d
+      link-fragments: false
+      dry-run: true
   release-tools-preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
@@ -154,7 +165,7 @@ jobs:
   gate:
     name: Required checks pass
     if: always()
-    needs: [check, changelog, release-dry-run, release-tools-preview, external-rehearsal]
+    needs: [check, changelog, release-dry-run, prepare-graph-dry-run, release-tools-preview, external-rehearsal]
     runs-on: ubuntu-26.04
     steps:
       - env:
@@ -166,6 +177,7 @@ jobs:
               .value.result == "success" or
               (.key == "changelog" and .value.result == "skipped") or
               (.key == "release-dry-run" and .value.result == "skipped") or
+              (.key == "prepare-graph-dry-run" and .value.result == "skipped") or
               (.key == "release-tools-preview" and .value.result == "skipped") or
               (.key == "external-rehearsal" and .value.result == "skipped")
             )

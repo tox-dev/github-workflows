@@ -257,6 +257,44 @@ uploads `release-dry-run`, `release-validation-notes`, and `python-package-distr
 run. The artifacts include the generated patch, changelog, notes, contributor fixture, hashes, wheel, and sdist.
 Download them and compare their content with the caller's tag path before marking the no-publish gate complete.
 
+## Prepare and tag with one reusable workflow
+
+`prepare-towncrier-release.yaml` runs three jobs. The first selects a tag and writes a Towncrier patch in a checkout
+without the App key. The second applies that patch in another keyless checkout, runs `prek`, and records its digest. The
+last job checks the digest, reads the caller's `release-auth` environment, and uses a repository-scoped App token to
+push the release commit and tag together. Only a dispatch from `main` can reach that job.
+
+```yaml
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    uses:
+      tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      bump: ${{ inputs.bump }}
+      changelog: CHANGELOG.md
+      fragments: changelog.d
+      format: markdown
+      tag-prefix: v
+      annotated: true
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+```
+
+The caller supplies the `release-auth` environment secret by name; the App client ID comes from that environment's
+`RELEASE_APP_CLIENT_ID` variable. The workflow requests Contents write only for the current repository. The caller
+grants its GitHub token Contents and Pull requests read. The keyless jobs install the `release` group from the
+checked-in `pylock.toml`; use `lock` and `python-version` when those paths or versions differ. No job output crosses
+back to the caller. A successful run pushes a tag, which the caller's tag workflow handles.
+
+`bump`, `tag-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, and `annotated` have the same meanings as
+the `prepare-towncrier` inputs below. `dry-run: true` runs the first two jobs at a same-repository PR head and skips the
+App-key job. The caller can place repository-specific checks in a preceding job and make this job depend on it. The
+tag-triggered ecosystem publisher stays in the caller repository.
+
 ## Prepare Towncrier release
 
 `prepare-towncrier` reads a clean checkout, chooses the next version, links fragments to their squash PRs, runs
