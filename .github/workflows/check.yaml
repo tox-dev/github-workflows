@@ -213,10 +213,19 @@ jobs:
     with:
       head-sha: ${{ inputs.head-sha }}
       pull-request: ${{ inputs.pull-request }}
+  external-turbohtml-native:
+    if: github.event_name == 'workflow_dispatch' && inputs.repository == 'tox-dev/turbohtml' && inputs.project-type == 'python'
+    uses: $/.github/workflows/validate-turbohtml-native.yaml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      head-sha: ${{ inputs.head-sha }}
+      pull-request: ${{ inputs.pull-request }}
   gate:
     name: Required checks pass
     if: always()
-    needs: [check, changelog, release-dry-run, prepare-graph-dry-run, release-tools-preview, external-rehearsal, jetbrains-rehearsal, action-rehearsal, quotaline-rehearsal, tox-rehearsal]
+    needs: [check, changelog, release-dry-run, prepare-graph-dry-run, release-tools-preview, external-rehearsal, jetbrains-rehearsal, action-rehearsal, quotaline-rehearsal, tox-rehearsal, external-turbohtml-native]
     runs-on: ubuntu-26.04
     steps:
       - env:
@@ -234,6 +243,7 @@ jobs:
               (.key == "jetbrains-rehearsal" and .value.result == "skipped") or
               (.key == "action-rehearsal" and .value.result == "skipped") or
               (.key == "quotaline-rehearsal" and .value.result == "skipped") or
-              (.key == "tox-rehearsal" and .value.result == "skipped")
+              (.key == "tox-rehearsal" and .value.result == "skipped") or
+              (.key == "external-turbohtml-native" and .value.result == "skipped")
             )
           ' <<<"$NEEDS_JSON"
