@@ -302,3 +302,46 @@ def test_prepare_formats_rst(repository: Path, tmp_path: Path, action_scripts: P
     )
     assert result.returncode == 0, result.stderr
     assert "Add a After feature." in (repository / "CHANGELOG.rst").read_text()
+
+
+def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    project = repository / "pyproject.toml"
+    project.write_text(
+        project.read_text()
+        .replace("CHANGELOG.md", "CHANGELOG.rst")
+        .replace("template.jinja2", "template.rst.jinja2")
+        .replace('name = "Added"', 'name = "Changes"')
+        .replace("title_format = false", 'underlines = ["*", "=", "-"]\ntitle_format = false')
+    )
+    (repository / "CHANGELOG.md").rename(repository / "CHANGELOG.rst")
+    (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n\n.. towncrier release notes start\n")
+    (repository / "changelog.d/+feature.feature.md").rename(repository / "changelog.d/+feature.feature.rst")
+    (repository / ".pre-commit-config.yaml").write_text(
+        "repos:\n  - repo: local\n    hooks:\n      - id: docstrfmt\n"
+        "        name: docstrfmt\n        entry: bash -c true\n"
+        "        language: system\n        files: CHANGELOG.rst\n"
+    )
+    run(repository, "git", "add", "-A")
+    run(repository, "git", "commit", "-m", "Set RST category")
+    run(repository, "git", "push", "origin", "main")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "prepare-towncrier",
+        version="0.2.0",
+        FORMAT="rst",
+        CHANGELOG="CHANGELOG.rst",
+    )
+    assert result.returncode == 0, result.stderr
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        CHANGELOG="CHANGELOG.rst",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Changes\n-------" in (repository / "CHANGELOG.rst").read_text()
