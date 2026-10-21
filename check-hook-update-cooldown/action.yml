@@ -1,0 +1,26 @@
+name: Check hook update cooldown
+description: Require seven days before a pre-commit.ci update pull request can merge
+inputs:
+  repository:
+    description: Repository containing the pull request
+    required: true
+  pull-request:
+    description: Pull request number
+    required: true
+  head-sha:
+    description: Exact pull request head from the triggering event
+    required: true
+  minimum-days:
+    description: Minimum age of the last pull request update
+    default: "7"
+runs:
+  using: composite
+  steps:
+    - name: Check the current pull request
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+        PR_NUMBER: ${{ inputs.pull-request }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        MINIMUM_DAYS: ${{ inputs.minimum-days }}
+      run: bash "$GITHUB_ACTION_PATH/check.sh"

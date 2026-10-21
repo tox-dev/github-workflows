@@ -5,7 +5,6 @@ import ssl
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 import trustme
@@ -58,6 +57,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "verify-pypi-partitions",
         "publish-jetbrains-marketplace",
         "sign-jetbrains-plugin",
+        "check-hook-update-cooldown",
     ):
         action = yaml.safe_load((source / action_name / "action.yml").read_text())
         for index, step in enumerate(action["runs"]["steps"]):
@@ -160,15 +160,6 @@ def action(
         ):
             continue
         command = ["bash", str(script)]
-        if (coverage_binary := os.environ.get("KCOV_BIN")) is not None:
-            output = Path(os.environ["KCOV_OUTPUT"])
-            output.mkdir(parents=True, exist_ok=True)
-            command = [
-                coverage_binary,
-                f"--include-path={action_scripts}",
-                str(output / uuid4().hex),
-                str(script),
-            ]
         result = subprocess.run(
             command,
             cwd=repository,
