@@ -1,0 +1,195 @@
+name: Validate Action release
+on:
+  workflow_call:
+    inputs:
+      head-sha:
+        required: true
+        type: string
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  rehearse:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          repository: tox-dev/action-pre-commit-uv
+          ref: refs/pull/43/head
+      - name: Verify the exact pull request head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ inputs.head-sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(gh api repos/tox-dev/action-pre-commit-uv/pulls/43 --jq .head.sha)" = "$HEAD_SHA"
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: Install locked release tools
+        run: |
+          uv venv --python 3.15 "$RUNNER_TEMP/release-tools"
+          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release pylock.toml
+          echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
+      - name: Add a local release fragment
+        run: |
+          printf 'Fix hook setup for supported Python versions.\n' >changelog.d/+validation-43.bugfix.md
+          git add changelog.d/+validation-43.bugfix.md
+          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com \
+            commit -m 'Validate Action release (#43)'
+      - name: Reject an empty fragment
+        run: |
+          set -euo pipefail
+          : >changelog.d/+validation-43.bugfix.md
+          if error=$(release-creator validate-news --base main 2>&1); then
+            echo '::error::empty fragment was accepted' >&2
+            exit 1
+          fi
+          [[ "$error" == *'empty changelog fragment:'* ]]
+          git restore changelog.d/+validation-43.bugfix.md
+      - name: Reject a missing fragment
+        run: |
+          set -euo pipefail
+          rm changelog.d/+validation-43.bugfix.md
+          if git tag --list | release-creator tags --next auto; then
+            echo '::error::missing fragment was accepted' >&2
+            exit 1
+          fi
+          git restore changelog.d/+validation-43.bugfix.md
+      - name: Reject a malformed fragment name
+        run: |
+          set -euo pipefail
+          mv changelog.d/+validation-43.bugfix.md changelog.d/validation-43.bugfix.md
+          if git tag --list | release-creator tags --next auto; then
+            echo '::error::malformed fragment was accepted' >&2
+            exit 1
+          fi
+          mv changelog.d/validation-43.bugfix.md changelog.d/+validation-43.bugfix.md
+      - name: Reject invalid and older tags
+        run: |
+          set -euo pipefail
+          if release-creator tags v1.1; then
+            echo '::error::invalid tag was accepted' >&2
+            exit 1
+          fi
+          if git tag --list | release-creator tags v1.1.0 --require-newer; then
+            echo '::error::old tag was accepted' >&2
+            exit 1
+          fi
+      - name: Create a local release remote
+        run: |
+          git init --bare "$RUNNER_TEMP/rehearsal.git"
+          git remote add rehearsal "$RUNNER_TEMP/rehearsal.git"
+          git push rehearsal HEAD:refs/heads/main
+      - id: candidate
+        name: Record local candidate
+        run: echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+      - id: prepare
+        uses: $/prepare-towncrier
+        with:
+          tag-prefix: v
+          changelog: CHANGELOG.md
+          fragments: changelog.d
+          format: markdown
+          repository: tox-dev/action-pre-commit-uv
+          patch: ${{ runner.temp }}/release.patch
+      - name: Check candidate version and patch
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$VERSION" = v1.1.1
+          test -s "$RUNNER_TEMP/release.patch"
+          sha256sum "$RUNNER_TEMP/release.patch" >"$RUNNER_TEMP/patch.sha256"
+          git reset --hard HEAD
+      - id: stale_validate
+        name: Reject a stale source SHA
+        uses: $/validate-release-patch
+        continue-on-error: true
+        with:
+          version: ${{ steps.prepare.outputs.version }}
+          patch: ${{ runner.temp }}/release.patch
+          changelog: CHANGELOG.md
+          fragments: changelog.d
+          remote: rehearsal
+          expected-sha: "0000000000000000000000000000000000000000"
+          repository: tox-dev/action-pre-commit-uv
+      - name: Check stale rejection
+        env:
+          OUTCOME: ${{ steps.stale_validate.outcome }}
+        run: test "$OUTCOME" = failure
+      - id: digest_validate
+        name: Reject a changed patch digest
+        uses: $/validate-release-patch
+        continue-on-error: true
+        with:
+          version: ${{ steps.prepare.outputs.version }}
+          patch: ${{ runner.temp }}/release.patch
+          changelog: CHANGELOG.md
+          fragments: changelog.d
+          remote: rehearsal
+          expected-sha: ${{ steps.candidate.outputs.sha }}
+          expected-patch-sha: "0000000000000000000000000000000000000000000000000000000000000000"
+          repository: tox-dev/action-pre-commit-uv
+      - name: Check digest rejection
+        env:
+          OUTCOME: ${{ steps.digest_validate.outcome }}
+        run: test "$OUTCOME" = failure
+      - name: Read candidate patch digest
+        id: digest
+        run: |
+          read -r patch_sha _ <"$RUNNER_TEMP/patch.sha256"
+          echo "sha=$patch_sha" >>"$GITHUB_OUTPUT"
+      - uses: $/validate-release-patch
+        with:
+          version: ${{ steps.prepare.outputs.version }}
+          patch: ${{ runner.temp }}/release.patch
+          changelog: CHANGELOG.md
+          fragments: changelog.d
+          remote: rehearsal
+          expected-sha: ${{ steps.candidate.outputs.sha }}
+          expected-patch-sha: ${{ steps.digest.outputs.sha }}
+          repository: tox-dev/action-pre-commit-uv
+      - name: Commit and tag locally
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com \
+            commit -m "release $VERSION"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push rehearsal HEAD:refs/heads/main "refs/tags/$VERSION"
+      - uses: $/render-release-notes
+        with:
+          tag: ${{ steps.prepare.outputs.version }}
+          changelog: CHANGELOG.md
+          repository: tox-dev/action-pre-commit-uv
+          output: ${{ runner.temp }}/release-notes.md
+      - name: Check rendered notes
+        run: |
+          set -euo pipefail
+          grep -Fq '### Bug fixes' "$RUNNER_TEMP/release-notes.md"
+          grep -Fq 'v1.1.0...v1.1.1' "$RUNNER_TEMP/release-notes.md"
+          grep -Fq 'by @' "$RUNNER_TEMP/release-notes.md"
+      - name: Check floating tag targets locally
+        run: |
+          set -euo pipefail
+          old_minor=$(git rev-parse 'v1.0^{commit}')
+          git tag -f v1 HEAD
+          git tag -f v1.1 HEAD
+          test "$(git rev-parse 'v1^{commit}')" = "$(git rev-parse 'v1.1.1^{commit}')"
+          test "$(git rev-parse 'v1.1^{commit}')" = "$(git rev-parse 'v1.1.1^{commit}')"
+          test "$(git rev-parse 'v1.0^{commit}')" = "$old_minor"
+          git show-ref --tags >"$RUNNER_TEMP/tag-plan.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: action-release-rehearsal
+          path: |
+            ${{ runner.temp }}/release.patch
+            ${{ runner.temp }}/patch.sha256
+            ${{ runner.temp }}/release-notes.md
+            ${{ runner.temp }}/tag-plan.txt
+          if-no-files-found: error

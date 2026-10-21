@@ -101,6 +101,7 @@ jobs:
         env:
           OUTCOME: ${{ steps.dirty_prepare.outcome }}
         run: |
+          set -euo pipefail
           test "$OUTCOME" = failure
           rm untracked-release-file
       - id: candidate
