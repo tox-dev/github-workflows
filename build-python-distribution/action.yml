@@ -1,11 +1,8 @@
 name: Build Python distribution
-description: Check the tagged source with locked tools, then build a wheel and sdist
+description: Build a wheel and sdist from source checked in a separate job
 inputs:
-  lock:
-    description: pylock.toml containing the release dependency group
-    default: pylock.toml
   python-version:
-    description: Python version for release tooling and uv build
+    description: Python version for uv build
     default: "3.15"
   source:
     description: Distribution source directory
@@ -16,15 +13,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install locked release tools
-      shell: bash
-      env:
-        LOCK: ${{ inputs.lock }}
-        PYTHON_VERSION: ${{ inputs.python-version }}
-      run: |
-        set -euo pipefail
-        uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/build-tools"
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/build-tools/bin/python" --group release "$LOCK"
     - name: Require clean tagged source
       shell: bash
       run: |
@@ -32,22 +20,16 @@ runs:
           echo '::error::tagged source is dirty' >&2
           exit 1
         fi
-    - name: Run tagged source checks
+    - id: cutoff
+      name: Set build dependency age cutoff
       shell: bash
-      run: >-
-        "$RUNNER_TEMP/build-tools/bin/prek" run --all-files
-    - name: Check tagged source remains clean
-      shell: bash
-      run: |
-        if [[ -n $(git status --porcelain) ]]; then
-          echo '::error::prek changed the tagged source' >&2
-          exit 1
-        fi
+      run: echo "timestamp=$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')" >>"$GITHUB_OUTPUT"
     - name: Build wheel and sdist
       shell: bash
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
         SOURCE: ${{ inputs.source }}
         OUT_DIR: ${{ inputs.out-dir }}
+        UV_EXCLUDE_NEWER: ${{ steps.cutoff.outputs.timestamp }}
       run: |
         uv build --python "$PYTHON_VERSION" --python-preference only-managed --sdist --wheel "$SOURCE" --out-dir "$OUT_DIR"

@@ -96,10 +96,10 @@ repositories can use different upgrade days without copying the jobs. `commit-me
 `pull-request-body` let a caller retain its existing dependency PR wording.
 
 To check the same lock refresh on a PR, call `refresh-release-lock` in a job with Contents read permission. The reusable
-updater calls this Action in its generator job. It resolves the project through uv, rewrites the local `pylock.toml`,
-installs its `release` group, and runs `prek`. It rejects changes to any other file, including `uv.lock`. Its `changed`
-output is `true` when a lock differs from the checkout; then it writes `$RUNNER_TEMP/lock.patch`. The Action does not
-push a branch, open a PR, or request a write token.
+updater calls this Action in its generator job. It excludes dependencies published in the last seven days, resolves the
+project through uv, rewrites the local `pylock.toml`, installs its `release` group, and runs `prek`. It rejects changes
+to any other file, including `uv.lock`. Its `changed` output is `true` when a lock differs from the checkout; then it
+writes `$RUNNER_TEMP/lock.patch`. The Action does not push a branch, open a PR, or request a write token.
 
 ```yaml
 release-tools-preview:
@@ -127,16 +127,18 @@ read-only permissions even when that job would skip, so use the composite Action
 ## Start with a caller
 
 The [release preparation workflow](.github/workflows/prepare-release.yaml) in this repository is a complete caller. Its
-`assemble` job creates a patch without a write credential. Its `push` job applies and checks that patch before minting a
-repository-scoped App token. Copy those jobs, then set the changelog path, fragment directory, commit message, and tag
-style. Replace this repository's relative `uses: $/…` references with a full release commit SHA. In the examples below,
-`SHA` means that release commit and `TOKEN_ACTION_SHA` means the pinned token Action commit in the linked workflow.
+`assemble` job creates a patch, its `validate` job runs release checks without a key, and its `push` job verifies the
+patch digest and file modes before minting a repository-scoped App token. Copy those jobs, then set the changelog path,
+fragment directory, commit message, and tag style. Replace this repository's relative `uses: $/…` references with a full
+release commit SHA. In the examples below, `SHA` means that release commit and `TOKEN_ACTION_SHA` means the pinned token
+Action commit in the linked workflow.
 
-Both jobs need a full checkout (`fetch-depth: 0`, `persist-credentials: false`) and `release-creator`, Towncrier, and
-`prek` installed from the caller's checked-in `pylock.toml`. Preparation needs `contents: read` and
-`pull-requests: read` to resolve PR authors. The `push` job uses the `release-auth` environment with
-`RELEASE_APP_PRIVATE_KEY` and the repository variable `RELEASE_APP_CLIENT_ID`. Install the App on that repository only,
-with Contents write and Metadata read. Give it the necessary branch and tag ruleset bypass.
+All three jobs need a full checkout (`fetch-depth: 0`, `persist-credentials: false`). Only `assemble` and `validate`
+install `release-creator`, Towncrier, and `prek` from the caller's checked-in `pylock.toml`. Preparation needs
+`contents: read` and `pull-requests: read` to resolve PR authors. The `push` job uses the `release-auth` environment
+with `RELEASE_APP_PRIVATE_KEY` and the repository variable `RELEASE_APP_CLIENT_ID`. Restrict `release-auth` to the
+release branch. Install the App on that repository only, with Contents write and Metadata read. Give it the necessary
+branch and tag ruleset bypass.
 
 ```text
 main + fragments
@@ -144,10 +146,9 @@ main + fragments
        ▼
 prepare-towncrier ── version + patch ──► upload artifact
                                              │
-                                       download artifact
+                                       validate + hash (no key)
                                              │
-                                             ▼
-                                   validate-release-patch
+                                       apply + verify hash
                                              │
                                        mint App token
                                              │
@@ -158,8 +159,8 @@ prepare-towncrier ── version + patch ──► upload artifact
 The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-level workflow, in a separate job with
 `id-token: write`:
 [PyPI does not support trusted publishing inside reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/#reusable-workflows-on-github).
-Run `prek` on the tagged source before publication. Repositories with the standard `uv` wheel and sdist build can use
-`build-python-distribution` in both the tag publisher and the PR rehearsal. The
+Run `prek` in a separate read-only job before building the tagged source. Repositories with the standard `uv` wheel and
+sdist build can use `build-python-distribution` in both the tag publisher and the PR rehearsal. The
 [self-release workflow](.github/workflows/release.yaml) shows the GitHub Release path; callers keep their ecosystem
 uploads. The [read-only validation workflow](.github/workflows/validate-release.yaml) is called from both this
 repository's PR check and tag release. It builds a local candidate for PRs, checks the tagged source, and renders the
@@ -300,8 +301,10 @@ those changes. The checkout must be clean before this Action starts.
 ## Validate release patch
 
 `validate-release-patch` starts from a fresh checkout of the original branch commit. It rejects a branch that moved,
-applies the uploaded patch, checks its changed paths, renders the requested version with `release-creator`, and runs
-`prek`. It leaves the patch staged for the commit Action. It does not need a write token.
+applies the uploaded patch, checks its changed paths and file modes, renders the requested version with
+`release-creator`, and runs `prek`. It leaves the patch staged for the commit Action. Run it in a keyless validation
+job. The App-key job repeats the branch, digest, path, and mode checks with `checks: "false"`, without installing
+release tools.
 
 ```yaml
   - uses: tox-dev/github-workflows/validate-release-patch@SHA
@@ -323,9 +326,12 @@ applies the uploaded patch, checks its changed paths, renders the requested vers
   preparation used another commit.
 - `repository`: GitHub owner/repository used to check the changelog's links; defaults to the workflow caller. The
   external rehearsal sets this to the consumer repository.
+- `expected-patch-sha`: SHA-256 digest of the patch from a separate keyless validation job. The Action rejects a
+  different downloaded patch before applying it.
+- `checks`: `true` (default) runs `release-creator` and `prek`; `false` only applies and checks the validated patch.
 
-**Output:** No named output. **Working-tree effect:** Applies and stages the patch. A failed `prek` run, unexpected
-path, or modification by `prek` fails the job before a write credential is minted.
+**Output:** No named output. **Working-tree effect:** Applies and stages the patch. A failed `prek` run, unexpected path
+or mode, or modification by `prek` fails the keyless job. The key job accepts only the validated digest.
 
 ## Commit and tag release
 
@@ -364,30 +370,27 @@ branch and tag ruleset bypass. A stale branch, invalid tag, or ruleset rejection
 
 ## Build Python distribution
 
-`build-python-distribution` installs the caller's release group from `pylock.toml`, runs `prek` on the tagged tree, then
-builds a wheel and sdist with `uv`. Call it after `actions/checkout` and `astral-sh/setup-uv`. The caller verifies the
-tag and changelog section before this Action. Use the same Action and inputs after the local tag in the PR rehearsal;
-this executes the build steps used by the tag publisher without publishing the artifacts.
+`build-python-distribution` builds a wheel and sdist with `uv`. Call it after a separate read-only `prek` job,
+`actions/checkout`, and `astral-sh/setup-uv`. The caller verifies the tag and changelog section before this Action. Use
+the same Action and inputs after the local tag in the PR rehearsal; this executes the build steps used by the tag
+publisher without publishing the artifacts.
 
 ```yaml
   - uses: tox-dev/github-workflows/build-python-distribution@SHA
     with:
-      lock: pylock.toml
       python-version: '3.15'
       source: .
       out-dir: dist
 ```
 
-- `lock`: Path to the caller's `pylock.toml`; default `pylock.toml`. Its `release` group must contain `prek` and every
-  package needed by the caller's hooks.
-- `python-version`: Managed Python used for release tools and the build; default `3.15`.
+- `python-version`: Managed Python used for the build; default `3.15`.
 - `source`: Source directory passed to `uv build`; default `.`.
 - `out-dir`: Directory for the wheel and sdist; default `dist`. The caller uploads files from this directory.
 
-**Output:** No named output. **Working-tree effect:** Creates a release-tool environment under `runner.temp` and writes
-a wheel and sdist to `out-dir`. The checkout must be clean before the Action starts; it fails if `prek` fails or changes
-a tracked or untracked source file. Use a separate build path for repositories whose build command differs from
-`uv build --sdist --wheel`.
+**Output:** No named output. **Working-tree effect:** Writes a wheel and sdist to `out-dir`. The checkout must be clean
+before the Action starts. `UV_EXCLUDE_NEWER` keeps newly published build backends out of the build for seven days; the
+backends are not yet pinned in the caller's `pylock.toml`. Use a separate build path for repositories whose build
+command differs from `uv build --sdist --wheel`.
 
 ## Render GitHub Release notes
 

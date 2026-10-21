@@ -62,12 +62,8 @@ jobs:
           echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - name: Check repository formatting
         run: prek run --all-files
-      - name: Check Python formatting
-        run: ruff format --check .
-      - name: Check Python lint
-        run: ruff check . --output-format=concise
       - name: Check Python types
-        run: ty check tests
+        run: tox run -e type
       - name: Install shell coverage tool
         run: |
           sudo apt-get update

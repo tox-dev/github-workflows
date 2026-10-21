@@ -1,0 +1,8 @@
+requires = ["tox>=4.64.7", "tox-uv>=1.36.1"]
+env_list = ["type"]
+
+[env.type]
+description = "type-check Action tests"
+skip_install = true
+dependency_groups = ["test"]
+commands = [["ty", "check", "--python-platform", "all", "--error", "all", "--output-format", "concise", "tests"]]

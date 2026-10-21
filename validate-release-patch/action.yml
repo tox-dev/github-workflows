@@ -1,5 +1,5 @@
 name: Validate release patch
-description: Apply the prepared patch to the original main commit and rerun prek
+description: Check and apply a prepared release patch, with optional release-tool validation
 inputs:
   version:
     description: Release version
@@ -25,6 +25,12 @@ inputs:
   repository:
     description: GitHub owner/repository for the rendered changelog
     default: ""
+  expected-patch-sha:
+    description: SHA-256 digest from a separate keyless validation job
+    default: ""
+  checks:
+    description: Run release-creator and prek after applying the patch
+    default: "true"
 runs:
   using: composite
   steps:
@@ -52,8 +58,23 @@ runs:
       shell: bash
       env:
         PATCH: ${{ inputs.patch }}
+        EXPECTED_PATCH_SHA: ${{ inputs.expected-patch-sha }}
+        CHECKS: ${{ inputs.checks }}
       run: |
         set -euo pipefail
+        if [[ "$CHECKS" != true && "$CHECKS" != false ]]; then
+          echo '::error::checks must be true or false' >&2
+          exit 1
+        fi
+        if [[ "$CHECKS" == false && -z "$EXPECTED_PATCH_SHA" ]]; then
+          echo '::error::skipping release checks requires a validated patch digest' >&2
+          exit 1
+        fi
+        read -r patch_sha _ < <(sha256sum "$PATCH")
+        if [[ -n "$EXPECTED_PATCH_SHA" && "$patch_sha" != "$EXPECTED_PATCH_SHA" ]]; then
+          echo '::error::release patch differs from the validated artifact' >&2
+          exit 1
+        fi
         git apply --check "$PATCH"
         git apply --index "$PATCH"
         if git diff --cached --quiet; then
@@ -79,7 +100,24 @@ runs:
           echo "::error::release patch does not change $CHANGELOG" >&2
           exit 1
         fi
+    - name: Check release patch file modes
+      shell: bash
+      env:
+        FRAGMENTS: ${{ inputs.fragments }}
+      run: |
+        set -euo pipefail
+        while IFS= read -r -d '' metadata && IFS= read -r -d '' path; do
+          read -ra fields <<<"$metadata"
+          if [[ "${fields[1]}" == 000000 && "${fields[4]}" == D && "$path" == "$FRAGMENTS/"* ]]; then
+            continue
+          fi
+          if [[ "${fields[1]}" != 100644 ]]; then
+            echo "::error::unexpected release file mode in $path: ${fields[1]}" >&2
+            exit 1
+          fi
+        done < <(git diff --cached --raw --no-renames -z)
     - name: Check rendered release section
+      if: inputs.checks == 'true'
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
@@ -91,6 +129,7 @@ runs:
           exit 1
         fi
     - name: Run prek on release patch
+      if: inputs.checks == 'true'
       shell: bash
       run: |
         set -euo pipefail

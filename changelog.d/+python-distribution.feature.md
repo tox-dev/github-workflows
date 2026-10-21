@@ -1,1 +1,1 @@
-Build a Python wheel and sdist from tagged source with the caller's locked release tools and `prek` checks.
+Build a Python wheel and sdist after a separate tagged-source check, with a seven-day cutoff for build dependencies.

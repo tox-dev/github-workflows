@@ -3,17 +3,18 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import cast
 
 import pytest
 import yaml
 
 
 def test_action_shell_coverage() -> None:
-    if not (merged := os.getenv("KCOV_MERGED")):
+    if (merged := os.getenv("KCOV_MERGED")) is None:
         pytest.skip("kcov merge is available only in the runner coverage job")
     reports = list(Path(merged).rglob("codecov.json"))
     assert len(reports) == 1
-    coverage: dict[str, dict[str, bool]] = json.loads(reports[0].read_text())["coverage"]
+    coverage = cast("dict[str, dict[str, bool]]", json.loads(reports[0].read_text())["coverage"])
     expected = {
         f"{path.parent.name}-{index}.sh"
         for path in Path().glob("*/action.yml")

@@ -62,7 +62,7 @@ def test_label_bot_news_updates_label(
     prefix = "/api/v3/repos/tox-dev/fixture"
     server.expect_request(f"{prefix}/pulls/1/files", method="GET").respond_with_json(files)
     server.expect_request(f"{prefix}/issues/1/labels", method="GET").respond_with_json(labels)
-    if write_method:
+    if write_method is not None:
         uri = f"{prefix}/issues/1/labels" + ("/skip news" if write_method == "DELETE" else "")
         server.expect_request(uri, method=write_method).respond_with_json(labels)
     result = action(
@@ -80,7 +80,9 @@ def test_label_bot_news_updates_label(
         **environment,
     )
     assert result.returncode == 0, result.stderr
-    assert [request.method for request, _ in server.log] == ["GET", "GET"] + ([write_method] if write_method else [])
+    assert [request.method for request, _ in server.log] == ["GET", "GET"] + (
+        [write_method] if write_method is not None else []
+    )
 
 
 def test_label_bot_news_ignores_human(

@@ -17,9 +17,7 @@ Run the checks before pushing:
 
 ```bash
 prek run --all-files
-ruff format --check .
-ruff check .
-ty check tests
+tox run -e type
 pytest -q
 ```
 

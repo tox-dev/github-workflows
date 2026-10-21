@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tomllib
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -55,7 +56,7 @@ def test_upgrade_exports_every_group(lock_repository: Path, tmp_path: Path, upgr
     assert installed.returncode == 0, installed.stderr
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-1.sh",
+        upgrade_scripts / "refresh-release-lock-2.sh",
         tmp_path,
         LOCK="pylock.toml",
         PYTHON_VERSION="3.15",
@@ -63,6 +64,18 @@ def test_upgrade_exports_every_group(lock_repository: Path, tmp_path: Path, upgr
     assert result.returncode == 0, result.stderr
     lock = tomllib.loads((lock_repository / "pylock.toml").read_text())
     assert (lock["requires-python"], lock["dependency-groups"]) == (">=3.15", ["project-runtime", "release", "test"])
+
+
+def test_upgrade_sets_seven_day_cutoff(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+    result = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-1.sh",
+        tmp_path,
+        GITHUB_OUTPUT=str(tmp_path / "output"),
+    )
+    assert result.returncode == 0, result.stderr
+    cutoff = datetime.fromisoformat((tmp_path / "output").read_text().removeprefix("timestamp=").strip())
+    assert abs(datetime.now(UTC) - cutoff - timedelta(days=7)) < timedelta(minutes=1)
 
 
 @pytest.mark.parametrize("changed_path", [None, "pylock.toml", "uv.lock"], ids=["unchanged", "pylock", "uv-lock"])
@@ -74,11 +87,11 @@ def test_upgrade_emits_patch_only_for_change(
     (lock_repository / "uv.lock").write_text("before\n")
     run(lock_repository, "git", "add", ".")
     run(lock_repository, "git", "commit", "-m", "Add lock")
-    if changed_path:
+    if changed_path is not None:
         (lock_repository / changed_path).write_text("after\n")
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-5.sh",
+        upgrade_scripts / "refresh-release-lock-6.sh",
         tmp_path,
         LOCK="pylock.toml",
         GITHUB_OUTPUT=str(tmp_path / "output"),
@@ -118,21 +131,21 @@ def test_upgrade_checks_refreshed_lock(
     )
     run(lock_repository, "git", "add", ".")
     run(lock_repository, "git", "commit", "-m", "Add release tools")
-    if unrelated:
+    if unrelated is not None:
         (lock_repository / unrelated).write_text("after\n")
     installed = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK="pylock.toml",
         PYTHON_VERSION="3.15",
     )
     assert installed.returncode == 0, installed.stderr
-    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-3.sh", tmp_path)
+    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-4.sh", tmp_path)
     assert checked.returncode == 0, checked.stderr
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-4.sh",
+        upgrade_scripts / "refresh-release-lock-5.sh",
         tmp_path,
         LOCK="pylock.toml",
     )
@@ -162,6 +175,24 @@ def test_upgrade_rejects_unrelated_patch(
     assert ("unexpected lock path" in result.stderr) == (path != "pylock.toml")
 
 
+def test_upgrade_rejects_executable_lock(lock_repository: Path, tmp_path: Path, publish_scripts: Path) -> None:
+    lock = lock_repository / "pylock.toml"
+    lock.write_text('lock-version = "1.0"\n')
+    run(lock_repository, "git", "add", "pylock.toml")
+    run(lock_repository, "git", "commit", "-m", "Add lock")
+    lock.chmod(0o755)
+    patch = run(lock_repository, "git", "diff", "--binary", "--", "pylock.toml").stdout
+    run(lock_repository, "git", "restore", "pylock.toml")
+    patch_dir = tmp_path / "release-tools-lock"
+    patch_dir.mkdir()
+    (patch_dir / "lock.patch").write_text(patch)
+    applied = execute(lock_repository, publish_scripts / "publish-apply-lock-patch.sh", tmp_path)
+    assert applied.returncode == 0, applied.stderr
+    result = execute(lock_repository, publish_scripts / "publish-check-lock-patch-file-mode.sh", tmp_path)
+    assert result.returncode != 0
+    assert "unexpected lock file mode" in result.stderr
+
+
 @pytest.mark.parametrize(
     ("branch", "base", "accepted"),
     [("automation/update-release-tools", "main", True), ("main", "main", False), ("bad branch", "main", False)],
@@ -182,7 +213,7 @@ def test_upgrade_rejects_unsafe_branch(
 
 def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) -> subprocess.CompletedProcess[str]:
     command = ["bash", str(script)]
-    if script.name.startswith("refresh-release-lock-") and (coverage_binary := os.environ.get("KCOV_BIN")):
+    if script.name.startswith("refresh-release-lock-") and (coverage_binary := os.environ.get("KCOV_BIN")) is not None:
         output = Path(os.environ["KCOV_OUTPUT"])
         output.mkdir(parents=True, exist_ok=True)
         command = [coverage_binary, f"--include-path={script.parent}", str(output / uuid4().hex), str(script)]

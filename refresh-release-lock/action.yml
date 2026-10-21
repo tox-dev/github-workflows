@@ -23,11 +23,16 @@ runs:
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/lock-exporter"
         uv pip sync --preview-features pylock --python "$RUNNER_TEMP/lock-exporter/bin/python" \
           --group release "$GITHUB_ACTION_PATH/../pylock.toml"
+    - id: cutoff
+      name: Set dependency age cutoff
+      shell: bash
+      run: echo "timestamp=$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')" >>"$GITHUB_OUTPUT"
     - name: Refresh full project lock
       shell: bash
       env:
         LOCK: ${{ inputs.lock }}
         PYTHON_VERSION: ${{ inputs.python-version }}
+        UV_EXCLUDE_NEWER: ${{ steps.cutoff.outputs.timestamp }}
       run: |
         "$RUNNER_TEMP/lock-exporter/bin/release-creator" locks --output "$LOCK" \
           --tool-python ">=$PYTHON_VERSION"

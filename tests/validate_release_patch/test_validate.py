@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hashlib import sha256
 from textwrap import dedent
 lazy from pathlib import Path
 
@@ -118,6 +119,46 @@ def test_validate_rejects_noop_patch(repository: Path, tmp_path: Path, action_sc
     assert "release patch contains no changes" in result.stderr
 
 
+def test_validate_rejects_changed_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        EXPECTED_PATCH_SHA="0" * 64,
+    )
+    assert result.returncode != 0
+    assert "release patch differs from the validated artifact" in result.stderr
+
+
+def test_validate_requires_digest_when_checks_skipped(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0", CHECKS="false")
+    assert result.returncode != 0
+    assert "skipping release checks requires a validated patch digest" in result.stderr
+
+
+def test_validate_key_job_uses_only_checked_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        CHECKS="false",
+        EXPECTED_PATCH_SHA=sha256((tmp_path / "release.patch").read_bytes()).hexdigest(),
+        PATH="/usr/bin:/bin",
+    )
+    assert result.returncode == 0, result.stderr
+    assert run(repository, "git", "diff", "--cached", "--name-only").stdout.strip()
+
+
 def test_validate_rejects_unexpected_path(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / "pyproject.toml").write_text((repository / "pyproject.toml").read_text() + "\n# changed\n")
     (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
@@ -125,6 +166,36 @@ def test_validate_rejects_unexpected_path(repository: Path, tmp_path: Path, acti
     result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "unexpected release path" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "file_mode",
+    [pytest.param("executable", id="executable"), pytest.param("symlink", id="symlink")],
+)
+def test_validate_rejects_unsafe_file_mode(
+    repository: Path, tmp_path: Path, action_scripts: Path, file_mode: str
+) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
+    if file_mode == "executable":
+        (repository / "CHANGELOG.md").chmod(0o755)
+    else:
+        (repository / "changelog.d").mkdir(exist_ok=True)
+        (repository / "changelog.d/+link.feature.md").symlink_to("../CHANGELOG.md")
+        run(repository, "git", "add", "changelog.d/+link.feature.md")
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
+    assert result.returncode != 0
+    assert "unexpected release file mode" in result.stderr
+
+
+def test_validate_rejects_removed_changelog(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    (repository / "CHANGELOG.md").unlink()
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
+    assert result.returncode != 0
+    assert "unexpected release file mode in CHANGELOG.md" in result.stderr
 
 
 def test_validate_rejects_missing_heading(repository: Path, tmp_path: Path, action_scripts: Path) -> None:

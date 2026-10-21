@@ -113,6 +113,8 @@ def action(
             "GITHUB_REPOSITORY": "tox-dev/fixture",
             "GITHUB_SHA": run(repository, "git", "rev-parse", "HEAD").stdout.strip(),
             "EXPECTED_SHA": run(repository, "git", "rev-parse", "HEAD").stdout.strip(),
+            "EXPECTED_PATCH_SHA": "",
+            "CHECKS": "true",
             "BRANCH": "main",
             "REMOTE": "origin",
             "ANNOTATED": "false",
@@ -129,9 +131,15 @@ def action(
         return subprocess.CompletedProcess([], 0, "", "")
     stdout = []
     stderr = []
-    for script in sorted(action_scripts.glob(f"{name}-*.sh")):
+    scripts = sorted(action_scripts.glob(f"{name}-*.sh"), key=lambda path: int(path.stem.rsplit("-", 1)[1]))
+    assert scripts, name
+    steps = yaml.safe_load((Path(__file__).resolve().parents[1] / name / "action.yml").read_text())["runs"]["steps"]
+    command = ["bash", str(scripts[0])]
+    for index, script in enumerate(scripts):
+        if steps[index].get("if") == "inputs.checks == 'true'" and environment["CHECKS"] == "false":
+            continue
         command = ["bash", str(script)]
-        if coverage_binary := os.environ.get("KCOV_BIN"):
+        if (coverage_binary := os.environ.get("KCOV_BIN")) is not None:
             output = Path(os.environ["KCOV_OUTPUT"])
             output.mkdir(parents=True, exist_ok=True)
             command = [

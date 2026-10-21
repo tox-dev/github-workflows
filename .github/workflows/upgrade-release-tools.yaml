@@ -98,6 +98,16 @@ jobs:
             fi
           done < <(git diff --cached --name-only)
           git diff --cached --check
+      - name: Check lock patch file mode
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' metadata && IFS= read -r -d '' path; do
+            read -ra fields <<<"$metadata"
+            if [[ "${fields[1]}" != 100644 ]]; then
+              echo "::error::unexpected lock file mode in $path: ${fields[1]}" >&2
+              exit 1
+            fi
+          done < <(git diff --cached --raw --no-renames -z)
       - name: Commit refreshed lock
         env:
           COMMIT_MESSAGE: ${{ inputs.commit-message }}

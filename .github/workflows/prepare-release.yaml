@@ -33,7 +33,7 @@ jobs:
       - name: Install locked release tools
         run: |
           uv venv --python 3.15 .venv
-          uv pip sync --preview-features pylock --python .venv/bin/python --group release --group test pylock.toml
+          uv pip sync --preview-features pylock --python .venv/bin/python --group release pylock.toml
           echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - id: prepare
         uses: $/prepare-towncrier
@@ -47,12 +47,13 @@ jobs:
           name: release-patch
           path: ${{ runner.temp }}/release.patch
           if-no-files-found: error
-  push:
+  validate:
     needs: assemble
     runs-on: ubuntu-26.04
-    environment: release-auth
     permissions:
       contents: read
+    outputs:
+      patch-sha: ${{ steps.digest.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,7 +70,7 @@ jobs:
       - name: Install locked release tools
         run: |
           uv venv --python 3.15 .venv
-          uv pip sync --preview-features pylock --python .venv/bin/python --group release --group test pylock.toml
+          uv pip sync --preview-features pylock --python .venv/bin/python --group release pylock.toml
           echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - uses: $/validate-release-patch
         with:
@@ -77,6 +78,34 @@ jobs:
           patch: ${{ runner.temp }}/release-patch/release.patch
           changelog: CHANGELOG.md
           fragments: changelog.d
+      - name: Record validated patch digest
+        id: digest
+        run: |
+          read -r patch_sha _ < <(sha256sum "$RUNNER_TEMP/release-patch/release.patch")
+          echo "sha=$patch_sha" >>"$GITHUB_OUTPUT"
+  push:
+    needs: [assemble, validate]
+    runs-on: ubuntu-26.04
+    environment: release-auth
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-patch
+          path: ${{ runner.temp }}/release-patch
+      - uses: $/validate-release-patch
+        with:
+          version: ${{ needs.assemble.outputs.version }}
+          patch: ${{ runner.temp }}/release-patch/release.patch
+          changelog: CHANGELOG.md
+          fragments: changelog.d
+          expected-patch-sha: ${{ needs.validate.outputs.patch-sha }}
+          checks: "false"
       - id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from textwrap import dedent
-from typing import Final
 lazy from pathlib import Path
 
 import pytest
 from conftest import action, run
-
-_RELEASE_LOCK: Final[Path] = Path(__file__).resolve().parents[2] / "pylock.toml"
 
 
 @pytest.fixture
@@ -46,7 +43,6 @@ def test_build_python_distribution_creates_wheel_and_sdist(
         action_scripts,
         "build-python-distribution",
         version="0.2.0",
-        LOCK=str(_RELEASE_LOCK),
         PYTHON_VERSION="3.15",
         SOURCE=".",
         OUT_DIR=str(tmp_path / "dist"),
@@ -69,7 +65,6 @@ def test_build_python_distribution_rejects_dirty_source(
         action_scripts,
         "build-python-distribution",
         version="0.2.0",
-        LOCK=str(_RELEASE_LOCK),
         PYTHON_VERSION="3.15",
         SOURCE=".",
         OUT_DIR=str(tmp_path / "dist"),
@@ -78,7 +73,7 @@ def test_build_python_distribution_rejects_dirty_source(
     assert "tagged source is dirty" in result.stderr
 
 
-def test_build_python_distribution_rejects_generated_source(
+def test_build_python_distribution_does_not_run_hooks(
     build_repository: Path, tmp_path: Path, action_scripts: Path
 ) -> None:
     config = build_repository / ".pre-commit-config.yaml"
@@ -91,10 +86,10 @@ def test_build_python_distribution_rejects_generated_source(
         action_scripts,
         "build-python-distribution",
         version="0.2.0",
-        LOCK=str(_RELEASE_LOCK),
         PYTHON_VERSION="3.15",
         SOURCE=".",
         OUT_DIR=str(tmp_path / "dist"),
         RUNNER_TEMP=str(tmp_path),
     )
-    assert "prek changed the tagged source" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert not (build_repository / "generated-file").exists()

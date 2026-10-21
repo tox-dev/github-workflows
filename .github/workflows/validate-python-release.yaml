@@ -61,7 +61,34 @@ on:
 permissions:
   contents: read
 jobs:
+  source-check:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.head-sha || github.event.pull_request.head.sha || github.sha }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: ${{ inputs.python-version }}
+          enable-cache: false
+      - name: Install locked check tools
+        env:
+          LOCK: ${{ inputs.lock }}
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: |
+          uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/release-tools"
+          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release "$LOCK"
+      - name: Run tagged source checks
+        run: >-
+          "$RUNNER_TEMP/release-tools/bin/prek" run --all-files
+      - name: Check source remains clean
+        run: test -z "$(git status --porcelain)"
   validate:
+    needs: source-check
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -408,7 +435,6 @@ jobs:
           output: ${{ runner.temp }}/${{ github.event_name == 'push' && 'release-notes.md' || 'tag-preview-notes.md' }}
       - uses: $/build-python-distribution
         with:
-          lock: ${{ inputs.lock }}
           python-version: ${{ inputs.python-version }}
           source: ${{ inputs.source }}
       - name: Prepare contributor fixture
