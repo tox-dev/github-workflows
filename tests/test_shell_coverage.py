@@ -16,7 +16,9 @@ def check_action_shell_coverage(report: Path, expected: set[str]) -> None:
         if Path(path).parent.name.startswith("action-steps")
     }
     assert set(coverage) == expected
-    assert all(lines and all(lines.values()) for lines in coverage.values())
+    uncovered = {path: [line for line, covered in lines.items() if not covered] for path, lines in coverage.items()}
+    assert all(coverage.values())
+    assert not any(uncovered.values()), uncovered
 
 
 def test_action_shell_coverage() -> None:
