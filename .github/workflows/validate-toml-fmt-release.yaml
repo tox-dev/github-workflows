@@ -1,0 +1,145 @@
+name: Validate toml-fmt release
+on:
+  workflow_call:
+    inputs:
+      repository:
+        required: true
+        type: string
+      head-sha:
+        required: true
+        type: string
+      pull-request:
+        required: true
+        type: string
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  rehearse:
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [pyproject-fmt, tox-toml-fmt, toml-fmt-common]
+    steps:
+      - name: Limit rehearsal target
+        env:
+          REPOSITORY: ${{ inputs.repository }}
+          PR_NUMBER: ${{ inputs.pull-request }}
+        run: test "$REPOSITORY/$PR_NUMBER" = tox-dev/toml-fmt/488
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository }}
+          ref: refs/pull/${{ inputs.pull-request }}/head
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact pull request head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ inputs.repository }}
+          PR_NUMBER: ${{ inputs.pull-request }}
+          HEAD_SHA: ${{ inputs.head-sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)" = "$HEAD_SHA"
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        if: matrix.package != 'toml-fmt-common'
+        with:
+          cache: false
+      - uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3.5.0
+        if: matrix.package != 'toml-fmt-common'
+        with:
+          crate: cargo-edit
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.15'
+          enable-cache: false
+      - name: Add a local named fragment
+        env:
+          PACKAGE: ${{ matrix.package }}
+          PR_NUMBER: ${{ inputs.pull-request }}
+        run: |
+          printf 'Exercise the %s release path.\n' "$PACKAGE" >"changelog.d/$PACKAGE/+rehearsal.feature.md"
+          git add "changelog.d/$PACKAGE/+rehearsal.feature.md"
+          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com commit -m "Validate release (#$PR_NUMBER)"
+      - name: Link the local squash commit
+        env:
+          PACKAGE: ${{ matrix.package }}
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --locked --python 3.15 --no-default-groups --group release release-creator fragments --directory "changelog.d/$PACKAGE" --repository tox-dev/toml-fmt --git --resolve-authors
+      - name: Check all version choices
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          for bump in auto major minor patch; do
+            git tag --list "$PACKAGE/*" | cut -d/ -f2 | uv run --locked --python 3.15 --no-default-groups --group release release-creator tags --next "$bump" --directory "changelog.d/$PACKAGE"
+          done
+      - name: Select release version
+        id: version
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          version=$(git tag --list "$PACKAGE/*" | cut -d/ -f2 | uv run --locked --python 3.15 --no-default-groups --group release release-creator tags --next auto --directory "changelog.d/$PACKAGE")
+          printf 'version=%s\ntag=%s/%s\n' "$version" "$PACKAGE" "$version" >>"$GITHUB_OUTPUT"
+      - name: Bump Rust distribution
+        if: matrix.package != 'toml-fmt-common'
+        env:
+          PACKAGE: ${{ matrix.package }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: cargo set-version -p "$PACKAGE" "$VERSION"
+      - name: Bump Python distribution
+        if: matrix.package == 'toml-fmt-common'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: uv version --package toml-fmt-common "$VERSION" --no-sync
+      - name: Regenerate Rust distribution README
+        if: matrix.package != 'toml-fmt-common'
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: uv run --project "$PACKAGE" python tasks/generate_readme.py "$PACKAGE"
+      - name: Assemble package changelog
+        env:
+          PACKAGE: ${{ matrix.package }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: uv run --locked --python 3.15 --no-default-groups --group release python tasks/assemble_release.py "$PACKAGE" "$VERSION"
+      - name: Format and check the release patch
+        run: |
+          uv run --locked --python 3.15 --no-default-groups --group release prek run mdformat --files CHANGELOG.md ||
+            uv run --locked --python 3.15 --no-default-groups --group release prek run mdformat --files CHANGELOG.md
+          uv run --locked --python 3.15 --no-default-groups --group release prek run --all-files
+          git diff --check
+      - name: Export locked build constraints
+        run: uv export --locked --format requirements-txt --no-default-groups --only-group release --no-emit-workspace --output-file "$RUNNER_TEMP/build-constraints.txt"
+      - name: Build the distribution
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: uv build --python 3.15 --python-preference only-managed --build-constraints "$RUNNER_TEMP/build-constraints.txt" --sdist --wheel "$PACKAGE" --out-dir dist
+      - name: Install package checks
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: uv sync --locked --python 3.15 --package "$PACKAGE" --no-default-groups --only-group pkg-meta --no-install-workspace
+      - name: Check built distribution
+        run: |
+          .venv/bin/twine check dist/*
+          .venv/bin/check-wheel-contents --no-config dist/*.whl
+      - name: Render GitHub release notes
+        env:
+          PACKAGE: ${{ matrix.package }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          previous=$(git tag --list "$PACKAGE/*" | cut -d/ -f2 | uv run --locked --python 3.15 --no-default-groups --group release release-creator tags "$VERSION" --previous)
+          printf "## What's Changed\n* Validate release by @gaborbernat in https://github.com/tox-dev/toml-fmt/pull/488\n\n## New Contributors\n* @gaborbernat made their first contribution in https://github.com/tox-dev/toml-fmt/pull/488\n" >"$RUNNER_TEMP/generated-notes.md"
+          uv run --locked --python 3.15 --no-default-groups --group release release-creator notes --changelog CHANGELOG.md --package "$PACKAGE" --tag "$TAG" --repository tox-dev/toml-fmt --previous "$PACKAGE/$previous" --artifact-url "https://pypi.org/project/$PACKAGE/$VERSION/" --generated-notes "$RUNNER_TEMP/generated-notes.md" >"$RUNNER_TEMP/release-notes.md"
+          grep -Fq '### Features' "$RUNNER_TEMP/release-notes.md"
+          grep -Fq "https://github.com/tox-dev/toml-fmt/compare/$PACKAGE/$previous...$TAG" "$RUNNER_TEMP/release-notes.md"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: toml-fmt-${{ matrix.package }}-no-publish
+          path: |
+            dist/*
+            ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error

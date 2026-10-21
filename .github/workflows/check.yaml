@@ -10,7 +10,7 @@ on:
         description: Public owner/repository to rehearse; leave empty to check this repository
         type: string
       project-type:
-        description: Temporary release rehearsal path (python, jetbrains, action, quotaline, or tox)
+        description: Temporary release rehearsal path (python, jetbrains, action, quotaline, tox, or toml-fmt)
         default: python
         type: string
       head-sha:
@@ -222,10 +222,20 @@ jobs:
     with:
       head-sha: ${{ inputs.head-sha }}
       pull-request: ${{ inputs.pull-request }}
+  toml-fmt-rehearsal:
+    if: github.event_name == 'workflow_dispatch' && inputs.project-type == 'toml-fmt'
+    uses: $/.github/workflows/validate-toml-fmt-release.yaml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      repository: ${{ inputs.repository }}
+      head-sha: ${{ inputs.head-sha }}
+      pull-request: ${{ inputs.pull-request }}
   gate:
     name: Required checks pass
     if: always()
-    needs: [check, changelog, release-dry-run, prepare-graph-dry-run, release-tools-preview, external-rehearsal, jetbrains-rehearsal, action-rehearsal, quotaline-rehearsal, tox-rehearsal, external-turbohtml-native]
+    needs: [check, changelog, release-dry-run, prepare-graph-dry-run, release-tools-preview, external-rehearsal, jetbrains-rehearsal, action-rehearsal, quotaline-rehearsal, tox-rehearsal, external-turbohtml-native, toml-fmt-rehearsal]
     runs-on: ubuntu-26.04
     steps:
       - env:
@@ -244,6 +254,7 @@ jobs:
               (.key == "action-rehearsal" and .value.result == "skipped") or
               (.key == "quotaline-rehearsal" and .value.result == "skipped") or
               (.key == "tox-rehearsal" and .value.result == "skipped") or
-              (.key == "external-turbohtml-native" and .value.result == "skipped")
+              (.key == "external-turbohtml-native" and .value.result == "skipped") or
+              (.key == "toml-fmt-rehearsal" and .value.result == "skipped")
             )
           ' <<<"$NEEDS_JSON"
