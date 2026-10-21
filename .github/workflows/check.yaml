@@ -38,6 +38,14 @@ on:
         description: RST issue role target (issue or pull)
         default: issue
         type: string
+      source:
+        description: Package source directory
+        default: .
+        type: string
+      artifact-prefix:
+        description: Prefix for artifacts from separate release paths
+        default: ""
+        type: string
 permissions:
   contents: read
 jobs:
@@ -162,6 +170,8 @@ jobs:
       fixture-issue: ${{ inputs.fixture-issue }}
       lock: ${{ inputs.lock }}
       issue-role: ${{ inputs.issue-role }}
+      source: ${{ inputs.source }}
+      artifact-prefix: ${{ inputs.artifact-prefix }}
   gate:
     name: Required checks pass
     if: always()
