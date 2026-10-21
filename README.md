@@ -357,10 +357,10 @@ grants its GitHub token Contents and Pull requests read. The keyless jobs instal
 checked-in `pylock.toml`; use `lock` and `python-version` when those paths or versions differ. No job output crosses
 back to the caller. A successful run pushes a tag, which the caller's tag workflow handles.
 
-`bump`, `tag-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, and `annotated` have the same meanings as
-the `prepare-towncrier` inputs below. `dry-run: true` runs the first two jobs at a same-repository PR head and skips the
-App-key job. The caller can place repository-specific checks in a preceding job and make this job depend on it. The
-tag-triggered ecosystem publisher stays in the caller repository.
+`bump`, `tag-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, `numbered-prs`, and `annotated` have the
+same meanings as the `prepare-towncrier` inputs below. `dry-run: true` runs the first two jobs at a same-repository PR
+head and skips the App-key job. The caller can place repository-specific checks in a preceding job and make this job
+depend on it. The tag-triggered ecosystem publisher stays in the caller repository.
 
 ## Prepare Towncrier release
 
@@ -394,6 +394,8 @@ rendering, formatting, or checks fail, or if preparation creates untracked files
   suite runs for every option.
 - `link-fragments`: `true` (default) resolves named fragments and authors through GitHub; `false` skips that step for a
   caller whose fragments already contain release links and credits.
+- `numbered-prs`: `false` (default) leaves Towncrier's numeric fragment behavior intact. Set `true` only when every
+  numeric fragment stem is the original pull request number; the linked PR and its authors come from that number.
 - `patch` **(required)**: Writable path to the Git patch, usually under `runner.temp`. Upload this exact file as an
   artifact for the validation job.
 - `repository`: GitHub owner/repository used for fragment author links; defaults to the workflow caller. The external

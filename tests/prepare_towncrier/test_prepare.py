@@ -119,6 +119,7 @@ def test_prepare_rejects_dirty_checkout(repository: Path, tmp_path: Path, action
             "link-fragments must be true or false",
             id="fragment-linking",
         ),
+        pytest.param("NUMBERED_PRS", "maybe", "numbered-prs must be true or false", id="numbered-prs"),
     ],
 )
 def test_prepare_rejects_invalid_option(
@@ -189,6 +190,41 @@ def test_prepare_links_named_fragments(repository: Path, tmp_path: Path, action_
         "Add a new feature ([#2](https://github.com/tox-dev/github-workflows/pull/2)) "
         "by [@gaborbernat](https://github.com/gaborbernat)."
     ) in (repository / "CHANGELOG.md").read_text()
+
+
+def test_prepare_links_numbered_pull_requests(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    run(repository, "git", "mv", "changelog.d/+feature.feature.md", "changelog.d/2.feature.md")
+    run(repository, "git", "commit", "-m", "Use an original PR fragment")
+    run(repository, "git", "push", "origin", "main")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "prepare-towncrier",
+        version="0.2.0",
+        LINK_FRAGMENTS="true",
+        NUMBERED_PRS="true",
+        GITHUB_REPOSITORY="tox-dev/github-workflows",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[#2](https://github.com/tox-dev/github-workflows/pull/2)" in (repository / "CHANGELOG.md").read_text()
+
+
+def test_prepare_keeps_default_numbered_issue(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    run(repository, "git", "mv", "changelog.d/+feature.feature.md", "changelog.d/2.feature.md")
+    run(repository, "git", "commit", "-m", "Backfill an earlier fragment (#3)")
+    run(repository, "git", "push", "origin", "main")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "prepare-towncrier",
+        version="0.2.0",
+        LINK_FRAGMENTS="true",
+        GITHUB_REPOSITORY="tox-dev/github-workflows",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[#3](https://github.com/tox-dev/github-workflows/pull/3)" in (repository / "CHANGELOG.md").read_text()
 
 
 @pytest.mark.parametrize("version", [pytest.param("", id="automatic"), pytest.param("0.2.0", id="explicit")])

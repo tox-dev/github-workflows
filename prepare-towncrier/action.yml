@@ -22,6 +22,9 @@ inputs:
   link-fragments:
     description: Resolve named fragments and authors with release-creator
     default: "true"
+  numbered-prs:
+    description: Treat numeric fragment names as original pull request numbers
+    default: "false"
   patch:
     description: Path for the generated Git patch
     required: true
@@ -65,6 +68,7 @@ runs:
       shell: bash
       env:
         LINK_FRAGMENTS: ${{ inputs.link-fragments }}
+        NUMBERED_PRS: ${{ inputs.numbered-prs }}
         FRAGMENTS: ${{ inputs.fragments }}
         REPOSITORY: ${{ inputs.repository || github.repository }}
         GH_TOKEN: ${{ github.token }}
@@ -74,8 +78,16 @@ runs:
           echo '::error::link-fragments must be true or false' >&2
           exit 1
         fi
+        if [[ "$NUMBERED_PRS" != true && "$NUMBERED_PRS" != false ]]; then
+          echo '::error::numbered-prs must be true or false' >&2
+          exit 1
+        fi
         if [[ "$LINK_FRAGMENTS" == true ]]; then
-          release-creator fragments --directory "$FRAGMENTS" --repository "$REPOSITORY" --git --resolve-authors
+          args=(--directory "$FRAGMENTS" --repository "$REPOSITORY" --git --resolve-authors)
+          if [[ "$NUMBERED_PRS" == true ]]; then
+            args+=(--numbered-prs)
+          fi
+          release-creator fragments "${args[@]}"
         fi
     - name: Build changelog
       shell: bash

@@ -110,6 +110,7 @@ def action(
             "FRAGMENTS": "changelog.d",
             "FORMAT": "none",
             "LINK_FRAGMENTS": "false",
+            "NUMBERED_PRS": "false",
             "PATCH": str(tmp_path / "release.patch"),
             "GITHUB_OUTPUT": str(tmp_path / "output"),
             "GITHUB_REPOSITORY": "tox-dev/fixture",
