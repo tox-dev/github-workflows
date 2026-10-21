@@ -1,26 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-[[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+case "$REPOSITORY" in
+*/*) ;;
+*) exit 1 ;;
+esac
+for part in "${REPOSITORY%%/*}" "${REPOSITORY#*/}"; do
+  case "$part" in
+  '' | *[!A-Za-z0-9_.-]*) exit 1 ;;
+  esac
+done
+case "$APP_SLUG" in
+'' | *[!A-Za-z0-9-]*) exit 1 ;;
+esac
+bot_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+case "$bot_id" in
+'' | 0* | *[!0-9]*) exit 1 ;;
+esac
+author_name="${APP_SLUG}[bot]"
+author_email="${bot_id}+${author_name}@users.noreply.github.com"
+valid_sha() {
+  test "${#1}" -eq 40
+  case "$1" in
+  *[!0-9a-f]*) return 1 ;;
+  esac
+}
 git check-ref-format --branch "$BASE"
 git check-ref-format --branch "$BRANCH"
 test "$BASE" != "$BRANCH"
-[[ "$BASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-test -n "$TITLE" && test -s "$BODY_FILE" && test -s "$PATHS_FILE" && test -n "$LABEL"
+valid_sha "$BASE_COMMIT"
+test -n "$TITLE"
+test -s "$BODY_FILE"
+test -s "$PATHS_FILE"
+test -n "$LABEL"
 if [[ -n "$BUNDLE" ]]; then
   test -f "$BUNDLE"
-  [[ "$CANDIDATE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+  valid_sha "$CANDIDATE_COMMIT"
 else
   test -z "$CANDIDATE_COMMIT"
 fi
 
 paths=()
 while IFS=$'\t' read -r path blob; do
-  [[ "$path" =~ ^[A-Za-z0-9._/-]+$ && "$path" != /* ]]
+  case "$path" in
+  '' | /* | *[!A-Za-z0-9._/-]*) exit 1 ;;
+  esac
   case "$path" in
   . | .. | ./* | ../* | */. | */.. | */./* | */../*) exit 1 ;;
   esac
-  [[ "$blob" =~ ^[0-9a-f]{40}$ ]]
+  valid_sha "$blob"
   paths+=("$path")
 done <"$PATHS_FILE"
 test "${#paths[@]}" -gt 0
@@ -34,14 +62,20 @@ if [[ -n "$BUNDLE" ]]; then
     refs/heads/release-candidate:refs/heads/release-candidate >/dev/null
   test "$(git -C "$RUNNER_TEMP/post-release.git" rev-parse refs/heads/release-candidate)" = "$CANDIDATE_COMMIT"
   read -r commit parent extra < <(git -C "$RUNNER_TEMP/post-release.git" rev-list --parents -n 1 "$CANDIDATE_COMMIT")
-  test "$commit" = "$CANDIDATE_COMMIT" && test "$parent" = "$BASE_COMMIT" && test -z "${extra:-}"
+  test "$commit" = "$CANDIDATE_COMMIT"
+  test "$parent" = "$BASE_COMMIT"
+  test -z "${extra:-}"
+  test "$(git -C "$RUNNER_TEMP/post-release.git" show -s --format=%an "$CANDIDATE_COMMIT")" = "$author_name"
+  test "$(git -C "$RUNNER_TEMP/post-release.git" show -s --format=%ae "$CANDIDATE_COMMIT")" = "$author_email"
   candidate_tree=$(git -C "$RUNNER_TEMP/post-release.git" rev-parse "$CANDIDATE_COMMIT^{tree}")
   git -C "$RUNNER_TEMP/post-release.git" diff --name-only --no-renames "$BASE_COMMIT" "$CANDIDATE_COMMIT" |
     LC_ALL=C sort >"$RUNNER_TEMP/candidate-paths"
   cmp -s "$RUNNER_TEMP/expected-paths" "$RUNNER_TEMP/candidate-paths"
   while IFS=$'\t' read -r path blob; do
     read -r mode object actual _ < <(git -C "$RUNNER_TEMP/post-release.git" ls-tree "$CANDIDATE_COMMIT" -- "$path")
-    test "$mode" = 100644 && test "$object" = blob && test "$actual" = "$blob"
+    test "$mode" = 100644
+    test "$object" = blob
+    test "$actual" = "$blob"
   done <"$PATHS_FILE"
 fi
 
@@ -59,23 +93,29 @@ pr_number=$(jq -r '.[0].number // empty' "$RUNNER_TEMP/post-release-prs.json")
 merged=$(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json")
 
 base_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)
-[[ "$base_sha" =~ ^[0-9a-f]{40}$ ]]
+valid_sha "$base_sha"
 if [[ "$merged" == true ]]; then
   while IFS=$'\t' read -r path blob; do
     read -r object actual < <(gh api "repos/$REPOSITORY/contents/$path?ref=$BASE" --jq '[.type, .sha] | @tsv')
-    test "$object" = file && test "$actual" = "$blob"
+    test "$object" = file
+    test "$actual" = "$blob"
   done <"$PATHS_FILE"
   gh api "repos/$REPOSITORY/pulls/$pr_number/files" --paginate --jq '.[].filename' |
     LC_ALL=C sort | cmp -s - "$RUNNER_TEMP/expected-paths"
 else
   test -n "$BUNDLE"
+  test "$base_sha" = "$BASE_COMMIT"
   if branch_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha 2>"$RUNNER_TEMP/branch-error"); then
-    read -r branch_parent branch_tree < <(
-      gh api "repos/$REPOSITORY/git/commits/$branch_sha" --jq '[.parents[0].sha, .tree.sha] | @tsv'
+    read -r branch_parent branch_tree branch_author branch_email < <(
+      gh api "repos/$REPOSITORY/git/commits/$branch_sha" --jq '[.parents[0].sha, .tree.sha, .author.name, .author.email] | @tsv'
     )
-    test "$branch_parent" = "$BASE_COMMIT" && test "$branch_tree" = "$candidate_tree"
+    test "$branch_parent" = "$BASE_COMMIT"
+    test "$branch_tree" = "$candidate_tree"
+    test "$branch_author" = "$author_name"
+    test "$branch_email" = "$author_email"
   elif grep -Fq '(HTTP 404)' "$RUNNER_TEMP/branch-error"; then
-    test -z "$pr_number" && test "$base_sha" = "$BASE_COMMIT"
+    test -z "$pr_number"
+    test "$base_sha" = "$BASE_COMMIT"
     if [[ -z "${GIT_REMOTE_URL:-}" ]]; then
       gh auth setup-git --hostname "${GH_HOST:-github.com}" --force
     fi
@@ -94,7 +134,9 @@ else
     gh api -X POST "repos/$REPOSITORY/pulls" -f "head=$BRANCH" -f "base=$BASE" \
       -f "title=$TITLE" -F "body=@$BODY_FILE" >"$RUNNER_TEMP/post-release-created.json"
     pr_number=$(jq -r .number "$RUNNER_TEMP/post-release-created.json")
-    [[ "$pr_number" =~ ^[1-9][0-9]*$ ]]
+    case "$pr_number" in
+    '' | 0* | *[!0-9]*) exit 1 ;;
+    esac
   fi
 fi
 

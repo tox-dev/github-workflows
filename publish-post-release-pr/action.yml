@@ -4,6 +4,9 @@ inputs:
   repository:
     description: Repository containing the base and pull request
     required: true
+  app-slug:
+    description: Slug of the GitHub App whose bot authors the prepared commit
+    required: true
   base:
     description: Protected base branch
     default: main
@@ -43,6 +46,7 @@ runs:
       shell: bash
       env:
         REPOSITORY: ${{ inputs.repository }}
+        APP_SLUG: ${{ inputs.app-slug }}
         BASE: ${{ inputs.base }}
         BASE_COMMIT: ${{ inputs.base-commit }}
         BRANCH: ${{ inputs.branch }}

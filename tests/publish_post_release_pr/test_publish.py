@@ -5,13 +5,25 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from pytest_httpserver import HTTPServer
+
+
+def test_action_maps_writer_app_slug() -> None:
+    action = yaml.safe_load((Path(__file__).resolve().parents[2] / "publish-post-release-pr/action.yml").read_text())
+    assert action["inputs"]["app-slug"]["required"]
+    assert action["runs"]["steps"][0]["env"]["APP_SLUG"] == "${{ inputs.app-slug }}"
+
+
+def expect_bot(server: HTTPServer) -> None:
+    server.expect_request("/api/v3/users/fixture-app[bot]", method="GET").respond_with_json({"id": 123})
 
 
 def publish(
     tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]], *, main_blob: str, expected_blob: str
 ) -> tuple[subprocess.CompletedProcess[str], HTTPServer]:
     server, environment = github_api
+    expect_bot(server)
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
     paths = tmp_path / "paths.tsv"
@@ -49,6 +61,7 @@ def publish(
         | environment
         | {
             "REPOSITORY": "tox-dev/fixture",
+            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": "a" * 40,
             "BRANCH": "post-release-v2.4.7",
@@ -74,7 +87,7 @@ def test_merged_branch_deleted_and_main_matches_is_complete(
     result, server = publish(tmp_path, github_api, main_blob="b" * 40, expected_blob="b" * 40)
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "output").read_text() == "pull-request=7\n"
-    assert [request.method for request, _ in server.log] == ["GET"] * 5
+    assert [request.method for request, _ in server.log] == ["GET"] * 6
 
 
 def test_merged_branch_deleted_and_later_main_change_fails(
@@ -83,7 +96,7 @@ def test_merged_branch_deleted_and_later_main_change_fails(
     result, server = publish(tmp_path, github_api, main_blob="c" * 40, expected_blob="b" * 40)
     assert result.returncode != 0
     assert not (tmp_path / "output").exists()
-    assert [request.method for request, _ in server.log] == ["GET"] * 3
+    assert [request.method for request, _ in server.log] == ["GET"] * 4
 
 
 def run_git(directory: Path, *args: str) -> str:
@@ -92,12 +105,12 @@ def run_git(directory: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def candidate(tmp_path: Path, *, extra_path: bool = False) -> tuple[Path, str, str, str]:
+def candidate(tmp_path: Path, *, extra_path: bool = False, wrong_author: bool = False) -> tuple[Path, str, str, str]:
     repository = tmp_path / "source"
     repository.mkdir()
     run_git(repository, "init", "-q", "-b", "main")
-    run_git(repository, "config", "user.name", "Fixture")
-    run_git(repository, "config", "user.email", "fixture@example.com")
+    run_git(repository, "config", "user.name", "fixture-app[bot]")
+    run_git(repository, "config", "user.email", "123+fixture-app[bot]@users.noreply.github.com")
     (repository / "gradle.properties").write_text("pluginVersion=2.4.7\n")
     run_git(repository, "add", "gradle.properties")
     run_git(repository, "commit", "-qm", "Base")
@@ -108,6 +121,8 @@ def candidate(tmp_path: Path, *, extra_path: bool = False) -> tuple[Path, str, s
     if extra_path:
         (repository / "other.txt").write_text("unexpected\n")
         run_git(repository, "add", "other.txt")
+    if wrong_author:
+        run_git(repository, "config", "user.name", "Different author")
     run_git(repository, "commit", "-qm", "Bump version")
     commit = run_git(repository, "rev-parse", "HEAD")
     blob = run_git(repository, "rev-parse", "HEAD:gradle.properties")
@@ -117,17 +132,25 @@ def candidate(tmp_path: Path, *, extra_path: bool = False) -> tuple[Path, str, s
 
 
 @pytest.mark.parametrize(
-    ("branch_tree", "expected_success"),
-    [("candidate", True), ("other", False)],
-    ids=["exact-branch", "divergent-branch"],
+    ("branch_tree", "branch_author", "base_moved", "expected_success"),
+    [
+        ("candidate", "fixture-app[bot]", False, True),
+        ("other", "fixture-app[bot]", False, False),
+        ("candidate", "Other", False, False),
+        ("candidate", "fixture-app[bot]", True, False),
+    ],
+    ids=["exact-branch", "divergent-branch", "divergent-author", "moved-base"],
 )
 def test_open_branch_must_match_prepared_candidate(
     tmp_path: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     branch_tree: str,
+    branch_author: str,
+    base_moved: bool,
     expected_success: bool,
 ) -> None:
     server, environment = github_api
+    expect_bot(server)
     bundle, base, commit, blob = candidate(tmp_path)
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
@@ -147,7 +170,7 @@ def test_open_branch_must_match_prepared_candidate(
         ]
     )
     server.expect_request("/api/v3/repos/tox-dev/fixture/git/ref/heads/main", method="GET").respond_with_json(
-        {"object": {"sha": base}}
+        {"object": {"sha": "c" * 40 if base_moved else base}}
     )
     server.expect_request(
         "/api/v3/repos/tox-dev/fixture/git/ref/heads/post-release-v2.4.7", method="GET"
@@ -155,6 +178,7 @@ def test_open_branch_must_match_prepared_candidate(
     server.expect_request(f"/api/v3/repos/tox-dev/fixture/git/commits/{commit}", method="GET").respond_with_json(
         {
             "parents": [{"sha": base}],
+            "author": {"name": branch_author, "email": "123+fixture-app[bot]@users.noreply.github.com"},
             "tree": {
                 "sha": "b" * 40 if branch_tree == "other" else run_git(tmp_path / "source", "rev-parse", "HEAD^{tree}")
             },
@@ -171,6 +195,7 @@ def test_open_branch_must_match_prepared_candidate(
         | environment
         | {
             "REPOSITORY": "tox-dev/fixture",
+            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
@@ -196,6 +221,7 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
     tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     server, environment = github_api
+    server.expect_ordered_request("/api/v3/users/fixture-app[bot]", method="GET").respond_with_json({"id": 123})
     bundle, base, commit, blob = candidate(tmp_path)
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
@@ -226,6 +252,7 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
         | environment
         | {
             "REPOSITORY": "tox-dev/fixture",
+            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
@@ -249,7 +276,9 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
 
 
 @pytest.mark.parametrize(
-    "changed_input", ["commit", "blob", "extra"], ids=["stale-bundle", "changed-path-manifest", "extra-path"]
+    "changed_input",
+    ["commit", "blob", "extra", "author"],
+    ids=["stale-bundle", "changed-path-manifest", "extra-path", "wrong-author"],
 )
 def test_prepared_candidate_identity_is_checked_before_api_write(
     tmp_path: Path,
@@ -257,7 +286,10 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
     changed_input: str,
 ) -> None:
     server, environment = github_api
-    bundle, base, commit, blob = candidate(tmp_path, extra_path=changed_input == "extra")
+    expect_bot(server)
+    bundle, base, commit, blob = candidate(
+        tmp_path, extra_path=changed_input == "extra", wrong_author=changed_input == "author"
+    )
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
     paths = tmp_path / "paths.tsv"
@@ -269,6 +301,7 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
         | environment
         | {
             "REPOSITORY": "tox-dev/fixture",
+            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
@@ -286,5 +319,5 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
         check=False,
     )
     assert result.returncode != 0
-    assert not server.log
+    assert [request.method for request, _ in server.log] == ["GET"]
     assert not (tmp_path / "output").exists()
