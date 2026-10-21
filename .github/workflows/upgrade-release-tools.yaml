@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
       exclude-newer-packages:
-        description: Reviewed package=UTC cutoff entries exempted from the seven-day cutoff, one per line
+        description: Reviewed package=UTC minimum cutoffs; each expires when the seven-day cutoff passes it
         type: string
         default: ""
       branch:
@@ -197,7 +197,7 @@ jobs:
         run: |
           printf '%s\n' "$PR_BODY" >"$RUNNER_TEMP/pull-request.md"
           if [[ -n "$EXCLUDE_NEWER_PACKAGES" ]]; then
-            printf '\nSeven-day cutoff exceptions:\n' >>"$RUNNER_TEMP/pull-request.md"
+            printf '\nReviewed package cutoff floors:\n' >>"$RUNNER_TEMP/pull-request.md"
             while IFS= read -r entry; do
               if [[ -n "$entry" ]]; then
                 printf -- '- `%s`\n' "$entry" >>"$RUNNER_TEMP/pull-request.md"

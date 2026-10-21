@@ -11,7 +11,7 @@ inputs:
     description: Also refresh a checked-in uv.lock for projects that use it for their build
     default: "false"
   exclude-newer-packages:
-    description: Reviewed package=UTC cutoff entries exempted from the seven-day cutoff, one per line
+    description: Reviewed package=UTC minimum cutoffs; each expires when the seven-day cutoff passes it
     default: ""
 outputs:
   changed:
@@ -33,13 +33,16 @@ runs:
       name: Set dependency age cutoff
       shell: bash
       run: echo "timestamp=$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')" >>"$GITHUB_OUTPUT"
-    - name: Check reviewed package cutoffs
+    - id: exceptions
+      name: Select active package cutoffs
       shell: bash
       env:
         EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
+        CUTOFF: ${{ steps.cutoff.outputs.timestamp }}
       run: |
         set -euo pipefail
         now=$(date --utc '+%Y-%m-%dT%H:%M:%SZ')
+        : >"$RUNNER_TEMP/active-package-cutoffs"
         while IFS= read -r entry; do
           if [[ -z "$entry" ]]; then
             continue
@@ -63,14 +66,18 @@ runs:
             echo "::error::invalid package cutoff: $entry" >&2
             exit 1
           fi
+          if [[ "$timestamp" > "$CUTOFF" ]]; then
+            printf '%s\n' "$entry" >>"$RUNNER_TEMP/active-package-cutoffs"
+          fi
         done <<<"$EXCLUDE_NEWER_PACKAGES"
+        echo "path=$RUNNER_TEMP/active-package-cutoffs" >>"$GITHUB_OUTPUT"
     - name: Refresh full project lock
       shell: bash
       env:
         LOCK: ${{ inputs.lock }}
         PYTHON_VERSION: ${{ inputs.python-version }}
         UV_EXCLUDE_NEWER: ${{ steps.cutoff.outputs.timestamp }}
-        EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
+        ACTIVE_PACKAGE_CUTOFFS: ${{ steps.exceptions.outputs.path }}
       run: |
         set -euo pipefail
         exceptions=()
@@ -79,7 +86,7 @@ runs:
             continue
           fi
           exceptions+=(--exclude-newer-package "$entry")
-        done <<<"$EXCLUDE_NEWER_PACKAGES"
+        done <"$ACTIVE_PACKAGE_CUTOFFS"
         "$RUNNER_TEMP/lock-exporter/bin/release-creator" locks --output "$LOCK" \
           --tool-python ">=$PYTHON_VERSION" "${exceptions[@]}"
     - name: Refresh uv lock
@@ -87,7 +94,7 @@ runs:
       shell: bash
       env:
         UV_EXCLUDE_NEWER: ${{ steps.cutoff.outputs.timestamp }}
-        EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
+        ACTIVE_PACKAGE_CUTOFFS: ${{ steps.exceptions.outputs.path }}
       run: |
         set -euo pipefail
         exceptions=()
@@ -96,7 +103,7 @@ runs:
             continue
           fi
           exceptions+=(--exclude-newer-package "$entry")
-        done <<<"$EXCLUDE_NEWER_PACKAGES"
+        done <"$ACTIVE_PACKAGE_CUTOFFS"
         uv lock --upgrade "${exceptions[@]}"
     - name: Install refreshed release tools
       shell: bash

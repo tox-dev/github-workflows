@@ -376,7 +376,7 @@ def test_upgrade_lists_cutoff_exceptions_in_pull_request(
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "pull-request.md").read_text() == (
         "Refresh release tools.\n\n"
-        "Seven-day cutoff exceptions:\n"
+        "Reviewed package cutoff floors:\n"
         "- `release-creator=2026-10-19T20:26:31Z`\n"
         "- `uv-build=2026-10-20T15:11:07Z`\n"
     )
@@ -401,6 +401,8 @@ def test_upgrade_rejects_unsafe_branch(
 
 
 def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) -> subprocess.CompletedProcess[str]:
+    active_cutoffs = tmp_path / "active-package-cutoffs"
+    active_cutoffs.write_text(f"{environment.get('EXCLUDE_NEWER_PACKAGES', '')}\n")
     command = ["bash", str(script)]
     if script.name.startswith("refresh-release-lock-") and (coverage_binary := os.environ.get("KCOV_BIN")) is not None:
         output = Path(os.environ["KCOV_OUTPUT"])
@@ -414,6 +416,7 @@ def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) 
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "refresh-release-lock"),
             "EXCLUDE_NEWER_PACKAGES": "",
+            "ACTIVE_PACKAGE_CUTOFFS": str(active_cutoffs),
         }
         | environment,
         text=True,
