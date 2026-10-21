@@ -143,3 +143,78 @@ jobs:
             dist/*
             ${{ runner.temp }}/release-notes.md
           if-no-files-found: error
+  weekly-locks:
+    runs-on: ubuntu-26.04
+    env:
+      RELEASE_CREATOR_CUTOFF: '2026-10-19T20:26:31Z'
+      UV_BUILD_CUTOFF: '2026-10-20T15:11:07Z'
+    steps:
+      - name: Limit rehearsal target
+        env:
+          REPOSITORY: ${{ inputs.repository }}
+          PR_NUMBER: ${{ inputs.pull-request }}
+        run: test "$REPOSITORY/$PR_NUMBER" = tox-dev/toml-fmt/488
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository }}
+          ref: refs/pull/${{ inputs.pull-request }}/head
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact pull request head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ inputs.repository }}
+          PR_NUMBER: ${{ inputs.pull-request }}
+          HEAD_SHA: ${{ inputs.head-sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)" = "$HEAD_SHA"
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.15'
+          enable-cache: false
+      - name: Set dependency age cutoff
+        run: printf 'UV_EXCLUDE_NEWER=%s\n' "$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      - name: Refresh workspace lock
+        run: |
+          uv lock --upgrade \
+            --exclude-newer-package "release-creator=$RELEASE_CREATOR_CUTOFF" \
+            --exclude-newer-package "uv-build=$UV_BUILD_CUTOFF"
+      - name: Refresh selectable project lock
+        run: |
+          uvx --python 3.15 \
+            --from 'git+https://github.com/tox-dev/release-creator@fafa26624c3b40c9cabad57442a764e76bc30475' \
+            release-creator locks \
+            --exclude-newer-package "release-creator=$RELEASE_CREATOR_CUTOFF" \
+            --exclude-newer-package "uv-build=$UV_BUILD_CUTOFF"
+      - name: Install the reviewed release tools
+        run: |
+          uv sync --locked --python 3.15 --no-default-groups --group release \
+            --exclude-newer-package "release-creator=$RELEASE_CREATOR_CUTOFF" \
+            --exclude-newer-package "uv-build=$UV_BUILD_CUTOFF"
+      - name: Run hooks without another resolution
+        env:
+          UV_NO_SYNC: '1'
+        run: .venv/bin/prek run --all-files
+      - name: Record reviewed lock result
+        run: |
+          set -euo pipefail
+          git diff --check
+          sha256sum pylock.toml uv.lock > "$RUNNER_TEMP/weekly-locks.sha256"
+          printf '%s\n%s\n%s\n' \
+            "$UV_EXCLUDE_NEWER" \
+            "release-creator=$RELEASE_CREATOR_CUTOFF" \
+            "uv-build=$UV_BUILD_CUTOFF" > "$RUNNER_TEMP/weekly-cutoffs.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: toml-fmt-weekly-locks-no-publish
+          path: |
+            pylock.toml
+            uv.lock
+            ${{ runner.temp }}/weekly-locks.sha256
+            ${{ runner.temp }}/weekly-cutoffs.txt
+          if-no-files-found: error
