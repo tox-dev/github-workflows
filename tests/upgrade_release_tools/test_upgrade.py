@@ -56,7 +56,7 @@ def test_upgrade_exports_every_group(lock_repository: Path, tmp_path: Path, upgr
     assert installed.returncode == 0, installed.stderr
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK="pylock.toml",
         PYTHON_VERSION="3.15",
@@ -74,11 +74,8 @@ def test_upgrade_sets_seven_day_cutoff(lock_repository: Path, tmp_path: Path, up
         GITHUB_OUTPUT=str(tmp_path / "output"),
     )
     assert result.returncode == 0, result.stderr
-    outputs = dict(line.split("=", maxsplit=1) for line in (tmp_path / "output").read_text().splitlines())
-    current = datetime.fromisoformat(outputs["current"])
-    cutoff = datetime.fromisoformat(outputs["timestamp"])
-    assert abs(datetime.now(UTC) - current) < timedelta(minutes=1)
-    assert current - cutoff == timedelta(days=7)
+    cutoff = datetime.fromisoformat((tmp_path / "output").read_text().removeprefix("timestamp=").strip())
+    assert abs(datetime.now(UTC) - cutoff - timedelta(days=7)) < timedelta(minutes=1)
 
 
 def test_upgrade_exempts_only_named_young_package(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
@@ -90,7 +87,7 @@ def test_upgrade_exempts_only_named_young_package(lock_repository: Path, tmp_pat
     assert installed.returncode == 0, installed.stderr
     blocked = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK="pylock.toml",
         PYTHON_VERSION="3.15",
@@ -100,13 +97,12 @@ def test_upgrade_exempts_only_named_young_package(lock_repository: Path, tmp_pat
     assert blocked.returncode != 0
     allowed = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK="pylock.toml",
         PYTHON_VERSION="3.15",
         UV_EXCLUDE_NEWER="2026-10-14T00:00:00Z",
-        EXCEPTION_TIMESTAMP="2026-10-21T00:00:00Z",
-        EXCLUDE_NEWER_PACKAGES="release-creator",
+        EXCLUDE_NEWER_PACKAGES="release-creator=2026-10-19T20:26:31Z",
     )
     assert allowed.returncode == 0, allowed.stderr
     packages = {
@@ -116,18 +112,27 @@ def test_upgrade_exempts_only_named_young_package(lock_repository: Path, tmp_pat
     assert packages["certifi"]["version"] == "2026.7.22"
 
 
-def test_upgrade_rejects_invalid_exception_name(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "release-creator; true=2026-10-19T20:26:31Z",
+        "release-creator",
+        "release-creator=tomorrow",
+        "release-creator=2999-01-01T00:00:00Z",
+    ],
+    ids=["invalid-name", "missing-date", "invalid-date", "future-date"],
+)
+def test_upgrade_rejects_invalid_exception(
+    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path, entry: str
+) -> None:
     result = execute(
         lock_repository,
         upgrade_scripts / "refresh-release-lock-2.sh",
         tmp_path,
-        LOCK="pylock.toml",
-        PYTHON_VERSION="3.15",
-        EXCEPTION_TIMESTAMP="2026-10-21T00:00:00Z",
-        EXCLUDE_NEWER_PACKAGES="release-creator; true",
+        EXCLUDE_NEWER_PACKAGES=entry,
     )
     assert result.returncode != 0
-    assert "invalid exclude-newer package name" in result.stderr
+    assert "invalid package cutoff" in result.stderr
 
 
 def test_upgrade_refreshes_uv_lock_with_same_exception(
@@ -139,11 +144,10 @@ def test_upgrade_refreshes_uv_lock_with_same_exception(
     )
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
+        upgrade_scripts / "refresh-release-lock-4.sh",
         tmp_path,
         UV_EXCLUDE_NEWER="2026-10-14T00:00:00Z",
-        EXCEPTION_TIMESTAMP="2026-10-21T00:00:00Z",
-        EXCLUDE_NEWER_PACKAGES="release-creator",
+        EXCLUDE_NEWER_PACKAGES="release-creator=2026-10-19T20:26:31Z",
     )
     assert result.returncode == 0, result.stderr
     packages = {
@@ -180,7 +184,7 @@ def test_upgrade_emits_patch_only_for_change(
         (lock_repository / changed_path).write_text("after\n")
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-7.sh",
+        upgrade_scripts / "refresh-release-lock-8.sh",
         tmp_path,
         LOCK="pylock.toml",
         KEEP_UV_LOCK=str(keep_uv_lock).lower(),
@@ -233,17 +237,17 @@ def test_upgrade_checks_refreshed_lock(
         (lock_repository / unrelated).write_text("after\n")
     installed = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-4.sh",
+        upgrade_scripts / "refresh-release-lock-5.sh",
         tmp_path,
         LOCK="pylock.toml",
         PYTHON_VERSION="3.15",
     )
     assert installed.returncode == 0, installed.stderr
-    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-5.sh", tmp_path)
+    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-6.sh", tmp_path)
     assert checked.returncode == 0, checked.stderr
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-6.sh",
+        upgrade_scripts / "refresh-release-lock-7.sh",
         tmp_path,
         LOCK="pylock.toml",
         KEEP_UV_LOCK=str(keep_uv_lock).lower(),
@@ -367,15 +371,14 @@ def test_upgrade_lists_cutoff_exceptions_in_pull_request(
         publish_scripts / "publish-write-dependency-pull-request-body.sh",
         tmp_path,
         PR_BODY="Refresh release tools.",
-        EXCLUDE_NEWER_PACKAGES="release-creator\nuv-build",
-        EXCEPTION_TIMESTAMP="2026-10-21T12:00:00Z",
+        EXCLUDE_NEWER_PACKAGES="release-creator=2026-10-19T20:26:31Z\nuv-build=2026-10-20T15:11:07Z",
     )
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "pull-request.md").read_text() == (
         "Refresh release tools.\n\n"
-        "Seven-day cutoff exceptions at 2026-10-21T12:00:00Z:\n"
-        "- `release-creator=2026-10-21T12:00:00Z`\n"
-        "- `uv-build=2026-10-21T12:00:00Z`\n"
+        "Seven-day cutoff exceptions:\n"
+        "- `release-creator=2026-10-19T20:26:31Z`\n"
+        "- `uv-build=2026-10-20T15:11:07Z`\n"
     )
 
 

@@ -11,15 +11,12 @@ inputs:
     description: Also refresh a checked-in uv.lock for projects that use it for their build
     default: "false"
   exclude-newer-packages:
-    description: Package names allowed to use the run-start timestamp instead of the seven-day cutoff, one per line
+    description: Reviewed package=UTC cutoff entries exempted from the seven-day cutoff, one per line
     default: ""
 outputs:
   changed:
     description: Whether the lock differs from the checkout
     value: ${{ steps.lock.outputs.changed }}
-  exception-timestamp:
-    description: UTC timestamp applied only to explicitly named packages
-    value: ${{ steps.cutoff.outputs.current }}
 runs:
   using: composite
   steps:
@@ -35,32 +32,53 @@ runs:
     - id: cutoff
       name: Set dependency age cutoff
       shell: bash
+      run: echo "timestamp=$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')" >>"$GITHUB_OUTPUT"
+    - name: Check reviewed package cutoffs
+      shell: bash
+      env:
+        EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
       run: |
-        current=$(date --utc '+%Y-%m-%dT%H:%M:%SZ')
-        echo "current=$current" >>"$GITHUB_OUTPUT"
-        echo "timestamp=$(date --utc --date="$current 7 days ago" '+%Y-%m-%dT%H:%M:%SZ')" >>"$GITHUB_OUTPUT"
+        set -euo pipefail
+        now=$(date --utc '+%Y-%m-%dT%H:%M:%SZ')
+        while IFS= read -r entry; do
+          if [[ -z "$entry" ]]; then
+            continue
+          fi
+          package=${entry%%=*}
+          timestamp=${entry#*=}
+          case "$package" in
+          '' | *[!a-zA-Z0-9._-]*)
+            echo "::error::invalid package cutoff: $entry" >&2
+            exit 1
+            ;;
+          esac
+          case "$timestamp" in
+          ????-??-??T??:??:??Z) ;;
+          *)
+            echo "::error::invalid package cutoff: $entry" >&2
+            exit 1
+            ;;
+          esac
+          if [[ $(date --utc --date="$timestamp" '+%Y-%m-%dT%H:%M:%SZ') != "$timestamp" || "$timestamp" > "$now" ]]; then
+            echo "::error::invalid package cutoff: $entry" >&2
+            exit 1
+          fi
+        done <<<"$EXCLUDE_NEWER_PACKAGES"
     - name: Refresh full project lock
       shell: bash
       env:
         LOCK: ${{ inputs.lock }}
         PYTHON_VERSION: ${{ inputs.python-version }}
         UV_EXCLUDE_NEWER: ${{ steps.cutoff.outputs.timestamp }}
-        EXCEPTION_TIMESTAMP: ${{ steps.cutoff.outputs.current }}
         EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
       run: |
         set -euo pipefail
         exceptions=()
-        while IFS= read -r package; do
-          if [[ -z "$package" ]]; then
+        while IFS= read -r entry; do
+          if [[ -z "$entry" ]]; then
             continue
           fi
-          case "$package" in
-          *[!a-zA-Z0-9._-]*)
-            echo "::error::invalid exclude-newer package name: $package" >&2
-            exit 1
-            ;;
-          esac
-          exceptions+=(--exclude-newer-package "$package=$EXCEPTION_TIMESTAMP")
+          exceptions+=(--exclude-newer-package "$entry")
         done <<<"$EXCLUDE_NEWER_PACKAGES"
         "$RUNNER_TEMP/lock-exporter/bin/release-creator" locks --output "$LOCK" \
           --tool-python ">=$PYTHON_VERSION" "${exceptions[@]}"
@@ -69,22 +87,15 @@ runs:
       shell: bash
       env:
         UV_EXCLUDE_NEWER: ${{ steps.cutoff.outputs.timestamp }}
-        EXCEPTION_TIMESTAMP: ${{ steps.cutoff.outputs.current }}
         EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
       run: |
         set -euo pipefail
         exceptions=()
-        while IFS= read -r package; do
-          if [[ -z "$package" ]]; then
+        while IFS= read -r entry; do
+          if [[ -z "$entry" ]]; then
             continue
           fi
-          case "$package" in
-          *[!a-zA-Z0-9._-]*)
-            echo "::error::invalid exclude-newer package name: $package" >&2
-            exit 1
-            ;;
-          esac
-          exceptions+=(--exclude-newer-package "$package=$EXCEPTION_TIMESTAMP")
+          exceptions+=(--exclude-newer-package "$entry")
         done <<<"$EXCLUDE_NEWER_PACKAGES"
         uv lock --upgrade "${exceptions[@]}"
     - name: Install refreshed release tools

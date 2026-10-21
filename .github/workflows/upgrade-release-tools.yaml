@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
       exclude-newer-packages:
-        description: Young required package names exempted from the seven-day cutoff, one per line
+        description: Reviewed package=UTC cutoff entries exempted from the seven-day cutoff, one per line
         type: string
         default: ""
       branch:
@@ -55,7 +55,6 @@ jobs:
       contents: read
     outputs:
       changed: ${{ steps.lock.outputs.changed }}
-      exception-timestamp: ${{ steps.lock.outputs.exception-timestamp }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -193,14 +192,13 @@ jobs:
         env:
           PR_BODY: ${{ inputs.pull-request-body }}
           EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
-          EXCEPTION_TIMESTAMP: ${{ needs.generate-lock.outputs.exception-timestamp }}
         run: |
           printf '%s\n' "$PR_BODY" >"$RUNNER_TEMP/pull-request.md"
           if [[ -n "$EXCLUDE_NEWER_PACKAGES" ]]; then
-            printf '\nSeven-day cutoff exceptions at %s:\n' "$EXCEPTION_TIMESTAMP" >>"$RUNNER_TEMP/pull-request.md"
-            while IFS= read -r package; do
-              if [[ -n "$package" ]]; then
-                printf -- '- `%s=%s`\n' "$package" "$EXCEPTION_TIMESTAMP" >>"$RUNNER_TEMP/pull-request.md"
+            printf '\nSeven-day cutoff exceptions:\n' >>"$RUNNER_TEMP/pull-request.md"
+            while IFS= read -r entry; do
+              if [[ -n "$entry" ]]; then
+                printf -- '- `%s`\n' "$entry" >>"$RUNNER_TEMP/pull-request.md"
               fi
             done <<<"$EXCLUDE_NEWER_PACKAGES"
           fi

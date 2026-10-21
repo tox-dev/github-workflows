@@ -137,10 +137,10 @@ Set `keep-uv-lock: true` only when the repository commits `uv.lock` for its own 
 `uv.lock` and the selectable `pylock.toml` and includes both in one patch. The default rejects `uv.lock` changes. This
 is the path for toml-fmt's workspace lock.
 
-Set `exclude-newer-packages` to a newline-separated list only when a declared minimum was published within the past
-seven days. Each named package can use the updater's run-start UTC timestamp; every other package retains the seven-day
-cutoff. The same exceptions apply to both locks when `keep-uv-lock` is true. The dependency PR lists the package names
-and timestamp used for its resolution.
+Set `exclude-newer-packages` to one reviewed `package=UTC cutoff` entry per line only when a declared minimum was
+published within the past seven days. Set the cutoff just after the latest file of that reviewed version was uploaded.
+Every other package retains the seven-day cutoff, and a later upload of the same package stays excluded. The same
+exceptions apply to both locks when `keep-uv-lock` is true. The dependency PR lists the exact cutoffs used.
 
 To check the same lock refresh on a PR, call `refresh-release-lock` in a job with Contents read permission. The reusable
 updater calls this Action in its lock generator job. It excludes dependencies published in the last seven days, resolves
