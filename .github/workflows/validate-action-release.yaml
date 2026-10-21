@@ -160,7 +160,8 @@ jobs:
         run: |
           git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com \
             commit -m "release $VERSION"
-          git tag -a "$VERSION" -m "Release $VERSION"
+          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com \
+            tag -a "$VERSION" -m "Release $VERSION"
           git push rehearsal HEAD:refs/heads/main "refs/tags/$VERSION"
       - uses: $/render-release-notes
         with:
