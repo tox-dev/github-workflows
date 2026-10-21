@@ -31,7 +31,9 @@ def test_published_release_is_verified_without_writes(
         (assets / "fixture.zip").write_bytes(b"release archive")
     commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
     prefix = "/api/v3/repos/tox-dev/fixture"
-    server.expect_request(f"{prefix}/commits/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}}
+    )
     for _ in range(3):
         server.expect_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
             [
@@ -108,7 +110,9 @@ def test_existing_release_rejects_changed_content(
         "assets": [],
     }
     release[changed_field] = changed_value
-    server.expect_request(f"{prefix}/commits/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}}
+    )
     server.expect_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
         [release],
     )
@@ -140,8 +144,8 @@ def test_tag_must_point_to_expected_commit(
     server, environment = github_api
     notes = tmp_path / "notes.md"
     notes.write_text("Release notes.\n")
-    server.expect_request("/api/v3/repos/tox-dev/fixture/commits/0.1.0", method="GET").respond_with_json(
-        {"sha": "0" * 40},
+    server.expect_request("/api/v3/repos/tox-dev/fixture/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": "0" * 40}},
     )
     result = action(
         repository,
@@ -162,6 +166,94 @@ def test_tag_must_point_to_expected_commit(
     assert [request.method for request, _ in server.log] == ["GET"]
 
 
+def test_annotated_tag_points_to_expected_commit(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+) -> None:
+    server, environment = github_api
+    notes = tmp_path / "notes.md"
+    notes.write_text("Release notes.\n")
+    commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
+    prefix = "/api/v3/repos/tox-dev/fixture"
+    server.expect_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "tag", "sha": "2" * 40}},
+    )
+    server.expect_request(f"{prefix}/git/tags/{'2' * 40}", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}},
+    )
+    for _ in range(3):
+        server.expect_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
+            [
+                {
+                    "tag_name": "0.1.0",
+                    "name": "0.1.0",
+                    "body": notes.read_text(),
+                    "draft": False,
+                    "prerelease": False,
+                    "assets": [],
+                }
+            ],
+        )
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "publish-github-release",
+        version="0.1.0",
+        GH_REPO="tox-dev/fixture",
+        TAG="0.1.0",
+        COMMIT=commit,
+        TITLE="0.1.0",
+        NOTES_FILE=str(notes),
+        ASSETS_DIRECTORY="",
+        PRERELEASE="false",
+        **environment,
+    )
+    assert result.returncode == 0, result.stderr
+    assert [request.path for request, _ in server.log] == [
+        f"{prefix}/git/ref/tags/0.1.0",
+        f"{prefix}/git/tags/{'2' * 40}",
+        *[f"{prefix}/releases"] * 3,
+    ]
+
+
+def test_missing_tag_rejects_same_name_branch(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+) -> None:
+    server, environment = github_api
+    notes = tmp_path / "notes.md"
+    notes.write_text("Release notes.\n")
+    commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
+    run(repository, "git", "branch", "0.1.0", commit)
+    prefix = "/api/v3/repos/tox-dev/fixture"
+    server.expect_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"message": "Not Found"},
+        status=404,
+    )
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "publish-github-release",
+        version="0.1.0",
+        GH_REPO="tox-dev/fixture",
+        TAG="0.1.0",
+        COMMIT=commit,
+        TITLE="0.1.0",
+        NOTES_FILE=str(notes),
+        ASSETS_DIRECTORY="",
+        PRERELEASE="false",
+        **environment,
+    )
+    assert result.returncode != 0
+    assert [request.path for request, _ in server.log] == [f"{prefix}/git/ref/tags/0.1.0"]
+
+
 def test_asset_name_must_be_safe(
     repository: Path,
     tmp_path: Path,
@@ -175,8 +267,8 @@ def test_asset_name_must_be_safe(
     assets.mkdir()
     (assets / "unsafe\nname.zip").write_bytes(b"release archive")
     commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
-    server.expect_request("/api/v3/repos/tox-dev/fixture/commits/0.1.0", method="GET").respond_with_json(
-        {"sha": commit},
+    server.expect_request("/api/v3/repos/tox-dev/fixture/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}},
     )
     result = action(
         repository,
@@ -209,7 +301,9 @@ def test_publish_requires_an_existing_draft(
     notes.write_text("Release notes.\n")
     commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
     prefix = "/api/v3/repos/tox-dev/fixture"
-    server.expect_ordered_request(f"{prefix}/commits/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}}
+    )
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json([])
     result = action(
         repository,
@@ -254,7 +348,9 @@ def test_publish_rejects_incomplete_draft_without_upload(
         "prerelease": False,
         "assets": [],
     }
-    server.expect_ordered_request(f"{prefix}/commits/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}}
+    )
     for _ in range(2):
         server.expect_ordered_request(
             f"{prefix}/releases", query_string="per_page=100", method="GET"
@@ -331,7 +427,9 @@ def test_matching_draft_is_published_without_recreation(
         "prerelease": False,
         "assets": [],
     }
-    server.expect_ordered_request(f"{prefix}/commits/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}}
+    )
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
         [draft],
     )
@@ -395,7 +493,9 @@ def test_missing_release_is_created_and_published(
         "prerelease": is_prerelease,
         "assets": [],
     }
-    server.expect_ordered_request(f"{prefix}/commits/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}}
+    )
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json([])
     server.expect_ordered_request("/api/graphql", method="POST").respond_with_json(
         {"data": {"repository": {"ref": {"id": "REF_test"}}}},
@@ -470,7 +570,9 @@ def test_draft_release_resumes_missing_asset(
         "assets": [],
         "upload_url": f"https://localhost:{server.port}{prefix}/releases/42/assets{{?name,label}}",
     }
-    server.expect_ordered_request(f"{prefix}/commits/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}}
+    )
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
         [release],
     )
@@ -545,7 +647,9 @@ def test_failed_asset_upload_leaves_draft_unpublished(
         "assets": [],
         "upload_url": f"https://localhost:{server.port}{prefix}/releases/42/assets{{?name,label}}",
     }
-    server.expect_ordered_request(f"{prefix}/commits/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}}
+    )
     for _ in range(2):
         server.expect_ordered_request(
             f"{prefix}/releases", query_string="per_page=100", method="GET"

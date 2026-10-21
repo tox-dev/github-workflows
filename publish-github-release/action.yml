@@ -50,7 +50,16 @@ runs:
           exit 1
           ;;
         esac
-        test "$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)" = "$COMMIT"
+        read -r object_type object_sha < <(
+          gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '[.object.type, .object.sha] | @tsv'
+        )
+        while [[ "$object_type" == tag ]]; do
+          read -r object_type object_sha < <(
+            gh api "repos/$GH_REPO/git/tags/$object_sha" --jq '[.object.type, .object.sha] | @tsv'
+          )
+        done
+        test "$object_type" == commit
+        test "$object_sha" == "$COMMIT"
         printf '[]\n' >"$RUNNER_TEMP/release-assets.json"
         if [[ -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob
