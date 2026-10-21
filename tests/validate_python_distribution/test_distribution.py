@@ -57,6 +57,28 @@ def test_validate_python_distribution_accepts_built_files(
     assert "PASSED" in result.stdout
 
 
+def test_validate_python_distribution_selects_nondefault_group(
+    distribution: tuple[Path, Path], tmp_path: Path, action_scripts: Path
+) -> None:
+    repository, output = distribution
+    project = repository / "pyproject.toml"
+    project.write_text(project.read_text().replace("pkg-meta =", "release ="))
+    run(repository, "release-creator", "locks", "--output", "pylock.toml", "--tool-python", ">=3.15")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-python-distribution",
+        version="0.2.0",
+        LOCK="pylock.toml",
+        PYTHON_VERSION="3.15",
+        VALIDATION_GROUP="release",
+        OUT_DIR=str(output),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "PASSED" in result.stdout
+
+
 def test_validate_python_distribution_rejects_invalid_sdist(
     distribution: tuple[Path, Path], tmp_path: Path, action_scripts: Path
 ) -> None:

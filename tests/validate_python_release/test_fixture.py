@@ -10,6 +10,19 @@ from conftest import run
 from pytest_httpserver import HTTPServer
 
 
+def test_validator_group_reaches_distribution_check() -> None:
+    root = Path(__file__).resolve().parents[2]
+    rehearsal = yaml.load((root / ".github/workflows/validate-python-release.yaml").read_text(), Loader=yaml.BaseLoader)
+    dispatcher = yaml.load((root / ".github/workflows/check.yaml").read_text(), Loader=yaml.BaseLoader)
+    validator = next(
+        step for step in rehearsal["jobs"]["validate"]["steps"] if step.get("uses") == "$/validate-python-distribution"
+    )
+    assert dispatcher["on"]["workflow_dispatch"]["inputs"]["validation-group"]["default"] == "pkg-meta"
+    assert dispatcher["jobs"]["external-rehearsal"]["with"]["validation-group"] == "${{ inputs.validation-group }}"
+    assert rehearsal["on"]["workflow_call"]["inputs"]["validation-group"]["default"] == "pkg-meta"
+    assert validator["with"]["validation-group"] == "${{ inputs.validation-group }}"
+
+
 @pytest.mark.parametrize(
     ("pr_number", "checkout_matches", "github_matches", "accepted"),
     [

@@ -38,6 +38,10 @@ on:
         description: Release-tool lock path
         default: pylock.toml
         type: string
+      validation-group:
+        description: Locked dependency group containing Twine and check-wheel-contents
+        default: pkg-meta
+        type: string
       issue-role:
         description: RST issue role target (issue or pull)
         default: issue
@@ -178,6 +182,7 @@ jobs:
       artifact-base-url: ${{ inputs.artifact-base-url }}
       fixture-issue: ${{ inputs.fixture-issue }}
       lock: ${{ inputs.lock }}
+      validation-group: ${{ inputs.validation-group }}
       issue-role: ${{ inputs.issue-role }}
       source: ${{ inputs.source }}
       artifact-prefix: ${{ inputs.artifact-prefix }}

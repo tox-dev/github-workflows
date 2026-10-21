@@ -50,6 +50,10 @@ on:
         description: Python version for release tooling and package build
         default: "3.15"
         type: string
+      validation-group:
+        description: Dependency group containing Twine and check-wheel-contents
+        default: pkg-meta
+        type: string
       local-tool-source:
         description: Install release-creator from this checkout for its own release rehearsal
         default: false
@@ -466,6 +470,7 @@ jobs:
         with:
           lock: ${{ inputs.lock }}
           python-version: ${{ inputs.python-version }}
+          validation-group: ${{ inputs.validation-group }}
       - name: Prepare contributor fixture
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         id: metadata

@@ -281,6 +281,8 @@ pull requests. `lock` defaults to `pylock.toml` and must have a `release` group 
 defaults to empty; set it while comparing this workflow with an existing PR rehearsal so the two jobs use distinct
 artifact names. Set `local-tool-source: true` for release-creator's own release: the keyless jobs install the tagged
 checkout from its locked release, fix, build, and runtime groups instead of using a published release-creator wheel.
+`validation-group` defaults to `pkg-meta`; set it to `release` when that group contains locked Twine and
+check-wheel-contents, as in pipx. An absent group can make `uv pip sync` succeed without installing either tool.
 
 For an RST changelog, use `format: rst` when the caller has a `docstrfmt` hook; otherwise use `format: none`. The
 workflow creates `.rst` test fragments from the changelog suffix and checks RST PR references in the assembled section.
