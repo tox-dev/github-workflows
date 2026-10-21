@@ -1147,7 +1147,7 @@ sha256 = "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8"
 name = "packaging"
 version = "26.3"
 index = "https://pypi.org/simple"
-marker = "\"test\" in dependency_groups"
+marker = "\"release\" in dependency_groups or \"test\" in dependency_groups"
 
 [packages.sdist]
 url = "https://files.pythonhosted.org/packages/7d/fa/3944b40b07da9ce895c0e6303a5ab7d53da063554f534556b134a54d6093/packaging-26.3.tar.gz"
@@ -1443,14 +1443,14 @@ sha256 = "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
 
 [[packages]]
 name = "release-creator"
-version = "0.4.2.dev28+gdabf2e179"
+version = "0.4.2.dev32+gd1d193f9b"
 marker = "\"release\" in dependency_groups"
 
 [packages.vcs]
 type = "git"
 url = "https://github.com/tox-dev/release-creator"
-requested-revision = "dabf2e179270fa135d40e71db7c39f191c47bbb3"
-commit-id = "dabf2e179270fa135d40e71db7c39f191c47bbb3"
+requested-revision = "d1d193f9b68d07344dd7a6a15d67970a1a2161e8"
+commit-id = "d1d193f9b68d07344dd7a6a15d67970a1a2161e8"
 
 [[packages]]
 name = "tomli-w"

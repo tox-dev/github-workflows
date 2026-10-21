@@ -10,6 +10,9 @@ inputs:
   repository:
     description: GitHub owner/repository
     required: true
+  package:
+    description: Package name for changelogs and tags with separate release namespaces
+    default: ""
   artifact-url:
     description: Published ecosystem release URL
     default: ""
@@ -37,15 +40,21 @@ runs:
       shell: bash
       env:
         TAG: ${{ inputs.tag }}
+        PACKAGE: ${{ inputs.package }}
       run: |
         set -euo pipefail
-        release-creator tags "$TAG"
-        previous=$(git tag --list | release-creator tags "$TAG" --previous)
+        args=()
+        if [[ -n "$PACKAGE" ]]; then
+          args+=(--package "$PACKAGE")
+        fi
+        release-creator tags "$TAG" "${args[@]}"
+        previous=$(git tag --list | release-creator tags "$TAG" --previous "${args[@]}")
         printf 'previous=%s\n' "$previous" >>"$GITHUB_OUTPUT"
     - name: Render GitHub Release notes
       shell: bash
       env:
         TAG: ${{ inputs.tag }}
+        PACKAGE: ${{ inputs.package }}
         CHANGELOG: ${{ inputs.changelog }}
         REPOSITORY: ${{ inputs.repository }}
         ARTIFACT_URL: ${{ inputs.artifact-url }}
@@ -57,6 +66,9 @@ runs:
       run: |
         set -euo pipefail
         args=(--changelog "$CHANGELOG" --tag "$TAG" --repository "$REPOSITORY" --issue-role "$ISSUE_ROLE")
+        if [[ -n "$PACKAGE" ]]; then
+          args+=(--package "$PACKAGE")
+        fi
         if [[ -n "$PREVIOUS" ]]; then
           args+=(--previous "$PREVIOUS")
         fi

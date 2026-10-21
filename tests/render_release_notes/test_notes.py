@@ -154,6 +154,84 @@ def test_render_release_notes_custom_artifact_label(
 
 
 @pytest.mark.parametrize(
+    ("package", "version", "previous", "entry"),
+    [
+        pytest.param("pyproject-fmt", "2.30.3", "2.30.2", "Format pyprojects.", id="pyproject"),
+        pytest.param("tox-toml-fmt", "1.11.1", "1.11.0", "Format tox files.", id="tox"),
+        pytest.param("toml-fmt-common", "1.3.5", "1.3.4", "Share TOML rules.", id="common"),
+    ],
+)
+def test_render_release_notes_selects_package_namespace(
+    tagged_repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    package: str,
+    version: str,
+    previous: str,
+    entry: str,
+) -> None:
+    (tagged_repository / "CHANGELOG.md").write_text(
+        dedent(
+            """\
+            # Changelog
+
+            ## pyproject-fmt
+
+            ### 2.30.3 (2026-10-20)
+
+            #### Added
+
+            - Format pyprojects.
+
+            ## tox-toml-fmt
+
+            ### 1.11.1 (2026-10-20)
+
+            #### Added
+
+            - Format tox files.
+
+            ## toml-fmt-common
+
+            ### 1.3.5 (2026-10-20)
+
+            #### Added
+
+            - Share TOML rules.
+            """,
+        ),
+    )
+    run(tagged_repository, "git", "add", "CHANGELOG.md")
+    run(tagged_repository, "git", "commit", "-m", "Release all packages")
+    for name, old, current in (
+        ("pyproject-fmt", "2.30.2", "2.30.3"),
+        ("tox-toml-fmt", "1.11.0", "1.11.1"),
+        ("toml-fmt-common", "1.3.4", "1.3.5"),
+    ):
+        run(tagged_repository, "git", "tag", f"{name}/{old}", "HEAD^")
+        run(tagged_repository, "git", "tag", f"{name}/{current}")
+    result = action(
+        tagged_repository,
+        tmp_path,
+        action_scripts,
+        "render-release-notes",
+        version=f"{package}/{version}",
+        TAG=f"{package}/{version}",
+        PACKAGE=package,
+        REPOSITORY="tox-dev/toml-fmt",
+        OUTPUT=str(tmp_path / "notes.md"),
+        ARTIFACT_URL=f"https://pypi.org/project/{package}/{version}/",
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "notes.md").read_text() == (
+        f"### Features\n\n- {entry}\n\n[PyPI release](https://pypi.org/project/{package}/{version}/)\n\n"
+        f"**Full Changelog**: https://github.com/tox-dev/toml-fmt/compare/"
+        f"{package}/{previous}...{package}/{version}\n"
+    )
+    assert f"previous={package}/{previous}" in (tmp_path / "output").read_text()
+
+
+@pytest.mark.parametrize(
     ("tag", "remove_heading", "error"),
     [
         pytest.param("invalid tag", False, "invalid", id="invalid-tag"),
