@@ -5,7 +5,6 @@ import subprocess
 import tomllib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 import yaml
@@ -403,13 +402,8 @@ def test_upgrade_rejects_unsafe_branch(
 def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) -> subprocess.CompletedProcess[str]:
     active_cutoffs = tmp_path / "active-package-cutoffs"
     active_cutoffs.write_text(f"{environment.get('EXCLUDE_NEWER_PACKAGES', '')}\n")
-    command = ["bash", str(script)]
-    if script.name.startswith("refresh-release-lock-") and (coverage_binary := os.environ.get("KCOV_BIN")) is not None:
-        output = Path(os.environ["KCOV_OUTPUT"])
-        output.mkdir(parents=True, exist_ok=True)
-        command = [coverage_binary, f"--include-path={script.parent}", str(output / uuid4().hex), str(script)]
     return subprocess.run(
-        command,
+        ["bash", str(script)],
         cwd=repository,
         env=os.environ
         | {

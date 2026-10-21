@@ -6,7 +6,6 @@ import subprocess
 import tomllib
 from pathlib import Path
 from urllib.request import urlopen
-from uuid import uuid4
 
 import pytest
 import yaml
@@ -14,13 +13,8 @@ from conftest import run
 
 
 def execute(script: Path, directory: Path, **settings: str) -> subprocess.CompletedProcess[str]:
-    command = ["bash", str(script)]
-    if (coverage_binary := os.getenv("KCOV_BIN")) is not None:
-        output = Path(os.environ["KCOV_OUTPUT"])
-        output.mkdir(parents=True, exist_ok=True)
-        command = [coverage_binary, f"--include-path={script.parent}", str(output / uuid4().hex), str(script)]
     return subprocess.run(
-        command,
+        ["bash", str(script)],
         cwd=directory,
         env=os.environ | settings,
         text=True,

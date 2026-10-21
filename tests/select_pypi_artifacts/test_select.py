@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
@@ -18,13 +17,8 @@ def select(
     partitioned: str = "false",
 ) -> subprocess.CompletedProcess[str]:
     script = action_scripts / "select-pypi-artifacts-0.sh"
-    command = ["bash", str(script)]
-    if (coverage_binary := os.getenv("KCOV_BIN")) is not None:
-        coverage = Path(os.environ["KCOV_OUTPUT"])
-        coverage.mkdir(parents=True, exist_ok=True)
-        command = [coverage_binary, f"--include-path={script.parent}", str(coverage / uuid4().hex), str(script)]
     return subprocess.run(
-        command,
+        ["bash", str(script)],
         cwd=tmp_path,
         env=os.environ
         | {
