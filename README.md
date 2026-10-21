@@ -101,12 +101,11 @@ bot. It reads public GitHub metadata and writes only temporary fixture files.
 ## Refresh release tools and hooks
 
 Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Two read-only jobs run in parallel: one refreshes
-the full project `pylock.toml`; the other updates exact pre-commit `additional_dependencies` pins. Both exclude releases
-newer than seven days. They run `prek` and upload separate patches. pre-commit.ci owns hook revision updates and keeps
-their frozen SHA format. The write job runs on the configured base branch when either patch changes. It accepts only the
-configured lock and hook paths, then opens or updates one `dependencies` and `skip news` pull request and dispatches the
-caller's check workflow. The write job needs Contents, Pull requests, and Actions write access. It does not use a
-release App key.
+the full project `pylock.toml`; the other updates frozen hook revisions and exact `additional_dependencies` pins. Both
+exclude releases newer than seven days. They run `prek` and upload separate patches. The write job runs on the
+configured base branch when either patch changes. It accepts only the configured lock and hook paths, then opens or
+updates one `dependencies` and `skip news` pull request and dispatches the caller's check workflow. The write job needs
+Contents, Pull requests, and Actions write access. It does not use a release App key.
 
 ```yaml
 name: Upgrade release tools
@@ -182,6 +181,31 @@ all hooks. Its `config` input selects the pre-commit file, and `python-version` 
 hook dependencies. Its `changed` output is `true` only when that file changes, and it writes `$RUNNER_TEMP/hooks.patch`.
 It fails if a hook modifies another file. The Action does not write to GitHub. pre-commit.ci can open separate
 autoupdate pull requests outside this seven-day path; apply a separate age check before merging those updates.
+
+`check-hook-update-cooldown` checks that age on the live PR head. Add it as a no-checkout job in the caller's
+`pull_request` workflow, with `pull-requests: read`, and include it in the existing required aggregate's `needs`. Pass
+the event PR number and head SHA. The Action checks the event against live PR metadata. For `pre-commit-ci[bot]`, it
+uses the later of the head commit date and GitHub's PR update time, and fails until seven days have elapsed. Comments
+can reset the PR update time, so this gate may require a later rerun. A human PR passes without an age check. Keep
+`opened`, `synchronize`, and `reopened` among the caller's PR event types; rerun the failed job once the date is
+reached.
+
+```yaml
+hook-cooldown:
+  if: github.event_name == 'pull_request'
+  runs-on: ubuntu-26.04
+  permissions:
+    pull-requests: read
+  steps:
+    - uses: tox-dev/github-workflows/check-hook-update-cooldown@SHA
+      with:
+        repository: ${{ github.repository }}
+        pull-request: ${{ github.event.pull_request.number }}
+        head-sha: ${{ github.event.pull_request.head.sha }}
+```
+
+The aggregate must require `hook-cooldown` to succeed on PRs and allow it to skip on non-PR events. Rehearse a young
+pre-commit.ci PR against the repository's actual required aggregate before relying on the gate.
 
 Run the hook preview in its own job so its path check sees only the hook configuration change:
 
@@ -661,6 +685,42 @@ missing assets, and publishes only after the complete asset set matches. A match
 different body, title, tag commit, prerelease flag, or asset set fails without changing the existing Release. A failed
 upload leaves the draft for a later retry. An asset in GitHub's incomplete `starter` state requires manual cleanup
 before retrying.
+
+## Reconcile a post-release pull request
+
+`publish-post-release-pr` consumes a candidate commit prepared without an App token. The preparation job records the
+base commit, desired branch, and a tab-separated file of changed paths and Git blob SHA1 values, then creates a Git
+bundle containing `refs/heads/release-candidate`. Upload the bundle, path file, and body as one artifact. Pass the
+upload step's artifact ID to the writer's download step, so a rerun cannot select an older artifact with the same name.
+The writer runs without checkout under the caller's `release-auth` environment and needs Contents, Pull requests, and
+Issues write access for its App token.
+
+```yaml
+  - uses: actions/download-artifact@DOWNLOAD_SHA
+    with:
+      artifact-ids: ${{ needs.prepare.outputs.artifact-id }}
+      path: prepared/
+  - uses: tox-dev/github-workflows/publish-post-release-pr@SHA
+    env:
+      GH_TOKEN: ${{ steps.app-token.outputs.token }}
+    with:
+      repository: ${{ github.repository }}
+      base: main
+      base-commit: ${{ needs.prepare.outputs.base-commit }}
+      branch: post-release-${{ github.ref_name }}
+      title: Bump version to 2.4.8-dev
+      body-file: prepared/body.md
+      paths-file: prepared/paths.tsv
+      bundle: prepared/candidate.bundle
+      candidate-commit: ${{ needs.prepare.outputs.candidate-commit }}
+```
+
+The Action verifies the bundle's single-parent commit, changed path set, regular file modes, and blob identities before
+any write. A matching open branch and PR need no second push. If a matching branch has no PR, it creates one. A merged
+PR with a deleted branch succeeds only when the current base still has the expected file bytes. A different branch, PR
+title, body, base, path set, or merged file state fails without a force-push. When the prepared change has already
+merged and produced no new commit, pass empty `bundle` and `candidate-commit` values with the same path manifest; the
+Action still checks the merged PR and current base. Its `pull-request` output is the verified PR number.
 
 ## Sign a JetBrains plugin
 
