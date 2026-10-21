@@ -1,0 +1,55 @@
+name: Publish a prepared pull request
+description: Reconcile a prepared branch and pull request without checking out project code
+inputs:
+  repository:
+    description: Repository containing the base and pull request
+    required: true
+  base:
+    description: Protected base branch
+    default: main
+  base-commit:
+    description: Base commit used by the keyless preparation job
+    required: true
+  branch:
+    description: Stable branch name for the pull request
+    required: true
+  title:
+    description: Exact pull request title
+    required: true
+  body-file:
+    description: File containing the exact pull request body
+    required: true
+  paths-file:
+    description: Tab-separated changed path and desired Git blob SHA on each line
+    required: true
+  bundle:
+    description: Bundle containing refs/heads/release-candidate, empty when the change is already merged
+    default: ""
+  candidate-commit:
+    description: Candidate commit SHA in the bundle, empty when the change is already merged
+    default: ""
+  label:
+    description: Label to add to the pull request
+    default: skip news
+outputs:
+  pull-request:
+    description: Reconciled pull request number
+    value: ${{ steps.publish.outputs.pull-request }}
+runs:
+  using: composite
+  steps:
+    - id: publish
+      name: Reconcile the branch and pull request
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+        BASE: ${{ inputs.base }}
+        BASE_COMMIT: ${{ inputs.base-commit }}
+        BRANCH: ${{ inputs.branch }}
+        TITLE: ${{ inputs.title }}
+        BODY_FILE: ${{ inputs.body-file }}
+        PATHS_FILE: ${{ inputs.paths-file }}
+        BUNDLE: ${{ inputs.bundle }}
+        CANDIDATE_COMMIT: ${{ inputs.candidate-commit }}
+        LABEL: ${{ inputs.label }}
+      run: bash "$GITHUB_ACTION_PATH/publish.sh"
