@@ -183,18 +183,20 @@ It fails if a hook modifies another file. The Action does not write to GitHub. p
 autoupdate pull requests outside this seven-day path; apply a separate age check before merging those updates.
 
 `check-hook-update-cooldown` checks that age on the live PR head. Add it as a no-checkout job in the caller's
-`pull_request` workflow, with `pull-requests: read`, and include it in the existing required aggregate's `needs`. Pass
-the event PR number and head SHA. The Action checks the event against live PR metadata. For `pre-commit-ci[bot]`, it
-uses the later of the head commit date and GitHub's PR update time, and fails until seven days have elapsed. Comments
-can reset the PR update time, so this gate may require a later rerun. A human PR passes without an age check. Keep
-`opened`, `synchronize`, and `reopened` among the caller's PR event types; rerun the failed job once the date is
-reached.
+`pull_request` workflow, with Contents and Pull requests read permission, and include it in the existing required
+aggregate's `needs`. Pass the event PR number and head SHA. The Action checks the event against live PR metadata. For
+`pre-commit-ci[bot]`, it uses the verified head commit date and fails until seven days have elapsed. Labels and comments
+do not restart the cooldown. Git commit dates can be set by the committer, so this check relies on pre-commit.ci to date
+its own update commits accurately. A human PR passes without an age check. Keep `opened`, `synchronize`, and `reopened`
+among the caller's PR event types; rerun the failed job once the date is reached. The Action maps the job's
+`github.token` to `GH_TOKEN` itself; the caller does not pass a token.
 
 ```yaml
 hook-cooldown:
   if: github.event_name == 'pull_request'
   runs-on: ubuntu-26.04
   permissions:
+    contents: read
     pull-requests: read
   steps:
     - uses: tox-dev/github-workflows/check-hook-update-cooldown@SHA
@@ -270,15 +272,10 @@ Release body. The tag caller alone has a Contents write job that creates the Git
 
 ## Validate a Python release
 
-`validate-python-release.yaml` runs the shared Towncrier, package build, and note-rendering path from an exact PR head
-or an existing tag. A rehearsal squashes the proposed changes onto its base, adds named and numbered bug-fix fragments,
-and creates a commit and tag in the runner. It prepares and checks the changelog patch, runs `prek` on the candidate,
-builds the wheel and sdist, and checks both entries' links and author credits. It also checks rejection of unsupported
-or missing fragments, a dirty checkout, an existing release tag, a stale release branch, a patch with an unrelated file,
-an invalid tag, and a missing changelog. The local commit and tag never leave the runner. The same tagged-source
-rendering step runs on the local PR tag and on a real tag; the PR also renders a separate copy with its contributor
-fixture. The workflow uses `$/` for its own Actions, so a caller pinned to a workflow commit runs those Actions from the
-same commit.
+`validate-python-release.yaml` runs read-only source checks, notes rendering, a hash-constrained wheel and sdist build,
+and distribution checks for an existing tag. It checks that the fully qualified tag ref resolves to the checked-out
+commit before building. The workflow uses `$/` for its own Actions, so a caller pinned to a workflow commit runs those
+Actions from the same commit.
 
 Call the pinned workflow from the tag publisher's build job:
 
@@ -296,71 +293,23 @@ build:
     artifact-base-url: https://pypi.org/project/example/
 ```
 
-`changelog` and `fragments` are the paths in `tool.towncrier`; `format` is `markdown` for an `mdformat` hook, `rst` for
-a `docstrfmt` hook, or `none` when no formatter hook applies. `artifact-base-url` ends just before the version; the
-workflow appends `1.2.3/` for tag `1.2.3`. Set it to the package's actual PyPI project path. `artifact-label` changes
-the link text from `PyPI release`; `issue-role` selects whether reStructuredText `:issue:` references link to issues or
-pull requests. `lock` defaults to `pylock.toml` and must have a `release` group with `release-creator`, Towncrier, and
-`prek`. `python-version` defaults to `3.15`; `source` defaults to the repository root for `uv build`. `artifact-prefix`
-defaults to empty; set it while comparing this workflow with an existing PR rehearsal so the two jobs use distinct
-artifact names. Set `local-tool-source: true` for release-creator's own release: the keyless jobs install the tagged
-checkout from its locked release, fix, build, and runtime groups instead of using a published release-creator wheel.
-`validation-group` defaults to `pkg-meta`; set it to `release` when that group contains locked Twine and
-check-wheel-contents, as in pipx. An absent group can make `uv pip sync` succeed without installing either tool.
+`changelog` is the rendered changelog path. `fragments` and `format` remain required for existing callers but do not
+affect tagged-source validation. `artifact-base-url` ends just before the version; the workflow appends `1.2.3/` for tag
+`1.2.3`. Set it to the package's actual PyPI project path. `artifact-label` changes the link text from `PyPI release`;
+`issue-role` selects whether reStructuredText `:issue:` references link to issues or pull requests. `lock` defaults to
+`pylock.toml` and must have a `release` group with `release-creator`, Towncrier, and `prek`. `python-version` defaults
+to `3.15`; `source` defaults to the repository root for `uv build`. `artifact-prefix` defaults to empty; set it when a
+tag builds more than one distribution path so the jobs use distinct artifact names. Set `local-tool-source: true` for
+release-creator's own release: the keyless jobs install the tagged checkout from its locked release, fix, build, and
+runtime groups instead of using a published release-creator wheel. `validation-group` defaults to `pkg-meta`; set it to
+`release` when that group contains locked Twine and check-wheel-contents, as in pipx. An absent group can make
+`uv pip sync` succeed without installing either tool.
 
-For an RST changelog, use `format: rst` when the caller has a `docstrfmt` hook; otherwise use `format: none`. The
-workflow creates `.rst` test fragments from the changelog suffix and checks RST PR references in the assembled section.
-If the repository uses `:issue:` roles, set `fixture-issue` to an existing issue number. The PR rehearsal then checks
-its GitHub issue link in the rendered notes. The input has no effect on an existing tag:
-
-```yaml
-with:
-  changelog: docs/changelog.rst
-  fragments: docs/changelog
-  format: rst
-  fixture-issue: '31'
-  artifact-base-url: https://pypi.org/project/filelock/
-```
-
-The shared repository's [Check workflow](.github/workflows/check.yaml) dispatches the rehearsal for a consumer PR. No
-rehearsal job is added to the consumer's PR workflow.
-
-On a tag, it validates the changelog and notes before building, matching the existing caller order. The job uploads
-`python-package-distributions` with the wheel and sdist, and `release-validation-notes` with the body rendered from the
-tagged source. On a PR it also uploads `release-dry-run` with the patch, assembled changelog, notes, contributor
-fixture, no-metadata tag preview, and distribution hashes. A tag run has no fixture, so its notes lack GitHub
-contributor metadata. The tag-only GitHub Release job must fetch generated notes with Contents write, rerender with
-`render-release-notes`, and create the Release after the ecosystem upload. PyPI OIDC stays in the caller's separate
-`release` environment job:
+The workflow uploads `python-package-distributions` with the wheel and sdist, and `release-validation-notes` with the
+body rendered from the tagged source. Its notes lack GitHub contributor metadata. The tag-only GitHub Release job must
+fetch generated notes with Contents write, rerender with `render-release-notes`, and create the Release after the
+ecosystem upload. PyPI OIDC stays in the caller's separate `release` environment job:
 [PyPI does not support trusted publishing inside reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/#reusable-workflows-on-github).
-
-## Rehearse an exact PR head
-
-Dispatch the shared `check.yaml` workflow against the ref that contains the rehearsal code. Use the shared PR branch
-while reviewing it, then `main` after merge. The command below runs on GitHub's Ubuntu runner and checks the current
-head of `tox-dev/python-discovery` PR #156. Replace the SHA after every PR push; the job fails if the PR has moved.
-`artifact-base-url` ends before the version, and `format` matches the changelog's `prek` formatter.
-
-```bash
-gh workflow run check.yaml \
-  --repo tox-dev/github-workflows \
-  --ref SHARED_WORKFLOW_REF \
-  -f repository=tox-dev/python-discovery \
-  -f head-sha=PR_HEAD_SHA \
-  -f pull-request=156 \
-  -f changelog=docs/changelog.rst \
-  -f fragments=docs/changelog \
-  -f format=rst \
-  -f artifact-base-url=https://pypi.org/project/python-discovery/
-```
-
-The dispatch accepts `fixture-issue` for an RST issue-link probe, `issue-role` (`issue` or `pull`), and `lock`
-(`pylock.toml` by default). It checks out the requested public repository at the SHA, verifies that GitHub still reports
-that exact PR head, then uses a local bare Git remote for the candidate commit and tag. The job receives Contents read
-and Pull requests read; it has no App key, OIDC publish permission, GitHub Release write, or GitHub push step. It
-uploads `release-dry-run`, `release-validation-notes`, and `python-package-distributions` under the shared repository's
-run. The artifacts include the generated patch, changelog, notes, contributor fixture, hashes, wheel, and sdist.
-Download them and compare their content with the caller's tag path before marking the no-publish gate complete.
 
 ## Prepare and tag with one reusable workflow
 
@@ -705,6 +654,7 @@ Issues write access for its App token.
       GH_TOKEN: ${{ steps.app-token.outputs.token }}
     with:
       repository: ${{ github.repository }}
+      app-slug: ${{ steps.app-token.outputs.app-slug }}
       base: main
       base-commit: ${{ needs.prepare.outputs.base-commit }}
       branch: post-release-${{ github.ref_name }}
@@ -715,12 +665,13 @@ Issues write access for its App token.
       candidate-commit: ${{ needs.prepare.outputs.candidate-commit }}
 ```
 
-The Action verifies the bundle's single-parent commit, changed path set, regular file modes, and blob identities before
-any write. A matching open branch and PR need no second push. If a matching branch has no PR, it creates one. A merged
-PR with a deleted branch succeeds only when the current base still has the expected file bytes. A different branch, PR
-title, body, base, path set, or merged file state fails without a force-push. When the prepared change has already
-merged and produced no new commit, pass empty `bundle` and `candidate-commit` values with the same path manifest; the
-Action still checks the merged PR and current base. Its `pull-request` output is the verified PR number.
+The Action derives the bot identity from the writer's App slug and verifies the commit author, single-parent commit,
+changed path set, regular file modes, and blob identities before any write. A matching open branch and PR need no second
+push. If a matching branch has no PR, it creates one. A merged PR with a deleted branch succeeds only when the current
+base still has the expected file bytes. A different branch, PR title, body, base, path set, or merged file state fails
+without a force-push. When the prepared change has already merged and produced no new commit, pass empty `bundle` and
+`candidate-commit` values with the same path manifest; the Action still checks the merged PR and current base. Its
+`pull-request` output is the verified PR number.
 
 ## Sign a JetBrains plugin
 

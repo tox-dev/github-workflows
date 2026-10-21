@@ -5,55 +5,6 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, labeled, unlabeled]
   workflow_dispatch:
-    inputs:
-      repository:
-        description: Public owner/repository to rehearse; leave empty to check this repository
-        type: string
-      project-type:
-        description: Temporary release rehearsal path (python, jetbrains, action, quotaline, tox, or toml-fmt)
-        default: python
-        type: string
-      head-sha:
-        description: Exact target PR head SHA
-        type: string
-      pull-request:
-        description: Target PR number
-        type: string
-      changelog:
-        description: Tracked changelog path
-        type: string
-      fragments:
-        description: Towncrier fragment directory
-        type: string
-      format:
-        description: Changelog format (markdown or rst)
-        type: string
-      artifact-base-url:
-        description: Published artifact URL ending in a slash
-        type: string
-      fixture-issue:
-        description: Optional issue for an RST fixture
-        type: string
-      lock:
-        description: Release-tool lock path
-        default: pylock.toml
-        type: string
-      validation-group:
-        description: Locked dependency group containing Twine and check-wheel-contents
-        default: pkg-meta
-        type: string
-      issue-role:
-        description: RST issue role target (issue or pull)
-        default: issue
-        type: string
-      source:
-        description: Package source directory
-        default: .
-        type: string
-      artifact-prefix:
-        description: Prefix for artifacts from separate release paths
-        default: ""
-        type: string
 permissions:
   contents: read
 jobs:
@@ -120,6 +71,18 @@ jobs:
           uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release pylock.toml
           echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
       - uses: $/validate-news
+  hook-cooldown:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: $/check-hook-update-cooldown
+        with:
+          repository: ${{ github.repository }}
+          pull-request: ${{ github.event.pull_request.number }}
+          head-sha: ${{ github.event.pull_request.head.sha }}
   release-dry-run:
     if: github.event_name == 'pull_request'
     uses: $/.github/workflows/validate-release.yaml
@@ -156,105 +119,22 @@ jobs:
       - uses: $/refresh-release-lock
         with:
           python-version: "3.15"
-  external-rehearsal:
-    if: github.event_name == 'workflow_dispatch' && inputs.repository != '' && inputs.project-type == 'python'
-    uses: $/.github/workflows/validate-python-release.yaml
-    permissions:
-      contents: read
-      pull-requests: read
-    with:
-      repository: ${{ inputs.repository }}
-      head-sha: ${{ inputs.head-sha }}
-      pull-request: ${{ inputs.pull-request }}
-      changelog: ${{ inputs.changelog }}
-      fragments: ${{ inputs.fragments }}
-      format: ${{ inputs.format }}
-      artifact-base-url: ${{ inputs.artifact-base-url }}
-      fixture-issue: ${{ inputs.fixture-issue }}
-      lock: ${{ inputs.lock }}
-      validation-group: ${{ inputs.validation-group }}
-      issue-role: ${{ inputs.issue-role }}
-      source: ${{ inputs.source }}
-      artifact-prefix: ${{ inputs.artifact-prefix }}
-  jetbrains-rehearsal:
-    if: github.event_name == 'workflow_dispatch' && inputs.project-type == 'jetbrains'
-    uses: $/.github/workflows/validate-jetbrains-release.yaml
-    permissions:
-      contents: read
-      pull-requests: read
-    with:
-      repository: ${{ inputs.repository }}
-      head-sha: ${{ inputs.head-sha }}
-      pull-request: ${{ inputs.pull-request }}
-  action-rehearsal:
-    if: github.event_name == 'workflow_dispatch' && inputs.project-type == 'action'
-    uses: $/.github/workflows/validate-action-release.yaml
-    permissions:
-      contents: read
-      pull-requests: read
-    with:
-      head-sha: ${{ inputs.head-sha }}
-  quotaline-rehearsal:
-    if: github.event_name == 'workflow_dispatch' && inputs.project-type == 'quotaline'
-    uses: $/.github/workflows/validate-quotaline-release.yaml
-    permissions:
-      contents: read
-      pull-requests: read
-    with:
-      repository: ${{ inputs.repository }}
-      head-sha: ${{ inputs.head-sha }}
-      pull-request: ${{ inputs.pull-request }}
-  tox-rehearsal:
-    if: github.event_name == 'workflow_dispatch' && inputs.project-type == 'tox'
-    uses: $/.github/workflows/validate-tox-release.yaml
-    permissions:
-      contents: read
-      pull-requests: read
-    with:
-      head-sha: ${{ inputs.head-sha }}
-      pull-request: ${{ inputs.pull-request }}
-  external-turbohtml-native:
-    if: github.event_name == 'workflow_dispatch' && inputs.repository == 'tox-dev/turbohtml' && inputs.project-type == 'python'
-    uses: $/.github/workflows/validate-turbohtml-native.yaml
-    permissions:
-      contents: read
-      pull-requests: read
-    with:
-      head-sha: ${{ inputs.head-sha }}
-      pull-request: ${{ inputs.pull-request }}
-  toml-fmt-rehearsal:
-    if: github.event_name == 'workflow_dispatch' && inputs.project-type == 'toml-fmt'
-    uses: $/.github/workflows/validate-toml-fmt-release.yaml
-    permissions:
-      contents: read
-      pull-requests: read
-    with:
-      repository: ${{ inputs.repository }}
-      head-sha: ${{ inputs.head-sha }}
-      pull-request: ${{ inputs.pull-request }}
   gate:
     name: Required checks pass
     if: always()
-    needs: [check, changelog, release-dry-run, prepare-graph-dry-run, release-tools-preview, external-rehearsal, jetbrains-rehearsal, action-rehearsal, quotaline-rehearsal, tox-rehearsal, external-turbohtml-native, toml-fmt-rehearsal]
+    needs: [check, changelog, hook-cooldown, release-dry-run, prepare-graph-dry-run, release-tools-preview]
     runs-on: ubuntu-26.04
     steps:
       - env:
           NEEDS_JSON: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           jq -e '
             all(
               to_entries[];
               .value.result == "success" or
-              (.key == "changelog" and .value.result == "skipped") or
-              (.key == "release-dry-run" and .value.result == "skipped") or
-              (.key == "prepare-graph-dry-run" and .value.result == "skipped") or
-              (.key == "release-tools-preview" and .value.result == "skipped") or
-              (.key == "external-rehearsal" and .value.result == "skipped") or
-              (.key == "jetbrains-rehearsal" and .value.result == "skipped") or
-              (.key == "action-rehearsal" and .value.result == "skipped") or
-              (.key == "quotaline-rehearsal" and .value.result == "skipped") or
-              (.key == "tox-rehearsal" and .value.result == "skipped") or
-              (.key == "external-turbohtml-native" and .value.result == "skipped") or
-              (.key == "toml-fmt-rehearsal" and .value.result == "skipped")
+              ($ENV.EVENT_NAME != "pull_request" and .value.result == "skipped" and
+                (.key == "changelog" or .key == "hook-cooldown" or .key == "release-dry-run" or
+                 .key == "prepare-graph-dry-run" or .key == "release-tools-preview"))
             )
           ' <<<"$NEEDS_JSON"

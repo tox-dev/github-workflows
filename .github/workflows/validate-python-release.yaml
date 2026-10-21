@@ -2,18 +2,6 @@ name: Validate Python release
 on:
   workflow_call:
     inputs:
-      repository:
-        description: Repository to rehearse; defaults to the workflow caller
-        default: ""
-        type: string
-      head-sha:
-        description: Exact target PR head to rehearse
-        default: ""
-        type: string
-      pull-request:
-        description: Target pull request number for external dispatch
-        default: ""
-        type: string
       changelog:
         description: Tracked changelog path
         required: true
@@ -38,10 +26,6 @@ on:
         description: Target for reStructuredText issue roles
         default: issue
         type: string
-      fixture-issue:
-        description: Issue number to link in a synthetic reStructuredText release entry
-        default: ""
-        type: string
       lock:
         description: Release-tool pylock.toml path
         default: pylock.toml
@@ -55,7 +39,7 @@ on:
         default: pkg-meta
         type: string
       local-tool-source:
-        description: Install release-creator from this checkout for its own release rehearsal
+        description: Install release-creator from this checkout for its own release
         default: false
         type: boolean
       source:
@@ -77,8 +61,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.head-sha || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: latest-known
@@ -107,36 +90,20 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
-      pull-requests: read
-    env:
-      RELEASE_REPOSITORY: ${{ inputs.repository || github.repository }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-          repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.head-sha || github.event.pull_request.head.sha || github.sha }}
-      - name: Verify the external PR head
-        if: inputs.repository != ''
-        id: target
+          ref: ${{ github.sha }}
+      - name: Verify the exact release tag
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pull-request }}
-          HEAD_SHA: ${{ inputs.head-sha }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          case "$PR_NUMBER" in
-          '' | *[!0-9]*)
-            echo '::error::pull-request must be numeric' >&2
-            exit 1
-            ;;
-          esac
-          test -n "$HEAD_SHA"
-          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
-          metadata=$(gh api "repos/$RELEASE_REPOSITORY/pulls/$PR_NUMBER" --jq '{head:.head.sha,base:.base.sha}')
-          test "$(jq -r .head <<<"$metadata")" = "$HEAD_SHA"
-          echo "base=$(jq -r .base <<<"$metadata")" >>"$GITHUB_OUTPUT"
+          test "$GITHUB_REF" = "refs/tags/$TAG"
+          git check-ref-format "refs/tags/$TAG"
+          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: latest-known
@@ -159,307 +126,16 @@ jobs:
           uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" \
             --group release --group fix --group build --group project-runtime "$LOCK"
           uv pip install --python "$RUNNER_TEMP/release-tools/bin/python" --no-deps --no-build-isolation .
-      - if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        uses: $/validate-bot-credits
-      - name: Fetch the multiple-author fixture
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          test "$(gh api repos/tox-dev/filelock/pulls/213 --jq .user.login)" = jahrules
-          for author in jahrules gaborbernat; do
-            test "$(gh api "users/$author" --jq .type)" = User
-          done
-          gh api 'repos/tox-dev/filelock/contents/docs/changelog.rst?ref=622ae3cb4cfd2dfaca66bc49c74656639f4cdfdb' \
-            --jq .content | base64 -d >"$RUNNER_TEMP/multiple-author-changelog.rst"
-          printf '%s  %s\n' \
-            91fccb09c0178e8f44650b86cc5921d5c5fd2d002b428532e74329a63d502bb4 \
-            "$RUNNER_TEMP/multiple-author-changelog.rst" | sha256sum --check
-      - name: Render multiple-author notes
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: |
-          set -euo pipefail
-          release-creator notes \
-            --changelog "$RUNNER_TEMP/multiple-author-changelog.rst" \
-            --tag 3.10.6 \
-            --repository tox-dev/filelock \
-            --previous 3.10.5 \
-            --issue-role pull >"$RUNNER_TEMP/multiple-author-notes.md"
-      - name: Check historical multiple-author credits
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: |
-          set -euo pipefail
-          grep -Fq '[#213](https://github.com/tox-dev/filelock/pull/213) by @jahrules and @gaborbernat.' \
-            "$RUNNER_TEMP/multiple-author-notes.md"
-          test "$(grep -oF 'https://github.com/tox-dev/filelock/pull/213' \
-            "$RUNNER_TEMP/multiple-author-notes.md" | wc -l)" -eq 1
-      - name: Squash the target pull request
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          BASE_SHA: ${{ steps.target.outputs.base || github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ inputs.head-sha || github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          git checkout -B release-validation "$BASE_SHA"
-          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com merge --squash "$HEAD_SHA"
-      - name: Select validation fragment format
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        id: fragment
-        env:
-          CHANGELOG: ${{ inputs.changelog }}
-          FIXTURE_ISSUE: ${{ inputs.fixture-issue }}
-          ISSUE_ROLE: ${{ inputs.issue-role }}
-        run: |
-          set -euo pipefail
-          case "$CHANGELOG" in
-          *.md) extension=md ;;
-          *.rst) extension=rst ;;
-          *)
-            echo "::error::unsupported changelog format: $CHANGELOG" >&2
-            exit 1
-            ;;
-          esac
-          if [[ -n "$FIXTURE_ISSUE" ]]; then
-            if [[ "$extension" != rst || "$ISSUE_ROLE" != issue || "$FIXTURE_ISSUE" == *[!0-9]* ]]; then
-              echo '::error::fixture-issue requires an RST changelog, issue role, and numeric issue' >&2
-              exit 1
-            fi
-          fi
-          echo "extension=$extension" >>"$GITHUB_OUTPUT"
-      - name: Add validation fragments
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          PR_NUMBER: ${{ inputs.pull-request || github.event.pull_request.number }}
-          FRAGMENTS: ${{ inputs.fragments }}
-          FIXTURE_ISSUE: ${{ inputs.fixture-issue }}
-          EXTENSION: ${{ steps.fragment.outputs.extension }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$FRAGMENTS"
-          if [[ -n "$FIXTURE_ISSUE" ]]; then
-            printf "Verify a user-visible release fix for :issue:\`%s\`.\n" "$FIXTURE_ISSUE" \
-              >"$FRAGMENTS/+validation-${PR_NUMBER}.bugfix.$EXTENSION"
-          else
-            printf 'Verify a user-visible release fix.\n' >"$FRAGMENTS/+validation-${PR_NUMBER}.bugfix.$EXTENSION"
-          fi
-          if [[ -e "$FRAGMENTS/${PR_NUMBER}.bugfix.$EXTENSION" ]]; then
-            printf '\nVerify a numbered release fix.\n' >>"$FRAGMENTS/${PR_NUMBER}.bugfix.$EXTENSION"
-          else
-            printf 'Verify a numbered release fix.\n' >"$FRAGMENTS/${PR_NUMBER}.bugfix.$EXTENSION"
-          fi
-      - name: Commit the local release candidate
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          PR_NUMBER: ${{ inputs.pull-request || github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          git add -A
-          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com commit -m "Validate release pipeline (#${PR_NUMBER})"
-      - name: Create the local release remote
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: |
-          set -euo pipefail
-          git init --bare "$RUNNER_TEMP/rehearsal.git"
-          git remote add rehearsal "$RUNNER_TEMP/rehearsal.git"
-          git push rehearsal HEAD:main
-      - name: Record release candidate identity
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        id: fixture
-        env:
-          PR_NUMBER: ${{ inputs.pull-request || github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          {
-            echo "sha=$(git rev-parse HEAD)"
-            echo "pr=$PR_NUMBER"
-            gh api "repos/$RELEASE_REPOSITORY/pulls/$PR_NUMBER" --jq '"author=\(.user.login)\nauthor_type=\(.user.type)"'
-          } >>"$GITHUB_OUTPUT"
-      - name: Introduce an unsupported fragment
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          FRAGMENTS: ${{ inputs.fragments }}
-          PR_NUMBER: ${{ steps.fixture.outputs.pr }}
-          EXTENSION: ${{ steps.fragment.outputs.extension }}
-        run: |
-          git mv "$FRAGMENTS/+validation-${PR_NUMBER}.bugfix.$EXTENSION" "$FRAGMENTS/validation-${PR_NUMBER}.bugfix.$EXTENSION"
-          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com commit -m "Validate fragment rejection"
-          git push rehearsal HEAD:main
-      - id: invalid_fragment
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        name: Reject an unsupported fragment
-        uses: $/prepare-towncrier
-        continue-on-error: true
-        with:
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          format: ${{ inputs.format }}
-          patch: ${{ runner.temp }}/release.patch
-          repository: ${{ inputs.repository || github.repository }}
-      - name: Check fragment rejection
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          OUTCOME: ${{ steps.invalid_fragment.outcome }}
-          SOURCE_SHA: ${{ steps.fixture.outputs.sha }}
-        run: |
-          test "$OUTCOME" = failure
-          git reset --hard "$SOURCE_SHA"
-          git push --force rehearsal HEAD:main
-      - name: Dirty the release checkout
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: touch untracked-release-file
-      - id: dirty_prepare
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        name: Reject a dirty release checkout
-        uses: $/prepare-towncrier
-        continue-on-error: true
-        with:
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          format: ${{ inputs.format }}
-          patch: ${{ runner.temp }}/release.patch
-          repository: ${{ inputs.repository || github.repository }}
-      - name: Check dirty checkout rejection
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          OUTCOME: ${{ steps.dirty_prepare.outcome }}
-        run: |
-          test "$OUTCOME" = failure
-          rm untracked-release-file
-      - name: Create an empty fragment directory
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: mkdir "$RUNNER_TEMP/empty-fragments"
-      - id: missing_fragment
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        name: Reject a missing release fragment
-        uses: $/prepare-towncrier
-        continue-on-error: true
-        with:
-          fragments: ${{ runner.temp }}/empty-fragments
-          changelog: ${{ inputs.changelog }}
-          format: ${{ inputs.format }}
-          patch: ${{ runner.temp }}/missing-fragment.patch
-          repository: ${{ inputs.repository || github.repository }}
-      - name: Check missing fragment rejection
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          OUTCOME: ${{ steps.missing_fragment.outcome }}
-        run: test "$OUTCOME" = failure
-      - id: prepare
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        uses: $/prepare-towncrier
-        with:
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          format: ${{ inputs.format }}
-          patch: ${{ runner.temp }}/release.patch
-          repository: ${{ inputs.repository || github.repository }}
-      - name: Restore release candidate
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: git reset --hard HEAD
-      - name: Make the candidate tag stale
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          VERSION: ${{ steps.prepare.outputs.version }}
-        run: git tag "$VERSION"
-      - id: stale_tag
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        name: Reject an existing release tag
-        uses: $/prepare-towncrier
-        continue-on-error: true
-        with:
-          version: ${{ steps.prepare.outputs.version }}
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          format: ${{ inputs.format }}
-          patch: ${{ runner.temp }}/stale-tag.patch
-          repository: ${{ inputs.repository || github.repository }}
-      - name: Check stale tag rejection
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          OUTCOME: ${{ steps.stale_tag.outcome }}
-          VERSION: ${{ steps.prepare.outputs.version }}
-        run: |
-          test "$OUTCOME" = failure
-          git tag -d "$VERSION"
-      - id: stale_validate
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        name: Reject a stale release branch
-        uses: $/validate-release-patch
-        continue-on-error: true
-        with:
-          version: ${{ steps.prepare.outputs.version }}
-          patch: ${{ runner.temp }}/release.patch
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          remote: rehearsal
-          expected-sha: "0000000000000000000000000000000000000000"
-          repository: ${{ inputs.repository || github.repository }}
-      - name: Check stale branch rejection
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          OUTCOME: ${{ steps.stale_validate.outcome }}
-        run: test "$OUTCOME" = failure
-      - name: Add an unrelated file to the release patch
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: |
-          printf 'invalid patch probe\n' >release-validation-unexpected.txt
-          git add -N release-validation-unexpected.txt
-          git diff --binary -- release-validation-unexpected.txt >"$RUNNER_TEMP/unexpected-path.patch"
-          git reset -- release-validation-unexpected.txt
-          rm release-validation-unexpected.txt
-          cat "$RUNNER_TEMP/release.patch" "$RUNNER_TEMP/unexpected-path.patch" >"$RUNNER_TEMP/invalid.patch"
-          git apply --check "$RUNNER_TEMP/invalid.patch"
-      - id: invalid_patch
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        name: Reject a release patch with an unrelated file
-        uses: $/validate-release-patch
-        continue-on-error: true
-        with:
-          version: ${{ steps.prepare.outputs.version }}
-          patch: ${{ runner.temp }}/invalid.patch
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          remote: rehearsal
-          expected-sha: ${{ steps.fixture.outputs.sha }}
-          repository: ${{ inputs.repository || github.repository }}
-      - name: Check unrelated path rejection
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          OUTCOME: ${{ steps.invalid_patch.outcome }}
-        run: |
-          test "$OUTCOME" = failure
-          git diff --cached --name-only | grep -Fxq release-validation-unexpected.txt
-          git reset --hard HEAD
-      - if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        uses: $/validate-release-patch
-        with:
-          version: ${{ steps.prepare.outputs.version }}
-          patch: ${{ runner.temp }}/release.patch
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          remote: rehearsal
-          expected-sha: ${{ steps.fixture.outputs.sha }}
-          repository: ${{ inputs.repository || github.repository }}
-      - name: Commit and tag the local candidate
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          VERSION: ${{ steps.prepare.outputs.version }}
-        run: |
-          git -c user.name=release-validation -c user.email=release-validation@users.noreply.github.com commit -m "release $VERSION"
-          git tag "$VERSION"
       - name: Render tagged-source notes
-        if: github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         uses: $/render-release-notes
         with:
-          tag: ${{ steps.prepare.outputs.version || github.ref_name }}
+          tag: ${{ github.ref_name }}
           changelog: ${{ inputs.changelog }}
-          repository: ${{ inputs.repository || github.repository }}
-          artifact-url: ${{ inputs.artifact-base-url }}${{ steps.prepare.outputs.version || github.ref_name }}/
+          repository: ${{ github.repository }}
+          artifact-url: ${{ inputs.artifact-base-url }}${{ github.ref_name }}/
           artifact-label: ${{ inputs.artifact-label }}
           issue-role: ${{ inputs.issue-role }}
-          output: ${{ runner.temp }}/${{ github.event_name == 'push' && 'release-notes.md' || 'tag-preview-notes.md' }}
+          output: ${{ runner.temp }}/release-notes.md
       - uses: $/build-python-distribution
         with:
           lock: ${{ inputs.lock }}
@@ -471,134 +147,8 @@ jobs:
           lock: ${{ inputs.lock }}
           python-version: ${{ inputs.python-version }}
           validation-group: ${{ inputs.validation-group }}
-      - name: Prepare contributor fixture
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        id: metadata
-        env:
-          PR_NUMBER: ${{ steps.fixture.outputs.pr }}
-          PR_AUTHOR: ${{ steps.fixture.outputs.author }}
-          REPOSITORY: ${{ inputs.repository || github.repository }}
-        run: |
-          printf '* Validate release pipeline by @%s in https://github.com/%s/pull/%s\n' \
-            "$PR_AUTHOR" "$REPOSITORY" "$PR_NUMBER" >"$RUNNER_TEMP/generated-notes.md"
-          echo "path=$RUNNER_TEMP/generated-notes.md" >>"$GITHUB_OUTPUT"
-      - id: invalid_tag
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        name: Reject an invalid release tag
-        uses: $/render-release-notes
-        continue-on-error: true
-        with:
-          tag: bad tag
-          changelog: ${{ inputs.changelog }}
-          repository: ${{ inputs.repository || github.repository }}
-          output: ${{ runner.temp }}/invalid-tag-notes.md
-      - name: Check invalid tag rejection
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          OUTCOME: ${{ steps.invalid_tag.outcome }}
-        run: test "$OUTCOME" = failure
-      - id: missing_changelog
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        name: Reject a missing changelog
-        uses: $/render-release-notes
-        continue-on-error: true
-        with:
-          tag: ${{ steps.prepare.outputs.version }}
-          changelog: missing-changelog.md
-          repository: ${{ inputs.repository || github.repository }}
-          output: ${{ runner.temp }}/missing-changelog-notes.md
-      - name: Check missing changelog rejection
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          OUTCOME: ${{ steps.missing_changelog.outcome }}
-        run: test "$OUTCOME" = failure
-      - uses: $/render-release-notes
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        with:
-          tag: ${{ steps.prepare.outputs.version || github.ref_name }}
-          changelog: ${{ inputs.changelog }}
-          repository: ${{ inputs.repository || github.repository }}
-          artifact-url: ${{ inputs.artifact-base-url }}${{ steps.prepare.outputs.version || github.ref_name }}/
-          artifact-label: ${{ inputs.artifact-label }}
-          issue-role: ${{ inputs.issue-role }}
-          generated-notes: ${{ steps.metadata.outputs.path }}
-          output: ${{ runner.temp }}/release-notes.md
-      - name: Verify release note links
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          PR_NUMBER: ${{ steps.fixture.outputs.pr }}
-          FIXTURE_ISSUE: ${{ inputs.fixture-issue }}
-          CHANGELOG: ${{ inputs.changelog }}
-          REPOSITORY: ${{ inputs.repository || github.repository }}
-        run: |
-          set -euo pipefail
-          test "$(grep -c '^\*\*Full Changelog\*\*:' "$RUNNER_TEMP/release-notes.md")" -eq 1
-          grep -Fq "[#${PR_NUMBER}](https://github.com/${REPOSITORY}/pull/${PR_NUMBER})" "$RUNNER_TEMP/release-notes.md"
-          if [[ -n "$FIXTURE_ISSUE" ]]; then
-            grep -Fq "[#${FIXTURE_ISSUE}](https://github.com/${REPOSITORY}/issues/${FIXTURE_ISSUE})" \
-              "$RUNNER_TEMP/release-notes.md"
-            grep -Fq ":issue:\`${FIXTURE_ISSUE}\`" "$CHANGELOG"
-          fi
-          test "$(grep -c '^\*\*Full Changelog\*\*:' "$RUNNER_TEMP/tag-preview-notes.md")" -eq 1
-          if grep -Fq '<!-- Release notes generated' "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/tag-preview-notes.md"; then
-            echo '::error::generated-notes banner in release notes'
-            exit 1
-          fi
-      - name: Verify the numbered fragment
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          PR_NUMBER: ${{ steps.fixture.outputs.pr }}
-          CHANGELOG: ${{ inputs.changelog }}
-          REPOSITORY: ${{ inputs.repository || github.repository }}
-        run: |
-          set -euo pipefail
-          numbered=$(grep -F 'Verify a numbered release fix' "$RUNNER_TEMP/release-notes.md")
-          test "$(grep -oF "https://github.com/${REPOSITORY}/pull/${PR_NUMBER}" <<<"$numbered" | wc -l)" -eq 1
-          if grep -Fq "https://github.com/${REPOSITORY}/issues/${PR_NUMBER}" <<<"$numbered"; then
-            echo '::error::numbered fragment links its pull request as an issue'
-            exit 1
-          fi
-          changelog_numbered=$(grep -F -A3 'Verify a numbered release fix' "$CHANGELOG")
-          if [[ "$CHANGELOG" == *.rst ]]; then
-            grep -Fq ":pr:\`${PR_NUMBER}\`" <<<"$changelog_numbered"
-            if grep -Fq ":issue:\`${PR_NUMBER}\`" <<<"$changelog_numbered"; then
-              echo '::error::numbered fragment repeats its pull request as an issue'
-              exit 1
-            fi
-          else
-            grep -Fq "https://github.com/${REPOSITORY}/pull/${PR_NUMBER}" <<<"$changelog_numbered"
-          fi
-      - name: Verify contributor credits
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          PR_AUTHOR: ${{ steps.fixture.outputs.author }}
-          PR_AUTHOR_TYPE: ${{ steps.fixture.outputs.author_type }}
-          CHANGELOG: ${{ inputs.changelog }}
-        run: |
-          set -euo pipefail
-          numbered=$(grep -F 'Verify a numbered release fix' "$RUNNER_TEMP/release-notes.md")
-          changelog_numbered=$(grep -F -A3 'Verify a numbered release fix' "$CHANGELOG")
-          if [[ "$PR_AUTHOR_TYPE" == Bot ]]; then
-            if grep -Fq "by @${PR_AUTHOR}" "$RUNNER_TEMP/release-notes.md"; then
-              echo '::error::bot credit in release notes'
-              exit 1
-            fi
-            if grep -Fq "by @${PR_AUTHOR}" <<<"$numbered"; then
-              echo '::error::bot credit in numbered release note'
-              exit 1
-            fi
-          else
-            grep -Fq "by @${PR_AUTHOR}" "$RUNNER_TEMP/release-notes.md"
-            grep -Fq "by @${PR_AUTHOR}" <<<"$numbered"
-            grep -Fq "$PR_AUTHOR" <<<"$changelog_numbered"
-          fi
       - name: Record distribution hashes
         run: sha256sum dist/* >"$RUNNER_TEMP/dist.sha256"
-      - name: Record candidate changelog
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        env:
-          CHANGELOG: ${{ inputs.changelog }}
-        run: cp "$CHANGELOG" "$RUNNER_TEMP/changelog"
       - name: Verify distribution hashes
         run: sha256sum --check "$RUNNER_TEMP/dist.sha256"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -610,19 +160,4 @@ jobs:
         with:
           name: ${{ inputs.artifact-prefix }}release-validation-notes
           path: ${{ runner.temp }}/release-notes.md
-          if-no-files-found: error
-      - if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ${{ inputs.artifact-prefix }}release-dry-run
-          path: |
-            ${{ runner.temp }}/release.patch
-            ${{ runner.temp }}/release-notes.md
-            ${{ runner.temp }}/generated-notes.md
-            ${{ runner.temp }}/tag-preview-notes.md
-            ${{ runner.temp }}/changelog
-            ${{ runner.temp }}/dist.sha256
-            ${{ runner.temp }}/bot-notes.md
-            ${{ runner.temp }}/multiple-author-notes.md
-            dist/*
           if-no-files-found: error

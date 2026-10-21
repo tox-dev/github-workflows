@@ -11,7 +11,7 @@ inputs:
     description: Exact pull request head from the triggering event
     required: true
   minimum-days:
-    description: Minimum age of the last pull request update
+    description: Minimum age of the pull request head commit
     default: "7"
 runs:
   using: composite
@@ -23,4 +23,5 @@ runs:
         PR_NUMBER: ${{ inputs.pull-request }}
         HEAD_SHA: ${{ inputs.head-sha }}
         MINIMUM_DAYS: ${{ inputs.minimum-days }}
+        GH_TOKEN: ${{ github.token }}
       run: bash "$GITHUB_ACTION_PATH/check.sh"

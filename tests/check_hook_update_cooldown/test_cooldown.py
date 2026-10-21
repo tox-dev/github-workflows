@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import yaml
 from pytest_httpserver import HTTPServer
 
 
@@ -16,12 +17,18 @@ def event(tmp_path: Path, head: str) -> Path:
     return path
 
 
+def test_action_uses_scoped_job_token() -> None:
+    action = yaml.safe_load((Path(__file__).resolve().parents[2] / "check-hook-update-cooldown/action.yml").read_text())
+    assert action["runs"]["steps"][0]["env"]["GH_TOKEN"] == "${{ github.token }}"
+
+
 @pytest.mark.parametrize(
-    ("author", "age_days", "accepted"),
+    ("author", "age_days", "pr_update_age_days", "accepted"),
     [
-        pytest.param("gaborbernat", 0, True, id="human"),
-        pytest.param("pre-commit-ci[bot]", 6, False, id="young-bot-update"),
-        pytest.param("pre-commit-ci[bot]", 8, True, id="cooled-bot-update"),
+        pytest.param("gaborbernat", 0, 0, True, id="human"),
+        pytest.param("pre-commit-ci[bot]", 6, 6, False, id="young-bot-update"),
+        pytest.param("pre-commit-ci[bot]", 8, 8, True, id="cooled-bot-update"),
+        pytest.param("pre-commit-ci[bot]", 8, 0, True, id="label-only-update"),
     ],
 )
 def test_cooldown_checks_current_head(
@@ -30,21 +37,22 @@ def test_cooldown_checks_current_head(
     github_api: tuple[HTTPServer, dict[str, str]],
     author: str,
     age_days: int,
+    pr_update_age_days: int,
     accepted: bool,
 ) -> None:
     server, environment = github_api
-    updated = (datetime.now(UTC) - timedelta(days=age_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    committed = (datetime.now(UTC) - timedelta(days=age_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     pull = {
         "state": "open",
         "base": {"repo": {"full_name": "tox-dev/fixture"}},
         "head": {"sha": "a" * 40},
         "user": {"login": author},
-        "updated_at": updated,
+        "updated_at": (datetime.now(UTC) - timedelta(days=pr_update_age_days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7", method="GET").respond_with_json(pull)
     if author == "pre-commit-ci[bot]":
         server.expect_request("/api/v3/repos/tox-dev/fixture/commits/" + "a" * 40, method="GET").respond_with_json(
-            {"commit": {"committer": {"date": updated}}}
+            {"commit": {"committer": {"date": committed}}}
         )
     result = subprocess.run(
         ["bash", str(action_scripts / "check-hook-update-cooldown-0.sh")],
