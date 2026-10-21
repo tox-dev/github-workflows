@@ -200,7 +200,7 @@ jobs:
             printf '\nReviewed package cutoff floors:\n' >>"$RUNNER_TEMP/pull-request.md"
             while IFS= read -r entry; do
               if [[ -n "$entry" ]]; then
-                printf -- '- `%s`\n' "$entry" >>"$RUNNER_TEMP/pull-request.md"
+                printf -- '- %s\n' "\`$entry\`" >>"$RUNNER_TEMP/pull-request.md"
               fi
             done <<<"$EXCLUDE_NEWER_PACKAGES"
           fi
