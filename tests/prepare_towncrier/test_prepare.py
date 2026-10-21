@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from datetime import date
 from textwrap import dedent
 lazy from pathlib import Path
@@ -381,3 +382,18 @@ def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, ac
     )
     assert result.returncode == 0, result.stderr
     assert "Changes\n=======" in (repository / "CHANGELOG.rst").read_text()
+
+
+@pytest.mark.parametrize("script", ["prepare-towncrier-8.sh", "validate-release-patch-5.sh"])
+def test_prepare_rejects_rst_conflict_marker(repository: Path, action_scripts: Path, script: str) -> None:
+    (repository / "CHANGELOG.rst").write_text("<<<<<<< HEAD\n")
+    result = subprocess.run(
+        ["bash", str(action_scripts / script)],
+        cwd=repository,
+        env=os.environ | {"CHANGELOG": "CHANGELOG.rst"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "conflict markers" in result.stderr
