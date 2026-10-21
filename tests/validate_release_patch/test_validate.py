@@ -57,8 +57,8 @@ def test_validate_rst_heading(repository: Path, tmp_path: Path, action_scripts: 
             {heading}
             {underline}
 
-            Added
-            -----
+            Changes
+            =======
 
             - Add a feature.
             """).format(heading=heading, underline="=" * len(heading)),
@@ -69,6 +69,32 @@ def test_validate_rst_heading(repository: Path, tmp_path: Path, action_scripts: 
         repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0", CHANGELOG="CHANGELOG.rst"
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        pytest.param("<<<<<<< HEAD", id="ours"),
+        pytest.param("||||||| base", id="base"),
+        pytest.param(">>>>>>> branch", id="theirs"),
+    ],
+)
+def test_validate_rejects_rst_conflict_marker(
+    repository: Path, tmp_path: Path, action_scripts: Path, marker: str
+) -> None:
+    changelog = repository / "CHANGELOG.rst"
+    changelog.write_text("Changelog\n=========\n")
+    run(repository, "git", "add", "CHANGELOG.rst")
+    run(repository, "git", "commit", "-m", "Track RST changelog")
+    run(repository, "git", "push", "origin", "main")
+    changelog.write_text(f"Changelog\n=========\n\n0.2.0\n=====\n\n{marker}\n")
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(
+        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0", CHANGELOG="CHANGELOG.rst"
+    )
+    assert result.returncode != 0
+    assert "release changelog contains conflict markers" in result.stderr
 
 
 def test_validate_rejects_unchanged_changelog(repository: Path, tmp_path: Path, action_scripts: Path) -> None:

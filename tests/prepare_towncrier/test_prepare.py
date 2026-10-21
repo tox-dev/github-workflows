@@ -380,4 +380,4 @@ def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, ac
         CHANGELOG="CHANGELOG.rst",
     )
     assert result.returncode == 0, result.stderr
-    assert "Changes\n-------" in (repository / "CHANGELOG.rst").read_text()
+    assert "Changes\n=======" in (repository / "CHANGELOG.rst").read_text()

@@ -152,6 +152,12 @@ def action(
     for index, script in enumerate(scripts):
         if steps[index].get("if") == "inputs.checks == 'true'" and environment["CHECKS"] == "false":
             continue
+        if steps[index].get("if") == "inputs.format == 'rst'" and environment["FORMAT"] != "rst":
+            continue
+        if steps[index].get("if") == "endsWith(inputs.changelog, '.rst')" and not environment["CHANGELOG"].endswith(
+            ".rst"
+        ):
+            continue
         command = ["bash", str(script)]
         if (coverage_binary := os.environ.get("KCOV_BIN")) is not None:
             output = Path(os.environ["KCOV_OUTPUT"])

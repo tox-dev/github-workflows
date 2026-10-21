@@ -116,6 +116,18 @@ runs:
             exit 1
           fi
         done < <(git diff --cached --raw --no-renames -z)
+    - name: Check RST conflict markers
+      if: endsWith(inputs.changelog, '.rst')
+      shell: bash
+      env:
+        CHANGELOG: ${{ inputs.changelog }}
+      run: |
+        set -euo pipefail
+        if grep -Eq '^(<{7}|\|{7}|>{7})([[:space:]]|$)' "$CHANGELOG"; then
+          echo '::error::release changelog contains conflict markers' >&2
+          exit 1
+        fi
+        printf '%s conflict-marker-size=10\n' "$CHANGELOG" >>"$(git rev-parse --git-path info/attributes)"
     - name: Check rendered release section
       if: inputs.checks == 'true'
       shell: bash
