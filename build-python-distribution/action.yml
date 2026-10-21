@@ -1,6 +1,9 @@
 name: Build Python distribution
 description: Build a wheel and sdist from source checked in a separate job
 inputs:
+  lock:
+    description: Full project pylock containing build backend dependencies
+    default: pylock.toml
   python-version:
     description: Python version for uv build
     default: "3.15"
@@ -20,16 +23,26 @@ runs:
           echo '::error::tagged source is dirty' >&2
           exit 1
         fi
-    - id: cutoff
-      name: Set build dependency age cutoff
+    - name: Install locked build planner
       shell: bash
-      run: echo "timestamp=$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')" >>"$GITHUB_OUTPUT"
+      env:
+        LOCK: ${{ inputs.lock }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: |
+        set -euo pipefail
+        uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/build-planner"
+        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/build-planner/bin/python" --group release "$LOCK"
+    - name: Write backend constraints
+      shell: bash
+      env:
+        LOCK: ${{ inputs.lock }}
+      run: '"$RUNNER_TEMP/build-planner/bin/release-creator" build-constraints --lock "$LOCK" --output "$RUNNER_TEMP/build-constraints.txt"'
     - name: Build wheel and sdist
       shell: bash
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
         SOURCE: ${{ inputs.source }}
         OUT_DIR: ${{ inputs.out-dir }}
-        UV_EXCLUDE_NEWER: ${{ steps.cutoff.outputs.timestamp }}
       run: |
-        uv build --python "$PYTHON_VERSION" --python-preference only-managed --sdist --wheel "$SOURCE" --out-dir "$OUT_DIR"
+        uv build --python "$PYTHON_VERSION" --python-preference only-managed --sdist --wheel \
+          --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir "$OUT_DIR"

@@ -137,6 +137,11 @@ Set `keep-uv-lock: true` only when the repository commits `uv.lock` for its own 
 `uv.lock` and the selectable `pylock.toml` and includes both in one patch. The default rejects `uv.lock` changes. This
 is the path for toml-fmt's workspace lock.
 
+Set `exclude-newer-packages` to a newline-separated list only when a declared minimum was published within the past
+seven days. Each named package can use the updater's run-start UTC timestamp; every other package retains the seven-day
+cutoff. The same exceptions apply to both locks when `keep-uv-lock` is true. The dependency PR lists the package names
+and timestamp used for its resolution.
+
 To check the same lock refresh on a PR, call `refresh-release-lock` in a job with Contents read permission. The reusable
 updater calls this Action in its lock generator job. It excludes dependencies published in the last seven days, resolves
 the project through uv, rewrites the local `pylock.toml`, installs its `release` group, and runs `prek`. It rejects
@@ -358,9 +363,10 @@ checked-in `pylock.toml`; use `lock` and `python-version` when those paths or ve
 back to the caller. A successful run pushes a tag, which the caller's tag workflow handles.
 
 `bump`, `tag-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, `numbered-prs`, and `annotated` have the
-same meanings as the `prepare-towncrier` inputs below. `dry-run: true` runs the first two jobs at a same-repository PR
-head and skips the App-key job. The caller can place repository-specific checks in a preceding job and make this job
-depend on it. The tag-triggered ecosystem publisher stays in the caller repository.
+same meanings as the `prepare-towncrier` inputs below. `release-auth-deployment` defaults to `true`; set it to `false`
+if the current App-key job uses `release-auth` without creating a GitHub Deployment. `dry-run: true` runs the first two
+jobs at a same-repository PR head and skips the App-key job. The caller can place repository-specific checks in a
+preceding job and make this job depend on it. The tag-triggered ecosystem publisher stays in the caller repository.
 
 ## Prepare Towncrier release
 
@@ -491,13 +497,37 @@ publisher without publishing the artifacts.
 ```
 
 - `python-version`: Managed Python used for the build; default `3.15`.
+- `lock`: Full project lock containing the build backend; default `pylock.toml`.
 - `source`: Source directory passed to `uv build`; default `.`.
-- `out-dir`: Directory for the wheel and sdist; default `dist`. The caller uploads files from this directory.
+- `out-dir`: Directory for the wheel and sdist; default `dist`. Validate files in this directory before upload.
 
 **Output:** No named output. **Working-tree effect:** Writes a wheel and sdist to `out-dir`. The checkout must be clean
-before the Action starts. `UV_EXCLUDE_NEWER` keeps newly published build backends out of the build for seven days; the
-backends are not yet pinned in the caller's `pylock.toml`. Use a separate build path for repositories whose build
-command differs from `uv build --sdist --wheel`.
+before the Action starts. The build backend comes from the lock's `build` selection with pinned versions and hashes;
+`uv build` rejects a missing hash. Use a separate build path for repositories whose build command differs from
+`uv build --sdist --wheel`.
+
+## Validate Python distribution
+
+`validate-python-distribution` runs Twine and check-wheel-contents on the files the build job will upload. It installs
+both tools from the caller's full project lock. Run it after `build-python-distribution` and before `upload-artifact`,
+using the same output directory. The standard Python release rehearsal calls it on its candidate files too.
+
+```yaml
+  - uses: tox-dev/github-workflows/validate-python-distribution@SHA
+    with:
+      lock: pylock.toml
+      validation-group: pkg-meta
+      out-dir: dist
+```
+
+- `lock`: Full project lock containing the validation group; default `pylock.toml`.
+- `python-version`: Managed Python for the validators; default `3.15`.
+- `validation-group`: Group containing Twine and check-wheel-contents; default `pkg-meta`. Use `release` for projects
+  that lock these tools there.
+- `out-dir`: Directory containing the wheel and sdist; default `dist`. The Action checks these exact paths and has no
+  output artifact of its own.
+
+**Output:** No named output. **Working-tree effect:** None. An invalid sdist or wheel stops before the artifact upload.
 
 ## Render GitHub Release notes
 

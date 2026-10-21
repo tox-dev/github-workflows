@@ -180,7 +180,9 @@ def test_candidate_rejects_numbered_pr_as_issue(
         "Verify release note links",
         "Verify the numbered fragment",
         "Verify contributor credits",
-        "Record candidate artifacts",
+        "Record distribution hashes",
+        "Record candidate changelog",
+        "Verify distribution hashes",
     ):
         step = next(item for item in workflow["jobs"]["validate"]["steps"] if item.get("name") == name)
         result = subprocess.run(

@@ -18,6 +18,10 @@ on:
         description: Also refresh a checked-in uv.lock used by the project build
         type: boolean
         default: false
+      exclude-newer-packages:
+        description: Young required package names exempted from the seven-day cutoff, one per line
+        type: string
+        default: ""
       branch:
         description: Branch used for the dependency pull request
         type: string
@@ -51,6 +55,7 @@ jobs:
       contents: read
     outputs:
       changed: ${{ steps.lock.outputs.changed }}
+      exception-timestamp: ${{ steps.lock.outputs.exception-timestamp }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,6 +71,7 @@ jobs:
           lock: ${{ inputs.lock }}
           python-version: ${{ inputs.python-version }}
           keep-uv-lock: ${{ inputs.keep-uv-lock }}
+          exclude-newer-packages: ${{ inputs.exclude-newer-packages }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.lock.outputs.changed == 'true'
         with:
@@ -186,7 +192,18 @@ jobs:
       - name: Write dependency pull request body
         env:
           PR_BODY: ${{ inputs.pull-request-body }}
-        run: printf '%s\n' "$PR_BODY" >"$RUNNER_TEMP/pull-request.md"
+          EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
+          EXCEPTION_TIMESTAMP: ${{ needs.generate-lock.outputs.exception-timestamp }}
+        run: |
+          printf '%s\n' "$PR_BODY" >"$RUNNER_TEMP/pull-request.md"
+          if [[ -n "$EXCLUDE_NEWER_PACKAGES" ]]; then
+            printf '\nSeven-day cutoff exceptions at %s:\n' "$EXCEPTION_TIMESTAMP" >>"$RUNNER_TEMP/pull-request.md"
+            while IFS= read -r package; do
+              if [[ -n "$package" ]]; then
+                printf -- '- `%s=%s`\n' "$package" "$EXCEPTION_TIMESTAMP" >>"$RUNNER_TEMP/pull-request.md"
+              fi
+            done <<<"$EXCLUDE_NEWER_PACKAGES"
+          fi
       - name: Find dependency pull request
         id: pr
         env:

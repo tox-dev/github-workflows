@@ -1,0 +1,39 @@
+name: Validate Python distribution
+description: Check the exact wheel and sdist before uploading them
+inputs:
+  lock:
+    description: Full project pylock path
+    default: pylock.toml
+  python-version:
+    description: Python version for locked package validators
+    default: "3.15"
+  validation-group:
+    description: Dependency group containing Twine and check-wheel-contents
+    default: pkg-meta
+  out-dir:
+    description: Directory containing the distribution files
+    default: dist
+runs:
+  using: composite
+  steps:
+    - name: Install locked package validators
+      shell: bash
+      env:
+        LOCK: ${{ inputs.lock }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        VALIDATION_GROUP: ${{ inputs.validation-group }}
+      run: |
+        set -euo pipefail
+        uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/package-validators"
+        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/package-validators/bin/python" \
+          --group "$VALIDATION_GROUP" "$LOCK"
+    - name: Check distribution metadata
+      shell: bash
+      env:
+        OUT_DIR: ${{ inputs.out-dir }}
+      run: '"$RUNNER_TEMP/package-validators/bin/twine" check "$OUT_DIR"/*'
+    - name: Check wheel contents
+      shell: bash
+      env:
+        OUT_DIR: ${{ inputs.out-dir }}
+      run: '"$RUNNER_TEMP/package-validators/bin/check-wheel-contents" --no-config "$OUT_DIR"'

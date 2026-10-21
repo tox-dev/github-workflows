@@ -74,8 +74,83 @@ def test_upgrade_sets_seven_day_cutoff(lock_repository: Path, tmp_path: Path, up
         GITHUB_OUTPUT=str(tmp_path / "output"),
     )
     assert result.returncode == 0, result.stderr
-    cutoff = datetime.fromisoformat((tmp_path / "output").read_text().removeprefix("timestamp=").strip())
-    assert abs(datetime.now(UTC) - cutoff - timedelta(days=7)) < timedelta(minutes=1)
+    outputs = dict(line.split("=", maxsplit=1) for line in (tmp_path / "output").read_text().splitlines())
+    current = datetime.fromisoformat(outputs["current"])
+    cutoff = datetime.fromisoformat(outputs["timestamp"])
+    assert abs(datetime.now(UTC) - current) < timedelta(minutes=1)
+    assert current - cutoff == timedelta(days=7)
+
+
+def test_upgrade_exempts_only_named_young_package(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+    project = lock_repository / "pyproject.toml"
+    project.write_text(
+        project.read_text().replace("release = []", 'release = ["release-creator>=0.4.1,<0.4.2", "certifi"]')
+    )
+    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path, PYTHON_VERSION="3.15")
+    assert installed.returncode == 0, installed.stderr
+    blocked = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-2.sh",
+        tmp_path,
+        LOCK="pylock.toml",
+        PYTHON_VERSION="3.15",
+        UV_EXCLUDE_NEWER="2026-10-14T00:00:00Z",
+        EXCLUDE_NEWER_PACKAGES="",
+    )
+    assert blocked.returncode != 0
+    allowed = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-2.sh",
+        tmp_path,
+        LOCK="pylock.toml",
+        PYTHON_VERSION="3.15",
+        UV_EXCLUDE_NEWER="2026-10-14T00:00:00Z",
+        EXCEPTION_TIMESTAMP="2026-10-21T00:00:00Z",
+        EXCLUDE_NEWER_PACKAGES="release-creator",
+    )
+    assert allowed.returncode == 0, allowed.stderr
+    packages = {
+        package["name"]: package for package in tomllib.loads((lock_repository / "pylock.toml").read_text())["packages"]
+    }
+    assert packages["release-creator"]["version"] == "0.4.1"
+    assert packages["certifi"]["version"] == "2026.7.22"
+
+
+def test_upgrade_rejects_invalid_exception_name(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+    result = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-2.sh",
+        tmp_path,
+        LOCK="pylock.toml",
+        PYTHON_VERSION="3.15",
+        EXCEPTION_TIMESTAMP="2026-10-21T00:00:00Z",
+        EXCLUDE_NEWER_PACKAGES="release-creator; true",
+    )
+    assert result.returncode != 0
+    assert "invalid exclude-newer package name" in result.stderr
+
+
+def test_upgrade_refreshes_uv_lock_with_same_exception(
+    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path
+) -> None:
+    project = lock_repository / "pyproject.toml"
+    project.write_text(
+        project.read_text().replace("release = []", 'release = ["release-creator>=0.4.1,<0.4.2", "certifi"]')
+    )
+    result = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-3.sh",
+        tmp_path,
+        UV_EXCLUDE_NEWER="2026-10-14T00:00:00Z",
+        EXCEPTION_TIMESTAMP="2026-10-21T00:00:00Z",
+        EXCLUDE_NEWER_PACKAGES="release-creator",
+    )
+    assert result.returncode == 0, result.stderr
+    packages = {
+        package["name"]: package for package in tomllib.loads((lock_repository / "uv.lock").read_text())["package"]
+    }
+    assert packages["release-creator"]["version"] == "0.4.1"
+    assert packages["certifi"]["version"] == "2026.7.22"
 
 
 @pytest.mark.parametrize(
@@ -105,7 +180,7 @@ def test_upgrade_emits_patch_only_for_change(
         (lock_repository / changed_path).write_text("after\n")
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-6.sh",
+        upgrade_scripts / "refresh-release-lock-7.sh",
         tmp_path,
         LOCK="pylock.toml",
         KEEP_UV_LOCK=str(keep_uv_lock).lower(),
@@ -158,17 +233,17 @@ def test_upgrade_checks_refreshed_lock(
         (lock_repository / unrelated).write_text("after\n")
     installed = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
+        upgrade_scripts / "refresh-release-lock-4.sh",
         tmp_path,
         LOCK="pylock.toml",
         PYTHON_VERSION="3.15",
     )
     assert installed.returncode == 0, installed.stderr
-    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-4.sh", tmp_path)
+    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-5.sh", tmp_path)
     assert checked.returncode == 0, checked.stderr
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-5.sh",
+        upgrade_scripts / "refresh-release-lock-6.sh",
         tmp_path,
         LOCK="pylock.toml",
         KEEP_UV_LOCK=str(keep_uv_lock).lower(),
@@ -284,6 +359,26 @@ def test_upgrade_combines_lock_and_hook_patches(lock_repository: Path, tmp_path:
     ]
 
 
+def test_upgrade_lists_cutoff_exceptions_in_pull_request(
+    lock_repository: Path, tmp_path: Path, publish_scripts: Path
+) -> None:
+    result = execute(
+        lock_repository,
+        publish_scripts / "publish-write-dependency-pull-request-body.sh",
+        tmp_path,
+        PR_BODY="Refresh release tools.",
+        EXCLUDE_NEWER_PACKAGES="release-creator\nuv-build",
+        EXCEPTION_TIMESTAMP="2026-10-21T12:00:00Z",
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "pull-request.md").read_text() == (
+        "Refresh release tools.\n\n"
+        "Seven-day cutoff exceptions at 2026-10-21T12:00:00Z:\n"
+        "- `release-creator=2026-10-21T12:00:00Z`\n"
+        "- `uv-build=2026-10-21T12:00:00Z`\n"
+    )
+
+
 @pytest.mark.parametrize(
     ("branch", "base", "accepted"),
     [("automation/update-release-tools", "main", True), ("main", "main", False), ("bad branch", "main", False)],
@@ -315,6 +410,7 @@ def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) 
         | {
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "refresh-release-lock"),
+            "EXCLUDE_NEWER_PACKAGES": "",
         }
         | environment,
         text=True,

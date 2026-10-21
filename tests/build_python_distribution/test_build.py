@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import tomllib
 from textwrap import dedent
 lazy from pathlib import Path
 
@@ -10,6 +12,9 @@ from conftest import action, run
 @pytest.fixture
 def build_repository(repository: Path) -> Path:
     project = repository / "pyproject.toml"
+    release_requirement = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text())[
+        "dependency-groups"
+    ]["release"][0]
     project.write_text(
         project.read_text()
         + dedent(
@@ -23,11 +28,13 @@ def build_repository(repository: Path) -> Path:
             requires = ["hatchling"]
             build-backend = "hatchling.build"
             """,
-        ),
+        )
+        + f"\n[dependency-groups]\nrelease = [{json.dumps(release_requirement)}]\n",
     )
     package = repository / "src/fixture"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text('"""Fixture package."""\n')
+    run(repository, "release-creator", "locks", "--output", "pylock.toml", "--tool-python", ">=3.15")
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Add package source")
     run(repository, "git", "push", "origin", "main")
@@ -53,6 +60,7 @@ def test_build_python_distribution_creates_wheel_and_sdist(
         "fixture-0.2.0-py3-none-any.whl",
         "fixture-0.2.0.tar.gz",
     }
+    assert (tmp_path / "build-constraints.txt").read_text().count("hatchling==") == 1
 
 
 def test_build_python_distribution_rejects_dirty_source(
