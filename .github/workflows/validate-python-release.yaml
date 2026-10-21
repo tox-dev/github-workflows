@@ -219,8 +219,11 @@ jobs:
           else
             printf 'Verify a user-visible release fix.\n' >"$FRAGMENTS/+validation-${PR_NUMBER}.bugfix.$EXTENSION"
           fi
-          test ! -e "$FRAGMENTS/${PR_NUMBER}.bugfix.$EXTENSION"
-          printf 'Verify a numbered release fix.\n' >"$FRAGMENTS/${PR_NUMBER}.bugfix.$EXTENSION"
+          if [[ -e "$FRAGMENTS/${PR_NUMBER}.bugfix.$EXTENSION" ]]; then
+            printf '\nVerify a numbered release fix.\n' >>"$FRAGMENTS/${PR_NUMBER}.bugfix.$EXTENSION"
+          else
+            printf 'Verify a numbered release fix.\n' >"$FRAGMENTS/${PR_NUMBER}.bugfix.$EXTENSION"
+          fi
       - name: Commit the local release candidate
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
