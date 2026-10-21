@@ -81,7 +81,7 @@ runs:
       shell: bash
       env:
         VERSION: ${{ steps.version.outputs.version }}
-      run: towncrier build --yes --version "$VERSION"
+      run: towncrier build --yes --version "${VERSION#v}"
     - name: Format changelog
       shell: bash
       env:

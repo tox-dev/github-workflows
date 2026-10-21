@@ -163,6 +163,7 @@ def test_prepare_selects_prefixed_version(repository: Path, tmp_path: Path, acti
     result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="", TAG_PREFIX="v")
     assert result.returncode == 0, result.stderr
     assert "version=v0.2.0" in (tmp_path / "output").read_text()
+    assert "## 0.2.0 (" in (repository / "CHANGELOG.md").read_text()
 
 
 @pytest.mark.parametrize("version", [pytest.param("0.1.0", id="existing"), pytest.param("0.0.1", id="older")])

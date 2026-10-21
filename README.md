@@ -277,7 +277,7 @@ rendering, formatting, or checks fail, or if preparation creates untracked files
 - `bump`: `auto` (default), `major`, `minor`, `patch`, or `calver`. Passed to `release-creator tags --next`; `auto` uses
   the pending fragments. The caller's dispatch form decides which choices to expose.
 - `tag-prefix`: Empty by default. Use `v` when release tags are spelled `v1.2.3`; version comparison still includes
-  unprefixed numeric tags in the repository's history.
+  unprefixed numeric tags in the repository's history. Towncrier writes the changelog heading without the `v`.
 - `version`: Explicit version for a caller with its own version selector. It takes precedence over `bump`; the Action
   still checks that it is newer than existing tags.
 - `changelog` **(required)**: Tracked file Towncrier writes, such as `CHANGELOG.md` or `docs/changelog.rst`. This must
