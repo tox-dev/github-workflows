@@ -142,6 +142,14 @@ def test_validate_requires_digest_when_checks_skipped(repository: Path, tmp_path
     assert "skipping release checks requires a validated patch digest" in result.stderr
 
 
+def test_validate_rejects_unknown_check_mode(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0", CHECKS="sometimes")
+    assert result.returncode != 0
+    assert "checks must be true or false" in result.stderr
+
+
 def test_validate_key_job_uses_only_checked_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     run(repository, "git", "reset", "--hard", "HEAD")
