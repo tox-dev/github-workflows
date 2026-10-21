@@ -1,0 +1,68 @@
+name: Refresh pre-commit hook pins
+description: Update exact additional_dependencies pins without GitHub writes
+inputs:
+  config:
+    description: Path to the pre-commit configuration
+    default: .pre-commit-config.yaml
+  python-version:
+    description: Python version used by the hooks
+    default: "3.15"
+outputs:
+  changed:
+    description: Whether the hook configuration differs from the checkout
+    value: ${{ steps.patch.outputs.changed }}
+runs:
+  using: composite
+  steps:
+    - name: Install locked release tools
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: |
+        uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/hook-tools"
+        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/hook-tools/bin/python" \
+          --group release "$GITHUB_ACTION_PATH/../pylock.toml"
+    - id: cutoff
+      name: Set dependency age cutoff
+      shell: bash
+      run: echo "timestamp=$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')" >>"$GITHUB_OUTPUT"
+    - name: Refresh exact hook dependencies
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        CUTOFF: ${{ steps.cutoff.outputs.timestamp }}
+      run: >-
+        "$RUNNER_TEMP/hook-tools/bin/release-creator" hooks --config "$CONFIG" --exclude-newer "$CUTOFF" --python-version "$PYTHON_VERSION"
+    - name: Run repository checks
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+      run: >-
+        "$RUNNER_TEMP/hook-tools/bin/prek" run --config "$CONFIG" --all-files
+    - name: Check updated paths
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+      run: |
+        set -euo pipefail
+        while IFS= read -r entry; do
+          path=${entry:3}
+          if [[ "$path" != "$CONFIG" ]]; then
+            echo "::error::hook update changed unexpected path: $path" >&2
+            exit 1
+          fi
+        done < <(git status --porcelain=v1 --untracked-files=all)
+    - id: patch
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+      run: |
+        set -euo pipefail
+        if git diff --quiet -- "$CONFIG"; then
+          echo 'changed=false' >>"$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo 'changed=true' >>"$GITHUB_OUTPUT"
+        git diff --binary -- "$CONFIG" >"$RUNNER_TEMP/hooks.patch"
+        test -s "$RUNNER_TEMP/hooks.patch"

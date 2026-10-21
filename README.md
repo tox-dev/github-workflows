@@ -96,13 +96,15 @@ sees the settled state and makes no further write.
 it to fetch a known bot PR, link a synthetic fragment, and confirm that its notes keep the PR link without crediting the
 bot. It reads public GitHub metadata and writes only temporary fixture files.
 
-## Refresh the release tool lock
+## Refresh release tools and hooks
 
-Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Its first job has Contents read access: it
-exports the project runtime, groups, and extras into `pylock.toml`, runs `prek`, and uploads a patch when a lock
-changes. Its second job runs only on the configured base branch when that patch exists. It checks the patch touches only
-the lock files, then opens or updates a `dependencies` and `skip news` pull request and dispatches the caller's check
-workflow. The writer has Contents, Pull requests, and Actions write access. No App key or release credential is needed.
+Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Two read-only jobs run in parallel: one refreshes
+the full project `pylock.toml`; the other updates exact pre-commit `additional_dependencies` pins. Both exclude releases
+newer than seven days. They run `prek` and upload separate patches. pre-commit.ci owns hook revision updates and keeps
+their frozen SHA format. The write job runs on the configured base branch when either patch changes. It accepts only the
+configured lock and hook paths, then opens or updates one `dependencies` and `skip news` pull request and dispatches the
+caller's check workflow. The write job needs Contents, Pull requests, and Actions write access. It does not use a
+release App key.
 
 ```yaml
 name: Upgrade release tools
@@ -124,17 +126,23 @@ jobs:
       check-workflow: check.yaml
 ```
 
-The project must declare a `release` group containing `prek`. The lock also includes every other group and extra. `lock`
-defaults to `pylock.toml`; `base` defaults to `main`; `branch` defaults to `automation/update-release-tools`.
-`check-workflow` names the caller's workflow file to dispatch after a PR update. The caller owns the schedule, so
-repositories can use different upgrade days without copying the jobs. `commit-message`, `pull-request-title`, and
-`pull-request-body` let a caller retain its existing dependency PR wording.
+The project must declare a `release` group containing `prek` and `release-creator`. The lock also includes every other
+group and extra. `lock` defaults to `pylock.toml`; `hook-config` defaults to `.pre-commit-config.yaml`; `base` defaults
+to `main`; `branch` defaults to `automation/update-release-tools`. `check-workflow` names the caller's workflow file to
+dispatch after a PR update. The caller owns the schedule, so repositories can use different upgrade days without copying
+the jobs. `commit-message`, `pull-request-title`, and `pull-request-body` let a caller retain its existing dependency PR
+wording.
+
+Set `keep-uv-lock: true` only when the repository commits `uv.lock` for its own build. The lock job then refreshes both
+`uv.lock` and the selectable `pylock.toml` and includes both in one patch. The default rejects `uv.lock` changes. This
+is the path for toml-fmt's workspace lock.
 
 To check the same lock refresh on a PR, call `refresh-release-lock` in a job with Contents read permission. The reusable
-updater calls this Action in its generator job. It excludes dependencies published in the last seven days, resolves the
-project through uv, rewrites the local `pylock.toml`, installs its `release` group, and runs `prek`. It rejects changes
-to any other file, including `uv.lock`. Its `changed` output is `true` when a lock differs from the checkout; then it
-writes `$RUNNER_TEMP/lock.patch`. The Action does not push a branch, open a PR, or request a write token.
+updater calls this Action in its lock generator job. It excludes dependencies published in the last seven days, resolves
+the project through uv, rewrites the local `pylock.toml`, installs its `release` group, and runs `prek`. It rejects
+changes to any other file; `uv.lock` is allowed only with `keep-uv-lock: true`. Its `changed` output is `true` when a
+selected lock differs from the checkout, and it writes `$RUNNER_TEMP/lock.patch`. The Action does not push a branch,
+open a PR, or request a write token.
 
 ```yaml
 release-tools-preview:
@@ -155,9 +163,33 @@ release-tools-preview:
         python-version: '3.15'
 ```
 
-The caller must check out the PR head and install uv before the Action. The preview exercises compilation and hooks; the
-scheduled updater still owns the PR write path. A reusable workflow containing a write job cannot be called with
-read-only permissions even when that job would skip, so use the composite Action for PR checks.
+The caller must check out the PR head and install uv before the Action. The preview checks lock compilation and runs the
+repository's hooks; the scheduled updater still owns the PR write path. A reusable workflow containing a write job
+cannot be called with read-only permissions even when that job would skip, so use the composite Action for PR checks.
+
+`refresh-hook-pins` is the matching read-only Action for hook package updates. It installs the shared locked release
+tools, calls `release-creator hooks` with the same age cutoff, and runs all hooks. Its `config` input selects the
+pre-commit file, and `python-version` selects the interpreter used to resolve hook dependencies. Its `changed` output is
+`true` only when that file changes, and it writes `$RUNNER_TEMP/hooks.patch`. It fails if a hook modifies another file.
+The Action does not write to GitHub.
+
+Run the hook preview in its own job so its path check sees only the hook configuration change:
+
+```yaml
+hook-pins-preview:
+  if: github.event_name == 'pull_request'
+  runs-on: ubuntu-26.04
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@CHECKOUT_SHA
+      with:
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@SETUP_UV_SHA
+      with:
+        python-version: '3.15'
+    - uses: tox-dev/github-workflows/refresh-hook-pins@SHA
+```
 
 ## Start with a caller
 

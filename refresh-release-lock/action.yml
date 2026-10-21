@@ -7,6 +7,9 @@ inputs:
   python-version:
     description: Python version used to run the exporter and release tools
     default: "3.15"
+  keep-uv-lock:
+    description: Also refresh a checked-in uv.lock for projects that use it for their build
+    default: "false"
 outputs:
   changed:
     description: Whether the lock differs from the checkout
@@ -54,11 +57,12 @@ runs:
       shell: bash
       env:
         LOCK: ${{ inputs.lock }}
+        KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
       run: |
         set -euo pipefail
         while IFS= read -r entry; do
           path=${entry:3}
-          if [[ "$path" != "$LOCK" ]]; then
+          if [[ "$path" != "$LOCK" && ("$KEEP_UV_LOCK" != true || "$path" != uv.lock) ]]; then
             echo "::error::prek changed file outside the lock file: $path" >&2
             exit 1
           fi
@@ -67,12 +71,17 @@ runs:
       shell: bash
       env:
         LOCK: ${{ inputs.lock }}
+        KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
       run: |
         set -euo pipefail
-        if git diff --quiet -- "$LOCK"; then
+        paths=("$LOCK")
+        if [[ "$KEEP_UV_LOCK" == true ]]; then
+          paths+=(uv.lock)
+        fi
+        if git diff --quiet -- "${paths[@]}"; then
           echo 'changed=false' >>"$GITHUB_OUTPUT"
           exit 0
         fi
         echo 'changed=true' >>"$GITHUB_OUTPUT"
-        git diff --binary -- "$LOCK" >"$RUNNER_TEMP/lock.patch"
+        git diff --binary -- "${paths[@]}" >"$RUNNER_TEMP/lock.patch"
         test -s "$RUNNER_TEMP/lock.patch"
