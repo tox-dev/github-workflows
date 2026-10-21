@@ -25,6 +25,14 @@ valid_sha() {
   *[!0-9a-f]*) return 1 ;;
   esac
 }
+valid_path() {
+  case "$1" in
+  '' | /* | *[!A-Za-z0-9._/-]*) return 1 ;;
+  esac
+  case "$1" in
+  . | .. | ./* | ../* | */. | */.. | */./* | */../*) return 1 ;;
+  esac
+}
 git check-ref-format --branch "$BASE"
 git check-ref-format --branch "$BRANCH"
 test "$BASE" != "$BRANCH"
@@ -40,14 +48,19 @@ else
   test -z "$CANDIDATE_COMMIT"
 fi
 
+trusted_paths=()
+while IFS= read -r path || [[ -n "$path" ]]; do
+  valid_path "$path"
+  trusted_paths+=("$path")
+done < <(printf '%s' "$ALLOWED_PATHS")
+test "${#trusted_paths[@]}" -gt 0
+printf '%s\n' "${trusted_paths[@]}" | LC_ALL=C sort -u >"$RUNNER_TEMP/allowed-paths"
+test "$(wc -l <"$RUNNER_TEMP/allowed-paths")" -eq "${#trusted_paths[@]}"
+
 paths=()
 while IFS=$'\t' read -r path blob; do
-  case "$path" in
-  '' | /* | *[!A-Za-z0-9._/-]*) exit 1 ;;
-  esac
-  case "$path" in
-  . | .. | ./* | ../* | */. | */.. | */./* | */../*) exit 1 ;;
-  esac
+  valid_path "$path"
+  grep -Fqx -- "$path" "$RUNNER_TEMP/allowed-paths"
   valid_sha "$blob"
   paths+=("$path")
 done <"$PATHS_FILE"

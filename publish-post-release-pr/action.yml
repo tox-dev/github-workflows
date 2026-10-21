@@ -25,6 +25,9 @@ inputs:
   paths-file:
     description: Tab-separated changed path and desired Git blob SHA on each line
     required: true
+  allowed-paths:
+    description: Newline-separated paths the writer permits the prepared commit to change
+    required: true
   bundle:
     description: Bundle containing refs/heads/release-candidate, empty when the change is already merged
     default: ""
@@ -53,6 +56,7 @@ runs:
         TITLE: ${{ inputs.title }}
         BODY_FILE: ${{ inputs.body-file }}
         PATHS_FILE: ${{ inputs.paths-file }}
+        ALLOWED_PATHS: ${{ inputs.allowed-paths }}
         BUNDLE: ${{ inputs.bundle }}
         CANDIDATE_COMMIT: ${{ inputs.candidate-commit }}
         LABEL: ${{ inputs.label }}

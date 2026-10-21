@@ -36,6 +36,15 @@ def test_validate_custom_remote_branch(repository: Path, tmp_path: Path, action_
     assert run(repository, "git", "diff", "--cached", "--name-only").stdout.strip()
 
 
+def track_rst_changelog(repository: Path) -> None:
+    (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n")
+    project = repository / "pyproject.toml"
+    project.write_text(project.read_text().replace('filename = "CHANGELOG.md"', 'filename = "CHANGELOG.rst"'))
+    run(repository, "git", "add", "CHANGELOG.rst", "pyproject.toml")
+    run(repository, "git", "commit", "-m", "Track RST changelog")
+    run(repository, "git", "push", "origin", "main")
+
+
 @pytest.mark.parametrize(
     "heading",
     [
@@ -45,10 +54,7 @@ def test_validate_custom_remote_branch(repository: Path, tmp_path: Path, action_
 )
 def test_validate_rst_heading(repository: Path, tmp_path: Path, action_scripts: Path, heading: str) -> None:
     changelog = repository / "CHANGELOG.rst"
-    changelog.write_text("Changelog\n=========\n")
-    run(repository, "git", "add", "CHANGELOG.rst")
-    run(repository, "git", "commit", "-m", "Track RST changelog")
-    run(repository, "git", "push", "origin", "main")
+    track_rst_changelog(repository)
     changelog.write_text(
         dedent("""\
             Changelog
@@ -83,10 +89,7 @@ def test_validate_rejects_rst_conflict_marker(
     repository: Path, tmp_path: Path, action_scripts: Path, marker: str
 ) -> None:
     changelog = repository / "CHANGELOG.rst"
-    changelog.write_text("Changelog\n=========\n")
-    run(repository, "git", "add", "CHANGELOG.rst")
-    run(repository, "git", "commit", "-m", "Track RST changelog")
-    run(repository, "git", "push", "origin", "main")
+    track_rst_changelog(repository)
     changelog.write_text(f"Changelog\n=========\n\n0.2.0\n=====\n\n{marker}\n")
     (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
     run(repository, "git", "reset", "--hard", "HEAD")
@@ -203,6 +206,40 @@ def test_validate_rejects_unexpected_path(repository: Path, tmp_path: Path, acti
 
 
 @pytest.mark.parametrize(
+    "fragment",
+    [
+        pytest.param("evil.py", id="wrong-extension"),
+        pytest.param("nested/7.feature.md", id="nested"),
+        pytest.param("evil.feature.md", id="unsupported-stem"),
+        pytest.param("7.bugfix.md", id="unconfigured-category"),
+        pytest.param("7.feature.rst", id="wrong-format"),
+    ],
+)
+def test_validate_rejects_unsupported_fragment_path(
+    repository: Path, tmp_path: Path, action_scripts: Path, fragment: str
+) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
+    path = repository / "changelog.d" / fragment
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("Unexpected release fragment.\n")
+    run(repository, "git", "add", str(path.relative_to(repository)))
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
+    run(repository, "git", "reset", "--hard", "HEAD")
+    run(repository, "git", "clean", "-fd")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        CHECKS="false",
+        EXPECTED_PATCH_SHA=sha256((tmp_path / "release.patch").read_bytes()).hexdigest(),
+    )
+    assert result.returncode != 0
+    assert "unsupported release fragment" in result.stderr
+
+
+@pytest.mark.parametrize(
     "file_mode",
     [pytest.param("executable", id="executable"), pytest.param("symlink", id="symlink")],
 )
@@ -221,6 +258,29 @@ def test_validate_rejects_unsafe_file_mode(
     result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "unexpected release file mode" in result.stderr
+
+
+def test_validate_rejects_nonregular_deleted_fragment(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    fragment = repository / "changelog.d/7.feature.md"
+    fragment.symlink_to("../CHANGELOG.md")
+    run(repository, "git", "add", "changelog.d/7.feature.md")
+    run(repository, "git", "commit", "-m", "Track linked fragment")
+    run(repository, "git", "push", "origin", "main")
+    (repository / "CHANGELOG.md").write_text("# Changelog\n\n## 0.2.0 (2026-10-21)\n\n- Add a feature.\n")
+    fragment.unlink()
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        CHECKS="false",
+        EXPECTED_PATCH_SHA=sha256((tmp_path / "release.patch").read_bytes()).hexdigest(),
+    )
+    assert result.returncode != 0
+    assert "unexpected previous release file mode" in result.stderr
 
 
 def test_validate_rejects_removed_changelog(repository: Path, tmp_path: Path, action_scripts: Path) -> None:

@@ -413,9 +413,11 @@ release tools.
 
 - `version` **(required)**: Exact tag chosen by preparation. `release-creator notes` must find one valid section for it.
 - `patch` **(required)**: Local path of the downloaded patch artifact, not an artifact name or URL.
-- `changelog` **(required)**: Same tracked path passed to preparation. Only this file and files below `fragments` may
-  change in the patch.
-- `fragments` **(required)**: Same directory passed to preparation. Towncrier may consume or rename its files.
+- `changelog` **(required)**: Same tracked path passed to preparation. Only this file and direct children of `fragments`
+  may change in the patch; fragment names must use the configured Towncrier categories and matching Markdown or RST
+  extension.
+- `fragments` **(required)**: Same directory passed to preparation and recorded in the protected branch's
+  `pyproject.toml` Towncrier config.
 - `branch`: Protected release branch; default `main`.
 - `remote`: Git remote fetched for the freshness check; default `origin`.
 - `expected-sha`: Commit that preparation checked out. By default the Action uses `GITHUB_SHA`; set this when
@@ -661,17 +663,18 @@ Issues write access for its App token.
       title: Bump version to 2.4.8-dev
       body-file: prepared/body.md
       paths-file: prepared/paths.tsv
+      allowed-paths: gradle.properties
       bundle: prepared/candidate.bundle
       candidate-commit: ${{ needs.prepare.outputs.candidate-commit }}
 ```
 
 The Action derives the bot identity from the writer's App slug and verifies the commit author, single-parent commit,
-changed path set, regular file modes, and blob identities before any write. A matching open branch and PR need no second
-push. If a matching branch has no PR, it creates one. A merged PR with a deleted branch succeeds only when the current
-base still has the expected file bytes. A different branch, PR title, body, base, path set, or merged file state fails
-without a force-push. When the prepared change has already merged and produced no new commit, pass empty `bundle` and
-`candidate-commit` values with the same path manifest; the Action still checks the merged PR and current base. Its
-`pull-request` output is the verified PR number.
+changed path set against the writer's `allowed-paths`, regular file modes, and blob identities before any write. A
+matching open branch and PR need no second push. If a matching branch has no PR, it creates one. A merged PR with a
+deleted branch succeeds only when the current base still has the expected file bytes. A different branch, PR title,
+body, base, path set, or merged file state fails without a force-push. When the prepared change has already merged and
+produced no new commit, pass empty `bundle` and `candidate-commit` values with the same path manifest; the Action still
+checks the merged PR and current base. Its `pull-request` output is the verified PR number.
 
 ## Sign a JetBrains plugin
 

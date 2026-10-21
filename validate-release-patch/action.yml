@@ -88,12 +88,56 @@ runs:
         FRAGMENTS: ${{ inputs.fragments }}
       run: |
         set -euo pipefail
+        reject_fragment() {
+          echo "::error::unsupported release fragment: $path" >&2
+          exit 1
+        }
+        case "$CHANGELOG" in
+          *.md) fragment_extension=md ;;
+          *.rst) fragment_extension=rst ;;
+          *) exit 1 ;;
+        esac
+        git show HEAD:pyproject.toml >"$RUNNER_TEMP/release-pyproject.toml"
+        python3 - "$RUNNER_TEMP/release-pyproject.toml" "$FRAGMENTS" "$CHANGELOG" \
+          >"$RUNNER_TEMP/release-fragment-categories" <<'PY'
+        import sys
+        import tomllib
+        from pathlib import Path
+
+        config = tomllib.loads(Path(sys.argv[1]).read_text())['tool']['towncrier']
+        if config['directory'] != sys.argv[2] or config['filename'] != sys.argv[3]:
+            raise SystemExit('Towncrier paths do not match release inputs')
+        for category in config['type']:
+            print(category['directory'])
+        PY
+        test -s "$RUNNER_TEMP/release-fragment-categories"
         mapfile -d '' -t paths < <(git diff --cached --name-only -z)
         for path in "${paths[@]}"; do
-          if [[ "$path" != "$CHANGELOG" && "$path" != "$FRAGMENTS/"* ]]; then
+          if [[ "$path" == "$CHANGELOG" ]]; then
+            continue
+          fi
+          if [[ "$path" != "$FRAGMENTS/"* ]]; then
             echo "::error::unexpected release path: $path" >&2
             exit 1
           fi
+          fragment=${path#"$FRAGMENTS/"}
+          case "$fragment" in
+            '' | */*) reject_fragment ;;
+            *."$fragment_extension") ;;
+            *) reject_fragment ;;
+          esac
+          fragment=${fragment%."$fragment_extension"}
+          category=${fragment##*.}
+          stem=${fragment%."$category"}
+          grep -Fqx -- "$category" "$RUNNER_TEMP/release-fragment-categories" || reject_fragment
+          case "$stem" in
+            +*)
+              case "${stem#+}" in
+                '' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) reject_fragment ;;
+              esac
+              ;;
+            '' | *[!0-9]*) reject_fragment ;;
+          esac
         done
 
         if git diff --cached --quiet -- "$CHANGELOG"; then
@@ -108,10 +152,24 @@ runs:
         set -euo pipefail
         while IFS= read -r -d '' metadata && IFS= read -r -d '' path; do
           read -ra fields <<<"$metadata"
-          if [[ "${fields[1]}" == 000000 && "${fields[4]}" == D && "$path" == "$FRAGMENTS/"* ]]; then
-            continue
+          case "${fields[4]}" in
+            A) old_mode=000000; new_mode=100644 ;;
+            M) old_mode=100644; new_mode=100644 ;;
+            D)
+              old_mode=100644
+              new_mode=000000
+              if [[ "$path" != "$FRAGMENTS/"* ]]; then
+                echo "::error::unexpected release file mode in $path: ${fields[1]}" >&2
+                exit 1
+              fi
+              ;;
+            *) exit 1 ;;
+          esac
+          if [[ "${fields[0]#\:}" != "$old_mode" ]]; then
+            echo "::error::unexpected previous release file mode in $path: ${fields[0]#\:}" >&2
+            exit 1
           fi
-          if [[ "${fields[1]}" != 100644 ]]; then
+          if [[ "${fields[1]}" != "$new_mode" ]]; then
             echo "::error::unexpected release file mode in $path: ${fields[1]}" >&2
             exit 1
           fi
