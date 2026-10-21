@@ -1,5 +1,5 @@
 name: Refresh pre-commit hook pins
-description: Update exact additional_dependencies pins without GitHub writes
+description: Update cooled frozen hook revisions and exact dependencies without GitHub writes
 inputs:
   config:
     description: Path to the pre-commit configuration
@@ -26,6 +26,12 @@ runs:
       name: Set dependency age cutoff
       shell: bash
       run: echo "timestamp=$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')" >>"$GITHUB_OUTPUT"
+    - name: Refresh frozen hook revisions
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+      run: >-
+        "$RUNNER_TEMP/hook-tools/bin/prek" update --config "$CONFIG" --freeze --cooldown-days 7 --no-progress
     - name: Refresh exact hook dependencies
       shell: bash
       env:

@@ -175,11 +175,12 @@ The caller must check out the PR head and install uv before the Action. The prev
 repository's hooks; the scheduled updater still owns the PR write path. A reusable workflow containing a write job
 cannot be called with read-only permissions even when that job would skip, so use the composite Action for PR checks.
 
-`refresh-hook-pins` is the matching read-only Action for hook package updates. It installs the shared locked release
-tools, calls `release-creator hooks` with the same age cutoff, and runs all hooks. Its `config` input selects the
-pre-commit file, and `python-version` selects the interpreter used to resolve hook dependencies. Its `changed` output is
-`true` only when that file changes, and it writes `$RUNNER_TEMP/hooks.patch`. It fails if a hook modifies another file.
-The Action does not write to GitHub.
+`refresh-hook-pins` is the matching read-only Action for hook updates. It freezes eligible repository revisions with
+`prek update --freeze --cooldown-days 7`, refreshes exact `additional_dependencies` under the same age cutoff, and runs
+all hooks. Its `config` input selects the pre-commit file, and `python-version` selects the interpreter used to resolve
+hook dependencies. Its `changed` output is `true` only when that file changes, and it writes `$RUNNER_TEMP/hooks.patch`.
+It fails if a hook modifies another file. The Action does not write to GitHub. pre-commit.ci can open separate
+autoupdate pull requests outside this seven-day path; apply a separate age check before merging those updates.
 
 Run the hook preview in its own job so its path check sees only the hook configuration change:
 
