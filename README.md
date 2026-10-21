@@ -662,6 +662,47 @@ different body, title, tag commit, prerelease flag, or asset set fails without c
 upload leaves the draft for a later retry. An asset in GitHub's incomplete `starter` state requires manual cleanup
 before retrying.
 
+## Sign a JetBrains plugin
+
+`sign-jetbrains-plugin` signs an unsigned plugin ZIP after a keyless Gradle `buildPlugin` job. Run it in a fresh job on
+`ubuntu-26.04` with the signing environment, no checkout, and no Gradle invocation. Download the unsigned artifact and
+pass the SHA256 emitted before that artifact was uploaded. The Action checks the file and its digest, downloads
+JetBrains Marketplace ZIP Signer 0.1.43 from Maven Central, verifies its pinned SHA256, and uses the runner's Java 17
+installation. It accepts plain PEM or base64 credentials and an encrypted private key with its password. The private key
+is mapped only into the sign step's environment. Its temporary file is removed when that step ends.
+
+```yaml
+sign:
+  needs: build-unsigned
+  runs-on: ubuntu-26.04
+  environment: release
+  permissions: {}
+  steps:
+    - uses: actions/download-artifact@DOWNLOAD_SHA
+      with:
+        name: unsigned-plugin
+        path: dist/
+    - id: signed
+      uses: tox-dev/github-workflows/sign-jetbrains-plugin@SHA
+      with:
+        archive: dist/Plugin-1.2.3.zip
+        sha256: ${{ needs.build-unsigned.outputs.archive_sha }}
+        certificate-chain: ${{ secrets.CERTIFICATE_CHAIN }}
+        private-key: ${{ secrets.PRIVATE_KEY }}
+        private-key-password: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+    - uses: actions/upload-artifact@UPLOAD_SHA
+      with:
+        name: plugin-distribution
+        path: ${{ steps.signed.outputs.archive }}
+        if-no-files-found: error
+```
+
+`archive` and `sha256` identify the unsigned ZIP. `certificate-chain` and `private-key` supply the signing identity;
+`private-key-password` is needed only for an encrypted key. The outputs are `archive`, the signed ZIP path, and
+`sha256`, the digest to check after download in the publisher and GitHub Release jobs. **Remote effect:** downloads the
+pinned signer JAR. It makes no GitHub or Marketplace write. The caller uploads the signed ZIP as a GitHub Actions
+artifact after the Action succeeds. Keep the Marketplace token in a different no-checkout job.
+
 ## Publish a JetBrains plugin
 
 `publish-jetbrains-marketplace` uploads one signed ZIP through the
@@ -675,7 +716,7 @@ checks the downloaded bytes, ZIP integrity, and member names before the token-be
       PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
     with:
       archive: dist/Fish Shell 2-0.1.11-signed.zip
-      sha256: ${{ needs.build-signed.outputs.archive_sha }}
+      sha256: ${{ needs.sign.outputs.sha256 }}
       plugin-id: '29973'
       channel: ''
 ```
