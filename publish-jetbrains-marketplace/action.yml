@@ -1,0 +1,47 @@
+name: Publish JetBrains Marketplace plugin
+description: Upload one verified signed ZIP without checking out or building source
+inputs:
+  archive:
+    description: Signed plugin ZIP from the validated build artifact
+    required: true
+  sha256:
+    description: SHA256 recorded by the signing job before artifact upload
+    required: true
+  plugin-id:
+    description: Numeric JetBrains Marketplace plugin ID
+    required: true
+  channel:
+    description: Marketplace channel; empty selects Stable
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Verify signed ZIP bytes
+      shell: bash
+      env:
+        ARCHIVE: ${{ inputs.archive }}
+        EXPECTED_SHA: ${{ inputs.sha256 }}
+        PLUGIN_ID: ${{ inputs.plugin-id }}
+        CHANNEL: ${{ inputs.channel }}
+      run: |
+        set -euo pipefail
+        test -f "$ARCHIVE" && test ! -L "$ARCHIVE"
+        case "$ARCHIVE" in *.zip) ;; *) exit 1 ;; esac
+        case "$PLUGIN_ID" in '' | *[!0-9]*) exit 1 ;; esac
+        case "$CHANNEL" in *[!a-zA-Z0-9._-]*) exit 1 ;; esac
+        test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
+        unzip -tq "$ARCHIVE" >/dev/null
+        test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
+    - name: Upload signed ZIP
+      shell: bash
+      env:
+        ARCHIVE: ${{ inputs.archive }}
+        PLUGIN_ID: ${{ inputs.plugin-id }}
+        CHANNEL: ${{ inputs.channel }}
+      run: |
+        set -euo pipefail
+        test -n "$PUBLISH_TOKEN"
+        curl --fail --silent --show-error --output "$RUNNER_TEMP/marketplace-response.json" \
+          --config <(printf 'header = "Authorization: Bearer %s"\n' "$PUBLISH_TOKEN") \
+          --form "pluginId=$PLUGIN_ID" --form "file=@$ARCHIVE" --form "channel=$CHANNEL" \
+          https://plugins.jetbrains.com/api/updates/upload

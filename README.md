@@ -342,12 +342,11 @@ without the App key. The second applies that patch in another keyless checkout, 
 last job checks the digest, reads the caller's `release-auth` environment, and uses a repository-scoped App token to
 push the release commit and tag together. Only a dispatch from `main` can reach that job.
 
-```yaml
+```text
 jobs:
   prepare:
     if: github.ref == 'refs/heads/main'
-    uses:
-      tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
+    uses: tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
     permissions:
       contents: read
       pull-requests: read
@@ -659,6 +658,30 @@ missing assets, and publishes only after the complete asset set matches. A match
 different body, title, tag commit, prerelease flag, or asset set fails without changing the existing Release. A failed
 upload leaves the draft for a later retry. An asset in GitHub's incomplete `starter` state requires manual cleanup
 before retrying.
+
+## Publish a JetBrains plugin
+
+`publish-jetbrains-marketplace` uploads one signed ZIP through the
+[Marketplace upload API](https://plugins.jetbrains.com/docs/marketplace/plugin-upload.html). Run it in a fresh job
+without checkout or Gradle. Download the ZIP produced by the signing job and pass that job's SHA256 output; the Action
+checks the downloaded bytes, ZIP integrity, and member names before the token-bearing upload step.
+
+```yaml
+  - uses: tox-dev/github-workflows/publish-jetbrains-marketplace@SHA
+    env:
+      PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+    with:
+      archive: dist/Fish Shell 2-0.1.11-signed.zip
+      sha256: ${{ needs.build-signed.outputs.archive_sha }}
+      plugin-id: '29973'
+      channel: ''
+```
+
+`archive`, `sha256`, and numeric `plugin-id` are required. `channel` is empty for Stable; use a Marketplace channel name
+for a prerelease. **Output:** None. **Remote effect:** One multipart upload to JetBrains Marketplace. The Action does
+not check whether this version was published already; use the keyless release-creator `marketplace --mode stage` check
+before the upload, and `--mode verify` afterward. A retry must compare the published ZIP's member digests before
+skipping an upload because Marketplace can repackage the outer ZIP.
 
 ## Check a caller before switching
 
