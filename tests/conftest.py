@@ -58,6 +58,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "publish-jetbrains-marketplace",
         "sign-jetbrains-plugin",
         "check-hook-update-cooldown",
+        "publish-post-release-pr",
     ):
         action = yaml.safe_load((source / action_name / "action.yml").read_text())
         for index, step in enumerate(action["runs"]["steps"]):

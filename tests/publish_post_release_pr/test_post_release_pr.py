@@ -14,7 +14,30 @@ def test_action_maps_writer_app_slug() -> None:
     assert action["inputs"]["app-slug"]["required"]
     assert action["inputs"]["allowed-paths"]["required"]
     assert action["runs"]["steps"][0]["env"]["APP_SLUG"] == "${{ inputs.app-slug }}"
-    assert action["runs"]["steps"][0]["env"]["ALLOWED_PATHS"] == "${{ inputs.allowed-paths }}"
+    assert action["runs"]["steps"][1]["env"]["ALLOWED_PATHS"] == "${{ inputs.allowed-paths }}"
+    assert action["runs"]["steps"][-1]["id"] == "publish"
+
+
+def run_publish(action_scripts: Path, *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    steps = yaml.safe_load((Path(__file__).resolve().parents[2] / "publish-post-release-pr/action.yml").read_text())[
+        "runs"
+    ]["steps"]
+    action_variables = {name for step in steps for name in step["env"]}
+    base_env = {name: value for name, value in env.items() if name not in action_variables}
+    result = None
+    for index, step in enumerate(steps):
+        result = subprocess.run(
+            ["bash", str(action_scripts / f"publish-post-release-pr-{index}.sh")],
+            cwd=cwd,
+            env=base_env | {name: env[name] for name in step["env"]},
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            return result
+    assert result is not None
+    return result
 
 
 def expect_bot(server: HTTPServer) -> None:
@@ -23,6 +46,7 @@ def expect_bot(server: HTTPServer) -> None:
 
 def publish(
     tmp_path: Path,
+    action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     *,
     main_blob: str,
@@ -68,8 +92,8 @@ def publish(
         server.expect_request("/api/v3/repos/tox-dev/fixture/issues/7/labels", method="GET").respond_with_json(
             [{"name": "skip news"}]
         )
-    result = subprocess.run(
-        ["bash", str(Path(__file__).resolve().parents[2] / "publish-post-release-pr/publish.sh")],
+    result = run_publish(
+        action_scripts,
         cwd=tmp_path,
         env=os.environ
         | environment
@@ -89,34 +113,33 @@ def publish(
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_OUTPUT": str(tmp_path / "output"),
         },
-        text=True,
-        capture_output=True,
-        check=False,
     )
     return result, server
 
 
 def test_merged_branch_deleted_and_main_matches_is_complete(
-    tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]]
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
-    result, server = publish(tmp_path, github_api, main_blob="b" * 40, expected_blob="b" * 40)
+    result, server = publish(tmp_path, action_scripts, github_api, main_blob="b" * 40, expected_blob="b" * 40)
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "output").read_text() == "pull-request=7\n"
     assert [request.method for request, _ in server.log] == ["GET"] * 6
 
 
 def test_multiline_allowed_paths_accepts_trailing_newline(
-    tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]]
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
-    result, server = publish(tmp_path, github_api, main_blob="b" * 40, expected_blob="b" * 40, additional_blob="c" * 40)
+    result, server = publish(
+        tmp_path, action_scripts, github_api, main_blob="b" * 40, expected_blob="b" * 40, additional_blob="c" * 40
+    )
     assert result.returncode == 0, result.stderr
     assert [request.method for request, _ in server.log] == ["GET"] * 7
 
 
 def test_merged_branch_deleted_and_later_main_change_fails(
-    tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]]
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
-    result, server = publish(tmp_path, github_api, main_blob="c" * 40, expected_blob="b" * 40)
+    result, server = publish(tmp_path, action_scripts, github_api, main_blob="c" * 40, expected_blob="b" * 40)
     assert result.returncode != 0
     assert not (tmp_path / "output").exists()
     assert [request.method for request, _ in server.log] == ["GET"] * 4
@@ -166,6 +189,7 @@ def candidate(tmp_path: Path, *, extra_path: bool = False, wrong_author: bool = 
 )
 def test_open_branch_must_match_prepared_candidate(
     tmp_path: Path,
+    action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     branch_tree: str,
     branch_author: str,
@@ -211,8 +235,8 @@ def test_open_branch_must_match_prepared_candidate(
         server.expect_request("/api/v3/repos/tox-dev/fixture/issues/7/labels", method="GET").respond_with_json(
             [{"name": "skip news"}]
         )
-    result = subprocess.run(
-        ["bash", str(Path(__file__).resolve().parents[2] / "publish-post-release-pr/publish.sh")],
+    result = run_publish(
+        action_scripts,
         cwd=tmp_path,
         env=os.environ
         | environment
@@ -232,9 +256,6 @@ def test_open_branch_must_match_prepared_candidate(
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_OUTPUT": str(tmp_path / "output"),
         },
-        text=True,
-        capture_output=True,
-        check=False,
     )
     assert (result.returncode == 0) is expected_success, result.stderr
     assert (tmp_path / "output").exists() is expected_success
@@ -242,7 +263,7 @@ def test_open_branch_must_match_prepared_candidate(
 
 
 def test_absent_branch_pushes_prepared_commit_and_opens_pr(
-    tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]]
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     server, environment = github_api
     server.expect_ordered_request("/api/v3/users/fixture-app[bot]", method="GET").respond_with_json({"id": 123})
@@ -261,6 +282,12 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
     server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
         {"message": "Not Found"}, status=404
     )
+    server.expect_ordered_request(f"{prefix}/git/ref/heads/main", method="GET").respond_with_json(
+        {"object": {"sha": base}}
+    )
+    server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
+        {"object": {"sha": commit}}
+    )
     server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
         {"object": {"sha": commit}}
     )
@@ -269,8 +296,8 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
     server.expect_ordered_request(f"{prefix}/issues/7/labels", method="POST").respond_with_json(
         [{"name": "skip news"}], status=200
     )
-    result = subprocess.run(
-        ["bash", str(Path(__file__).resolve().parents[2] / "publish-post-release-pr/publish.sh")],
+    result = run_publish(
+        action_scripts,
         cwd=tmp_path,
         env=os.environ
         | environment
@@ -291,9 +318,6 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
             "GITHUB_OUTPUT": str(tmp_path / "output"),
             "GIT_REMOTE_URL": str(remote),
         },
-        text=True,
-        capture_output=True,
-        check=False,
     )
     assert result.returncode == 0, result.stderr
     assert run_git(remote, "rev-parse", "refs/heads/post-release-v2.4.7") == commit
@@ -307,6 +331,7 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
 )
 def test_prepared_candidate_identity_is_checked_before_api_write(
     tmp_path: Path,
+    action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     changed_input: str,
 ) -> None:
@@ -322,8 +347,8 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
     if changed_input == "unauthorized":
         with paths.open("a") as stream:
             stream.write(f"other.txt\t{run_git(tmp_path / 'source', 'rev-parse', 'HEAD:other.txt')}\n")
-    result = subprocess.run(
-        ["bash", str(Path(__file__).resolve().parents[2] / "publish-post-release-pr/publish.sh")],
+    result = run_publish(
+        action_scripts,
         cwd=tmp_path,
         env=os.environ
         | environment
@@ -343,9 +368,6 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_OUTPUT": str(tmp_path / "output"),
         },
-        text=True,
-        capture_output=True,
-        check=False,
     )
     assert result.returncode != 0
     assert [request.method for request, _ in server.log] == ["GET"]
