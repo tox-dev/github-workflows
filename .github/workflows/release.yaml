@@ -10,12 +10,14 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-  publish:
-    if: startsWith(github.ref, 'refs/tags/')
+  source:
     needs: validate
     runs-on: ubuntu-26.04
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      previous: ${{ steps.tag.outputs.previous }}
+      commit: ${{ steps.tag.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,21 +31,62 @@ jobs:
       - name: Install locked release tools
         run: |
           uv venv --python 3.15 .venv
-          uv pip sync --preview-features pylock --python .venv/bin/python --group release --group test pylock.toml
-          echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
+          uv pip sync --preview-features pylock --python .venv/bin/python --group release pylock.toml
+      - name: Verify tag and select previous release
+        id: tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
+          echo "commit=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+          previous=$(git tag --list | .venv/bin/release-creator tags "$TAG" --previous)
+          echo "previous=$previous" >>"$GITHUB_OUTPUT"
+  contributors:
+    needs: source
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
       - name: Fetch contributor metadata
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          PREVIOUS: ${{ needs.source.outputs.previous }}
         run: |
           set -euo pipefail
-          previous=$(git tag --list | release-creator tags "$TAG" --previous)
           args=(-f "tag_name=$TAG")
-          if [[ -n "$previous" ]]; then
-            args+=(-f "previous_tag_name=$previous")
-          fi
+          if [[ -n "$PREVIOUS" ]]; then args+=(-f "previous_tag_name=$PREVIOUS"); fi
           gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${args[@]}" --jq .body \
             >"$RUNNER_TEMP/generated-notes.md"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: generated-notes
+          path: ${{ runner.temp }}/generated-notes.md
+          if-no-files-found: error
+  notes:
+    needs: contributors
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: Install locked release tools
+        run: |
+          uv venv --python 3.15 .venv
+          uv pip sync --preview-features pylock --python .venv/bin/python --group release pylock.toml
+          echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
+      - uses: actions/download-artifact@4a24838f3d5608b9bc57bc3f57db43f16310d098 # v8.0.1
+        with:
+          name: generated-notes
+          path: ${{ runner.temp }}
       - uses: $/render-release-notes
         with:
           tag: ${{ github.ref_name }}
@@ -51,9 +94,27 @@ jobs:
           repository: ${{ github.repository }}
           generated-notes: ${{ runner.temp }}/generated-notes.md
           output: ${{ runner.temp }}/release-notes.md
-      - name: Publish GitHub Release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+  publish:
+    needs: [source, notes]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@4a24838f3d5608b9bc57bc3f57db43f16310d098 # v8.0.1
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}
+      - uses: $/publish-github-release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+        with:
+          repository: ${{ github.repository }}
+          tag: ${{ github.ref_name }}
+          commit: ${{ needs.source.outputs.commit }}
+          title: ${{ github.ref_name }}
+          notes-file: ${{ runner.temp }}/release-notes.md
