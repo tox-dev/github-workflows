@@ -44,18 +44,53 @@ Markdown or reStructuredText changelog. The caller should also run on `labeled` 
 after opening the PR updates the required check.
 
 `label-bot-news` adds `skip news` to a bot PR with no fragment and removes it when the bot adds one. It reads the PR
-file list through GitHub's API and never checks out PR code. Keep it in a separate `pull_request_target` workflow so the
-read-only changelog job does not receive Issues write access. The
-[caller in this repository](.github/workflows/label-bot-news.yaml) shows the permissions and events. Set `fragments` and
-`extension` for an RST repository. `fragments` accepts comma-separated directories when a caller also recognizes a
-legacy fragment path:
+file list through GitHub's API and never checks out PR code. Keep it in a separate `workflow_run` caller so the
+read-only PR workflow does not receive Issues write access. `resolve-pr-from-run` verifies that a completed run came
+from that PR workflow, then looks up the current PR by its source owner, branch, repository, and exact head SHA. It
+returns no PR when the branch has moved. This also handles fork PRs, whose workflow-run payload may omit the PR number.
+
+The [caller in this repository](.github/workflows/label-bot-news.yaml) shows the event and permissions. It runs after
+the read-only `Check` workflow finishes, even if its tests fail. Set `workflows` to that caller's PR workflow name and
+`workflow-path` to its file. The label action accepts `fragments` and `extension` for an RST repository, and `fragments`
+accepts comma-separated directories when the caller also recognizes a legacy fragment path:
 
 ```yaml
-  - uses: tox-dev/github-workflows/label-bot-news@SHA
-    with:
-      fragments: docs/changelog
-      extension: rst
+name: Label bot news
+on:
+  workflow_run:
+    workflows: [Check]
+    types: [completed]
+permissions: {}
+jobs:
+  label:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      issues: write
+      pull-requests: read
+    steps:
+      - id: pr
+        uses: tox-dev/github-workflows/resolve-pr-from-run@SHA
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          workflow-path: .github/workflows/check.yaml
+      - if: steps.pr.outputs.bot-author == 'true'
+        uses: tox-dev/github-workflows/label-bot-news@SHA
+        with:
+          pull-request: ${{ steps.pr.outputs.number }}
+          bot-author: 'true'
+          fragments: docs/changelog
+          extension: rst
 ```
+
+`resolve-pr-from-run` needs the source run ID and PR workflow path. Its optional `repository` input defaults to the
+caller repository and is useful for a read-only external rehearsal. It outputs `number` and `bot-author`; `number` is
+empty when the run's head is no longer the open PR head. It reads GitHub metadata and writes no repository files.
+`label-bot-news` takes that verified number and bot flag. For `.changeset/<name>.md`, pass `fragments: .changeset` and
+`fragment-style: changeset`; the default `towncrier` style expects `<name>.<category>.md` or RST. It only changes the
+`skip news` label when the bot's fragment state and label disagree. A label change retriggers PR CI; the next label run
+sees the settled state and makes no further write.
 
 `validate-bot-credits` is an internal rehearsal Action with no inputs or outputs. Both release validation workflows use
 it to fetch a known bot PR, link a synthetic fragment, and confirm that its notes keep the PR link without crediting the
@@ -452,6 +487,8 @@ publisher still fetches GitHub's generated notes and creates the Release; this A
 - `changelog` **(required)**: Tracked Markdown or reStructuredText changelog in the format that `release-creator notes`
   parses, with exactly one section for the tag.
 - `repository` **(required)**: GitHub `owner/repository` used in PR and comparison links.
+- `package`: Package name for a repository with separate histories, such as `pyproject-fmt` in `toml-fmt`. Use it with
+  tags like `pyproject-fmt/2.30.3`; the Action selects that package's changelog section and previous tag only.
 - `artifact-url`: Ecosystem release URL, such as a PyPI version page. Omit it for a GitHub-only project.
 - `artifact-label`: Link text for `artifact-url`; default `PyPI release`. Use `Zipapp` or another product name for a
   different artifact.

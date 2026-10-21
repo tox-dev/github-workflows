@@ -1,14 +1,25 @@
 name: Label bot news
 on:
-  pull_request_target: # zizmor: ignore[dangerous-triggers] Bot tokens cannot label PRs; this workflow never checks out PR code.
-    types: [opened, reopened, synchronize]
+  workflow_run: # zizmor: ignore[dangerous-triggers] Verifies source CI and PR metadata without checkout or artifacts.
+    workflows: [Check]
+    types: [completed]
 permissions: {}
 jobs:
   label:
+    if: github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-26.04
     permissions:
-      contents: read
+      actions: read
       issues: write
       pull-requests: read
     steps:
-      - uses: $/label-bot-news
+      - id: pr
+        uses: $/resolve-pr-from-run
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          workflow-path: .github/workflows/check.yaml
+      - if: steps.pr.outputs.bot-author == 'true'
+        uses: $/label-bot-news
+        with:
+          pull-request: ${{ steps.pr.outputs.number }}
+          bot-author: "true"

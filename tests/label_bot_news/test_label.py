@@ -9,16 +9,17 @@ from pytest_httpserver import HTTPServer
 
 
 @pytest.mark.parametrize(
-    ("files", "labels", "write_method", "fragment_dirs", "extension"),
+    ("files", "labels", "write_method", "fragment_dirs", "extension", "fragment_style"),
     [
-        pytest.param([], [], "POST", "changelog.d", "md", id="add"),
-        pytest.param([], [{"name": "skip news"}], None, "changelog.d", "md", id="already-labeled"),
+        pytest.param([], [], "POST", "changelog.d", "md", "towncrier", id="add"),
+        pytest.param([], [{"name": "skip news"}], None, "changelog.d", "md", "towncrier", id="already-labeled"),
         pytest.param(
             [{"filename": "changelog.d/+fix.bugfix.md"}],
             [{"name": "skip news"}],
             "DELETE",
             "changelog.d",
             "md",
+            "towncrier",
             id="remove",
         ),
         pytest.param(
@@ -27,6 +28,7 @@ from pytest_httpserver import HTTPServer
             None,
             "changelog.d",
             "md",
+            "towncrier",
             id="fragment-without-label",
         ),
         pytest.param(
@@ -35,6 +37,7 @@ from pytest_httpserver import HTTPServer
             "DELETE",
             "changelog.d,docs/changelog.d",
             "md",
+            "towncrier",
             id="legacy-fragment-path",
         ),
         pytest.param(
@@ -43,7 +46,27 @@ from pytest_httpserver import HTTPServer
             "DELETE",
             "docs/changelog",
             "rst",
+            "towncrier",
             id="rst-fragment-removes-label",
+        ),
+        pytest.param([], [], "POST", ".changeset", "md", "changeset", id="changeset-add"),
+        pytest.param(
+            [{"filename": ".changeset/fix-something.md"}],
+            [{"name": "skip news"}],
+            "DELETE",
+            ".changeset",
+            "md",
+            "changeset",
+            id="changeset-remove",
+        ),
+        pytest.param(
+            [{"filename": ".changeset/fix-something.md"}],
+            [],
+            None,
+            ".changeset",
+            "md",
+            "changeset",
+            id="changeset-fragment-without-label",
         ),
     ],
 )
@@ -57,6 +80,7 @@ def test_label_bot_news_updates_label(
     write_method: str | None,
     fragment_dirs: str,
     extension: str,
+    fragment_style: str,
 ) -> None:
     server, environment = github_api
     prefix = "/api/v3/repos/tox-dev/fixture"
@@ -76,6 +100,7 @@ def test_label_bot_news_updates_label(
         BOT_AUTHOR="true",
         FRAGMENTS=fragment_dirs,
         EXTENSION=extension,
+        FRAGMENT_STYLE=fragment_style,
         RUNNER_TEMP=str(tmp_path),
         **environment,
     )
@@ -91,7 +116,10 @@ def test_label_bot_news_ignores_human(
     steps = yaml.safe_load((Path(__file__).resolve().parents[2] / "label-bot-news/action.yml").read_text())["runs"][
         "steps"
     ]
-    assert all(step.get("if") == "github.event.pull_request.user.type == 'Bot'" for step in steps)
+    assert all(
+        step.get("if") == "inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'"
+        for step in steps
+    )
     server, environment = github_api
     result = action(
         repository,
@@ -122,4 +150,37 @@ def test_label_bot_news_rejects_extension(
     )
     assert result.returncode != 0
     assert "fragment extension must be md or rst" in result.stderr
+    assert not server.log
+
+
+@pytest.mark.parametrize(
+    ("style", "extension", "error"),
+    [
+        pytest.param("unknown", "md", "fragment style must be towncrier or changeset", id="unknown-style"),
+        pytest.param("changeset", "rst", "changeset fragments must use md", id="rst-changeset"),
+    ],
+)
+def test_label_bot_news_rejects_invalid_style(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    style: str,
+    extension: str,
+    error: str,
+) -> None:
+    server, environment = github_api
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "label-bot-news",
+        version="0.2.0",
+        BOT_AUTHOR="true",
+        FRAGMENT_STYLE=style,
+        EXTENSION=extension,
+        **environment,
+    )
+    assert result.returncode != 0
+    assert error in result.stderr
     assert not server.log

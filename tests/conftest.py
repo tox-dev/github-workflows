@@ -47,6 +47,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "render-release-notes",
         "validate-news",
         "label-bot-news",
+        "resolve-pr-from-run",
         "validate-bot-credits",
         "refresh-release-lock",
     ):
@@ -120,8 +121,11 @@ def action(
             "ANNOTATED": "false",
             "ARTIFACT_URL": "",
             "ARTIFACT_LABEL": "PyPI release",
+            "PACKAGE": "",
             "GENERATED_NOTES": "",
             "ISSUE_ROLE": "issue",
+            "RUN_ID": "42",
+            "WORKFLOW_PATH": ".github/workflows/check.yaml",
             "RUNNER_TEMP": str(tmp_path),
         }
         | extra_env

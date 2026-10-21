@@ -1,0 +1,84 @@
+name: Resolve a pull request from its CI run
+description: Verify a completed read-only PR run and find its current pull request
+inputs:
+  repository:
+    description: GitHub owner/repository containing the source run; defaults to the caller repository
+    default: ""
+  run-id:
+    description: GitHub Actions run ID from the workflow_run event
+    required: true
+  workflow-path:
+    description: Repository-relative path of the read-only PR workflow
+    required: true
+outputs:
+  number:
+    description: Current matching pull request number, or empty for a stale run
+    value: ${{ steps.resolve.outputs.number }}
+  bot-author:
+    description: Whether the matching pull request author is a bot
+    value: ${{ steps.resolve.outputs.bot-author }}
+runs:
+  using: composite
+  steps:
+    - name: Verify the source run
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ inputs.repository || github.repository }}
+        RUN_ID: ${{ inputs.run-id }}
+        WORKFLOW_PATH: ${{ inputs.workflow-path }}
+      run: |
+        set -euo pipefail
+        case "$RUN_ID" in
+        '' | *[!0-9]*)
+          echo '::error::run-id must be a decimal integer' >&2
+          exit 1
+          ;;
+        esac
+        gh api "repos/$REPOSITORY/actions/runs/$RUN_ID" >"$RUNNER_TEMP/source-run.json"
+        if ! jq -e --arg repository "$REPOSITORY" --arg workflow "$WORKFLOW_PATH" --argjson run_id "$RUN_ID" '
+          .id == $run_id and
+          .repository.full_name == $repository and
+          .event == "pull_request" and
+          .path == $workflow and
+          .status == "completed" and
+          (.head_repository.full_name | type == "string") and
+          (.head_repository.owner.login | type == "string") and
+          (.head_branch | type == "string") and
+          (.head_sha | length == 40)
+        ' "$RUNNER_TEMP/source-run.json" >/dev/null; then
+          echo '::error::source must be a completed pull_request run from the expected workflow' >&2
+          exit 1
+        fi
+    - id: resolve
+      name: Match the current pull request
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ inputs.repository || github.repository }}
+      run: |
+        set -euo pipefail
+        head_owner=$(jq -r .head_repository.owner.login "$RUNNER_TEMP/source-run.json")
+        head_branch=$(jq -r .head_branch "$RUNNER_TEMP/source-run.json")
+        head_repository=$(jq -r .head_repository.full_name "$RUNNER_TEMP/source-run.json")
+        head_sha=$(jq -r .head_sha "$RUNNER_TEMP/source-run.json")
+        gh api -X GET "repos/$REPOSITORY/pulls" -f state=open -f "head=$head_owner:$head_branch" -f per_page=100 \
+          >"$RUNNER_TEMP/source-pulls.json"
+        matches=$(jq --arg repository "$REPOSITORY" --arg head_repository "$head_repository" --arg head_sha "$head_sha" '
+          [.[] | select(
+            .state == "open" and
+            .head.sha == $head_sha and
+            .head.repo.full_name == $head_repository and
+            .base.repo.full_name == $repository
+          )]
+        ' "$RUNNER_TEMP/source-pulls.json")
+        count=$(jq 'length' <<<"$matches")
+        if [[ "$count" == 0 ]]; then
+          echo 'Source run no longer matches an open pull request'
+          exit 0
+        fi
+        if [[ "$count" != 1 ]]; then
+          echo '::error::source run matches multiple pull requests' >&2
+          exit 1
+        fi
+        jq -r '"number=\(.[0].number)", "bot-author=\(.[0].user.type == "Bot")"' <<<"$matches" >>"$GITHUB_OUTPUT"

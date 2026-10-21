@@ -1,66 +1,91 @@
 name: Label bot pull request news
 description: Keep skip news on bot PRs without a changelog fragment
 inputs:
+  pull-request:
+    description: Verified pull request number from a workflow-run resolver, or current PR event when empty
+    default: ""
+  bot-author:
+    description: Whether the verified pull request author is a bot, or current PR author when empty
+    default: ""
   fragments:
     description: Comma-separated directories containing changelog fragments
     default: changelog.d
   extension:
     description: Fragment extension without the dot, either md or rst
     default: md
+  fragment-style:
+    description: Filename convention, towncrier or changeset
+    default: towncrier
 runs:
   using: composite
   steps:
     - name: Validate bot fragment format
-      if: github.event.pull_request.user.type == 'Bot'
+      if: inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'
       shell: bash
       env:
         EXTENSION: ${{ inputs.extension }}
+        FRAGMENT_STYLE: ${{ inputs.fragment-style }}
       run: |
         if [[ "$EXTENSION" != md && "$EXTENSION" != rst ]]; then
           echo '::error::fragment extension must be md or rst' >&2
           exit 1
         fi
+        if [[ "$FRAGMENT_STYLE" != towncrier && "$FRAGMENT_STYLE" != changeset ]]; then
+          echo '::error::fragment style must be towncrier or changeset' >&2
+          exit 1
+        fi
+        if [[ "$FRAGMENT_STYLE" == changeset && "$EXTENSION" != md ]]; then
+          echo '::error::changeset fragments must use md' >&2
+          exit 1
+        fi
     - name: Read bot pull request files
-      if: github.event.pull_request.user.type == 'Bot'
+      if: inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_NUMBER: ${{ inputs.pull-request || github.event.pull_request.number }}
       run: gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' >"$RUNNER_TEMP/bot-pr-files"
     - name: Find bot news fragments
-      if: github.event.pull_request.user.type == 'Bot'
+      if: inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'
       shell: bash
       env:
         FRAGMENTS: ${{ inputs.fragments }}
         EXTENSION: ${{ inputs.extension }}
+        FRAGMENT_STYLE: ${{ inputs.fragment-style }}
       run: |
         has_fragment=false
         mapfile -t files <"$RUNNER_TEMP/bot-pr-files"
         read -ra directories <<<"${FRAGMENTS//,/ }"
         for path in "${files[@]}"; do
           for directory in "${directories[@]}"; do
-            case "$path" in
-            "$directory"/*.*."$EXTENSION") has_fragment=true ;;
-            esac
+            if [[ "$FRAGMENT_STYLE" == changeset ]]; then
+              case "$path" in
+              "$directory"/*.md) has_fragment=true ;;
+              esac
+            else
+              case "$path" in
+              "$directory"/*.*."$EXTENSION") has_fragment=true ;;
+              esac
+            fi
           done
         done
         echo "$has_fragment" >"$RUNNER_TEMP/bot-has-fragment"
     - name: Read bot pull request labels
-      if: github.event.pull_request.user.type == 'Bot'
+      if: inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_NUMBER: ${{ inputs.pull-request || github.event.pull_request.number }}
       run: gh api "repos/$REPOSITORY/issues/$PR_NUMBER/labels" --jq '.[].name' >"$RUNNER_TEMP/bot-pr-labels"
     - name: Set skip news for a bot PR
-      if: github.event.pull_request.user.type == 'Bot'
+      if: inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_NUMBER: ${{ inputs.pull-request || github.event.pull_request.number }}
       run: |
         read -r has_fragment <"$RUNNER_TEMP/bot-has-fragment"
         has_label=false
