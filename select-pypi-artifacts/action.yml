@@ -11,12 +11,18 @@ inputs:
     description: Fresh directory passed to the PyPI upload action
     required: true
   expected-count:
-    description: missing-count returned by the keyless stage
-    required: true
+    description: Expected local selection count; required unless partitioned
+    required: false
+  partitioned:
+    description: Select only names present in this matrix cell's validated distribution
+    default: "false"
 outputs:
   selected-count:
     description: Number of original distribution files selected for upload
     value: ${{ steps.select.outputs.count }}
+  selected-manifest:
+    description: File listing this cell's selected names for a keyless partition check
+    value: ${{ steps.select.outputs.manifest }}
 runs:
   using: composite
   steps:
@@ -28,6 +34,7 @@ runs:
         MANIFEST: ${{ inputs.manifest }}
         OUTPUT_DIR: ${{ inputs.output-dir }}
         EXPECTED_COUNT: ${{ inputs.expected-count }}
+        PARTITIONED: ${{ inputs.partitioned }}
       run: |
         set -euo pipefail
         test -d "$DIST" && test -f "$MANIFEST" && test ! -e "$OUTPUT_DIR"
@@ -40,6 +47,7 @@ runs:
           ;;
         esac
         mkdir "$OUTPUT_DIR"
+        selected_manifest=$(mktemp "$RUNNER_TEMP/pypi-selected.XXXXXX")
         count=0
         while IFS= read -r name; do
           case "$name" in
@@ -48,10 +56,19 @@ runs:
             exit 1
             ;;
           esac
+          if [[ "$PARTITIONED" == true && ! -e "$DIST/$name" && ! -L "$DIST/$name" ]]; then
+            continue
+          fi
           test -f "$DIST/$name" && test ! -L "$DIST/$name" && test ! -e "$OUTPUT_DIR/$name"
           cp -- "$DIST/$name" "$OUTPUT_DIR/$name"
           cmp -s "$DIST/$name" "$OUTPUT_DIR/$name"
+          printf '%s\n' "$name" >>"$selected_manifest"
           count=$((count + 1))
         done <"$MANIFEST"
-        test "$count" = "$EXPECTED_COUNT"
+        if [[ -n "$EXPECTED_COUNT" ]]; then
+          test "$count" = "$EXPECTED_COUNT"
+        else
+          test "$PARTITIONED" == true
+        fi
         echo "count=$count" >>"$GITHUB_OUTPUT"
+        echo "manifest=$selected_manifest" >>"$GITHUB_OUTPUT"

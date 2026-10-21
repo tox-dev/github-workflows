@@ -617,6 +617,12 @@ output directory must be fresh and outside `dist`. It rejects unknown, duplicate
 copies bytes only from `dist`. Its `selected-count` output controls the PyPI upload step. The manifest supplies names
 only; it is not a source of publishable bytes.
 
+For a build matrix whose jobs each hold one distribution artifact, set `partitioned: "true"` and omit `expected-count`.
+Each cell selects names present in its original artifact and uploads its `selected-manifest` as a separate artifact.
+Before public release, download all cell manifests into one directory and run `verify-pypi-partitions` with the global
+stage `manifest`, `partitions-dir`, and `expected-partitions`. It rejects duplicate, missing, and extra names. The
+keyless full-set PyPI verification still checks the published bytes.
+
 ## Publish a GitHub Release
 
 `publish-github-release` verifies the tag and its rendered notes before writing a GitHub Release. Pass the exact notes
