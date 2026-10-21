@@ -121,6 +121,7 @@ def test_prepare_rejects_dirty_checkout(repository: Path, tmp_path: Path, action
             id="fragment-linking",
         ),
         pytest.param("NUMBERED_PRS", "maybe", "numbered-prs must be true or false", id="numbered-prs"),
+        pytest.param("CHANGELOG_PREFIX", "x", "changelog-prefix must be empty or v", id="changelog-prefix"),
     ],
 )
 def test_prepare_rejects_invalid_option(
@@ -166,6 +167,15 @@ def test_prepare_selects_prefixed_version(repository: Path, tmp_path: Path, acti
     assert result.returncode == 0, result.stderr
     assert "version=v0.2.0" in (tmp_path / "output").read_text()
     assert "## 0.2.0 (" in (repository / "CHANGELOG.md").read_text()
+
+
+def test_prepare_preserves_prefixed_changelog_heading(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    result = action(
+        repository, tmp_path, action_scripts, "prepare-towncrier", version="", TAG_PREFIX="v", CHANGELOG_PREFIX="v"
+    )
+    assert result.returncode == 0, result.stderr
+    assert "version=v0.2.0" in (tmp_path / "output").read_text()
+    assert "## v0.2.0 (" in (repository / "CHANGELOG.md").read_text()
 
 
 @pytest.mark.parametrize("version", [pytest.param("0.1.0", id="existing"), pytest.param("0.0.1", id="older")])

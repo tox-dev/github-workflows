@@ -10,6 +10,10 @@ on:
         description: Optional v prefix for the tag
         type: string
         default: ""
+      changelog-prefix:
+        description: Optional v prefix for the Towncrier changelog heading
+        type: string
+        default: ""
       changelog:
         description: Tracked changelog path
         required: true
@@ -103,6 +107,7 @@ jobs:
         with:
           bump: ${{ inputs.bump }}
           tag-prefix: ${{ inputs.tag-prefix }}
+          changelog-prefix: ${{ inputs.changelog-prefix }}
           changelog: ${{ inputs.changelog }}
           fragments: ${{ inputs.fragments }}
           format: ${{ inputs.format }}

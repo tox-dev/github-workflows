@@ -345,13 +345,13 @@ grants its GitHub token Contents and Pull requests read. The keyless jobs instal
 checked-in `pylock.toml`; use `lock` and `python-version` when those paths or versions differ. No job output crosses
 back to the caller. A successful run pushes a tag, which the caller's tag workflow handles.
 
-`bump`, `tag-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, `numbered-prs`, and `annotated` have the
-same meanings as the `prepare-towncrier` inputs below. `release-auth-deployment` defaults to `true`; set it to `false`
-if the current App-key job uses `release-auth` without creating a GitHub Deployment. `dry-run: true` runs the first two
-jobs at a same-repository PR head and skips the App-key job. `local-tool-source: true` installs release-creator from the
-tagged checkout with locked third-party dependencies in both keyless jobs; use it for release-creator itself. The caller
-can place repository-specific checks in a preceding job and make this job depend on it. The tag-triggered ecosystem
-publisher stays in the caller repository.
+`bump`, `tag-prefix`, `changelog-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, `numbered-prs`, and
+`annotated` have the same meanings as the `prepare-towncrier` inputs below. `release-auth-deployment` defaults to
+`true`; set it to `false` if the current App-key job uses `release-auth` without creating a GitHub Deployment.
+`dry-run: true` runs the first two jobs at a same-repository PR head and skips the App-key job.
+`local-tool-source: true` installs release-creator from the tagged checkout with locked third-party dependencies in both
+keyless jobs; use it for release-creator itself. The caller can place repository-specific checks in a preceding job and
+make this job depend on it. The tag-triggered ecosystem publisher stays in the caller repository.
 
 ## Prepare Towncrier release
 
@@ -373,7 +373,9 @@ rendering, formatting, or checks fail, or if preparation creates untracked files
 - `bump`: `auto` (default), `major`, `minor`, `patch`, or `calver`. Passed to `release-creator tags --next`; `auto` uses
   the pending fragments. The caller's dispatch form decides which choices to expose.
 - `tag-prefix`: Empty by default. Use `v` when release tags are spelled `v1.2.3`; version comparison still includes
-  unprefixed numeric tags in the repository's history. Towncrier writes the changelog heading without the `v`.
+  unprefixed numeric tags in the repository's history. This does not set the changelog heading prefix.
+- `changelog-prefix`: Empty by default, so Towncrier writes `1.2.3` even if the tag is `v1.2.3`. Set `v` for a changelog
+  whose release headings use `v1.2.3`.
 - `version`: Explicit version for a caller with its own version selector. It takes precedence over `bump`; the Action
   still checks that it is newer than existing tags.
 - `changelog` **(required)**: Tracked file Towncrier writes, such as `CHANGELOG.md` or `docs/changelog.rst`. This must

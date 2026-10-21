@@ -7,6 +7,9 @@ inputs:
   tag-prefix:
     description: Prefix for calculated release tags, either empty or v
     default: ""
+  changelog-prefix:
+    description: Prefix for the Towncrier changelog version, either empty or v
+    default: ""
   version:
     description: Explicit version for repositories with custom version selection
     default: ""
@@ -93,7 +96,17 @@ runs:
       shell: bash
       env:
         VERSION: ${{ steps.version.outputs.version }}
-      run: towncrier build --yes --version "${VERSION#v}"
+        CHANGELOG_PREFIX: ${{ inputs.changelog-prefix }}
+      run: |
+        set -euo pipefail
+        case "$CHANGELOG_PREFIX" in
+        '' | v) ;;
+        *)
+          echo '::error::changelog-prefix must be empty or v' >&2
+          exit 1
+          ;;
+        esac
+        towncrier build --yes --version "$CHANGELOG_PREFIX${VERSION#v}"
     - name: Format changelog
       shell: bash
       env:
