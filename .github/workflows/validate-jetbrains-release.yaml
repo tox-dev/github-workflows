@@ -186,12 +186,59 @@ jobs:
         env:
           TAG: ${{ steps.prepare.outputs.version }}
         run: sed -i "s/^pluginVersion=.*/pluginVersion=${TAG#v}/" gradle.properties
-      - name: Build the plugin ZIP
-        run: ./gradlew --console=plain buildPlugin
+      - name: Generate a local signing certificate
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$RUNNER_TEMP/plugin-key.pem" -out "$RUNNER_TEMP/plugin-cert.pem" \
+            -subj '/CN=Release rehearsal' -days 1
+      - name: Sign the plugin ZIP
+        run: |
+          export CERTIFICATE_CHAIN PRIVATE_KEY PRIVATE_KEY_PASSWORD
+          CERTIFICATE_CHAIN=$(cat "$RUNNER_TEMP/plugin-cert.pem")
+          PRIVATE_KEY=$(cat "$RUNNER_TEMP/plugin-key.pem")
+          PRIVATE_KEY_PASSWORD=''
+          ./gradlew --console=plain signPlugin
+      - name: Verify plugin structure and signature
+        run: |
+          CERTIFICATE_CHAIN="$(cat "$RUNNER_TEMP/plugin-cert.pem")" \
+            ./gradlew --console=plain verifyPluginStructure verifyPluginSignature
+      - name: Check signed ZIP and embedded version
+        env:
+          TAG: ${{ steps.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          archives=(build/distributions/*-"${TAG#v}"-signed.zip)
+          test "${#archives[@]}" -eq 1
+          test -f "${archives[0]}"
+          unzip -tq "${archives[0]}" >/dev/null
+          unzip -p "${archives[0]}" "*/lib/*-${TAG#v}.jar" >"$RUNNER_TEMP/plugin.jar"
+          unzip -p "$RUNNER_TEMP/plugin.jar" META-INF/plugin.xml >"$RUNNER_TEMP/plugin.xml"
+          grep -Fq "<version>${TAG#v}</version>" "$RUNNER_TEMP/plugin.xml"
+          sha256sum "${archives[0]}" >"$RUNNER_TEMP/plugin.sha256"
+      - name: Reject a different signing certificate
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$RUNNER_TEMP/wrong-key.pem" -out "$RUNNER_TEMP/wrong-cert.pem" \
+            -subj '/CN=Wrong release signer' -days 1
+          if CERTIFICATE_CHAIN="$(cat "$RUNNER_TEMP/wrong-cert.pem")" \
+            ./gradlew --console=plain verifyPluginSignature; then
+            echo '::error::wrong signing certificate was accepted' >&2
+            exit 1
+          fi
+      - name: Reject a changed plugin ZIP
+        env:
+          TAG: ${{ steps.prepare.outputs.version }}
+        run: |
+          cp build/distributions/*-"${TAG#v}"-signed.zip "$RUNNER_TEMP/changed.zip"
+          printf x >>"$RUNNER_TEMP/changed.zip"
+          read -r expected _ <"$RUNNER_TEMP/plugin.sha256"
+          read -r actual _ < <(sha256sum "$RUNNER_TEMP/changed.zip")
+          test "$expected" != "$actual"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: jetbrains-release-rehearsal
           path: |
             ${{ runner.temp }}/release-notes.md
-            build/distributions/*.zip
+            ${{ runner.temp }}/plugin.sha256
+            build/distributions/*-signed.zip
           if-no-files-found: error
