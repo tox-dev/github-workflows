@@ -203,6 +203,27 @@ def test_install_locked_tools_accepts_tool_only_lock(tmp_path: Path, action_scri
     assert (tmp_path / "tools/bin/release-creator").is_file()
 
 
+def test_install_locked_tools_merges_shared_and_caller_build_constraints(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    action_root = tmp_path / "action"
+    action_root.mkdir()
+    (tmp_path / "pylock.toml").write_bytes((source / "pylock.toml").read_bytes())
+    (tmp_path / "release-build-constraints.txt").write_text(
+        (source / "release-build-constraints.txt").read_text() + f"probe-only==1.0 --hash=sha256:{'0' * 64}\n"
+    )
+    result = install(
+        source,
+        action_scripts,
+        tmp_path,
+        lock=source / "pylock.toml",
+        groups="release-notes",
+        venv=tmp_path / "tools",
+        action_root=action_root,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "probe-only==1.0 " in (tmp_path / "caller-build-constraints.txt").read_text()
+
+
 def test_install_locked_tools_ignores_resolution_cutoff_for_hashed_lock(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     result = install(
