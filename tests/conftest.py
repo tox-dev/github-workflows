@@ -13,8 +13,6 @@ import trustme
 import yaml
 from pytest_httpserver import HTTPServer
 
-_GITHUB_BASH: Final[tuple[str, ...]] = ("bash", "--noprofile", "--norc", "-e", "-o", "pipefail")
-
 
 @pytest.fixture
 def github_api(tmp_path: Path) -> Iterator[tuple[HTTPServer, dict[str, str]]]:
@@ -157,7 +155,8 @@ def action(
     stdout = []
     stderr = []
     steps = action_config["runs"]["steps"]
-    command = list(_GITHUB_BASH)
+    github_bash: Final[tuple[str, ...]] = ("bash", "--noprofile", "--norc", "-e", "-o", "pipefail")
+    command = list(github_bash)
     for index, step in enumerate(steps):
         if step.get("uses") == "$/install-locked-tools":
             group_input = {
@@ -177,7 +176,7 @@ def action(
                 "validate-python-distribution": "package-validators",
             }[name]
             for install_index in range(3):
-                command = [*_GITHUB_BASH, str(action_scripts / f"install-locked-tools-{install_index}.sh")]
+                command = [*github_bash, str(action_scripts / f"install-locked-tools-{install_index}.sh")]
                 result = subprocess.run(
                     command,
                     cwd=repository,
@@ -204,7 +203,7 @@ def action(
         script = action_scripts / f"{name}-{index}.sh"
         if (condition := step.get("if")) is not None and not _condition(condition, environment):
             continue
-        command = [*_GITHUB_BASH, str(script)]
+        command = [*github_bash, str(script)]
         result = subprocess.run(
             command,
             cwd=repository,
