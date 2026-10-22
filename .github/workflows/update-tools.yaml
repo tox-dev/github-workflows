@@ -17,7 +17,7 @@ jobs:
       build-requirements: |-
         Cython>=3.0
         setuptools>=80
-      exclude-newer-packages: release-creator=2026-10-22T06:33:00Z
+      exclude-newer-packages: release-creator=2026-10-22T13:51:56Z
       commit-message: "🔧 build: refresh release tool lock"
       pull-request-title: "🔧 build: refresh release tool lock"
       pull-request-body: "Refresh the locked tools used by release preparation and CI."
