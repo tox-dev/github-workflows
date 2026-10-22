@@ -147,11 +147,11 @@ jobs:
       python-version: '3.15'
 ```
 
-The project must declare a `release` group containing `prek` and `release-creator`. The lock also includes every other
-group and extra. `lock` defaults to `pylock.toml`; `hook-config` defaults to `.pre-commit-config.yaml`; `base` defaults
-to `main`; `branch` defaults to `automation/update-release-tools`. The caller owns the schedule, so repositories can use
-different upgrade days without copying the jobs. `commit-message`, `pull-request-title`, and `pull-request-body` let a
-caller retain its existing dependency PR wording.
+The project must declare a group containing `prek` and pass it as `check-group`; the default is `release` for existing
+callers. The lock also includes every other group and extra. `lock` defaults to `pylock.toml`; `hook-config` defaults to
+`.pre-commit-config.yaml`; `base` defaults to `main`; `branch` defaults to `automation/update-release-tools`. The caller
+owns the schedule, so repositories can use different upgrade days without copying the jobs. `commit-message`,
+`pull-request-title`, and `pull-request-body` let a caller retain its existing dependency PR wording.
 
 Set `keep-uv-lock: true` only when the repository commits `uv.lock` for its own build. The lock job then refreshes both
 `uv.lock` and the selectable `pylock.toml` and includes both in one patch. The default rejects `uv.lock` changes. This
@@ -163,7 +163,7 @@ PR. This repository passes `release-build-constraints.txt`. Each consumer's inst
 lock. Source-only packages need their build backend requirements in that lock; an absent backend fails the install.
 
 Use `build-requirements` for build dependencies that are not declared by the project's own build system, one requirement
-per line. For example, a release group containing source-only PyYAML on Python 3.15 needs Cython and setuptools in the
+per line. For example, a job group containing source-only PyYAML on Python 3.15 needs Cython and setuptools in the
 `build` group. The input affects the caller's lock only; it does not add these packages to other repositories.
 
 Set `exclude-newer-packages` to one reviewed `package=UTC cutoff` entry per line when a required version was published
@@ -174,10 +174,10 @@ when `keep-uv-lock` is true. The dependency PR lists the reviewed floors.
 
 To check the same lock refresh on a PR, call `refresh-release-lock` in a job with Contents read permission. The reusable
 updater calls this Action in its lock generator job. It excludes dependencies published in the last seven days, resolves
-the project through uv, rewrites the local `pylock.toml`, installs its `release` group, and runs `prek`. It rejects
-changes to any other file; `uv.lock` is allowed only with `keep-uv-lock: true`, and a generated constraints file only
-with `build-constraints`. Its `changed` output is `true` when a selected file differs from the checkout, and it writes
-`$RUNNER_TEMP/lock.patch`. The Action does not push a branch, open a PR, or request a write token.
+the project through uv, rewrites the local `pylock.toml`, installs its selected `check-group`, and runs `prek`. It
+rejects changes to any other file; `uv.lock` is allowed only with `keep-uv-lock: true`, and a generated constraints file
+only with `build-constraints`. Its `changed` output is `true` when a selected file differs from the checkout, and it
+writes `$RUNNER_TEMP/lock.patch`. The Action does not push a branch, open a PR, or request a write token.
 
 ```yaml
 release-tools-preview:
