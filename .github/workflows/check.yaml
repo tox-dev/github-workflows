@@ -8,8 +8,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: check-${{ github.ref }}
-  cancel-in-progress: true
+  group: check-${{ github.ref }}-${{ github.run_attempt > 1 && github.run_id || 'current' }}
+  cancel-in-progress: ${{ github.run_attempt == 1 }}
 jobs:
   check:
     runs-on: ubuntu-26.04
@@ -64,7 +64,7 @@ jobs:
               >"$RUNNER_TEMP/run-blocks"
             index=0
             while IFS= read -r -d '' script; do
-              script_file="$script_dir/${file//\//-}-$index.sh"
+              script_file="$script_dir/run-${file//\//-}-$index.sh"
               printf '#!/usr/bin/env bash\n%s\n' "${script%$'\n'}" >"$script_file"
               index=$((index + 1))
             done <"$RUNNER_TEMP/run-blocks"
@@ -174,7 +174,7 @@ jobs:
           exclude-newer-packages: release-creator=2026-10-22T13:51:56Z
   gate:
     name: ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Required checks pass (non-PR)' }}
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [check, shell, test, type, changelog, hook-cooldown, release-tools-preview]
     runs-on: ubuntu-26.04
     steps:

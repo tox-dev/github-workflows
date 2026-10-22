@@ -167,7 +167,7 @@ jobs:
         run: |
           set -euo pipefail
           while IFS= read -r path; do
-            if [[ "$path" != "$LOCK" && "$path" != "$CONFIG" && "$path" != "$BUILD_CONSTRAINTS" ]] && \
+            if [[ "$path" != "$LOCK" && "$path" != "$CONFIG" && "$path" != "$BUILD_CONSTRAINTS" ]] &&
               [[ "$KEEP_UV_LOCK" != true || "$path" != uv.lock ]]; then
               echo "::error::unexpected dependency path: $path" >&2
               exit 1
