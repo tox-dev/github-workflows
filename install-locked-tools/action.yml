@@ -63,13 +63,19 @@ runs:
           uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator build-constraints \
             --lock "$LOCK" --group build \
             --python-version "$PYTHON_VERSION" --output "$RUNNER_TEMP/caller-build-constraints.txt"
-          awk '
-            NR == FNR { split($1, pin, "=="); caller[pin[1]] = 1; next }
-            { split($1, pin, "=="); if (!(pin[1] in caller)) print }
-          ' "$RUNNER_TEMP/caller-build-constraints.txt" \
-            "$GITHUB_ACTION_PATH/../release-build-constraints.txt" >"$RUNNER_TEMP/caller-shared-constraints.txt"
-          cat "$RUNNER_TEMP/caller-build-constraints.txt" >>"$RUNNER_TEMP/caller-shared-constraints.txt"
-          LC_ALL=C sort "$RUNNER_TEMP/caller-shared-constraints.txt" >"$RUNNER_TEMP/caller-build-constraints.txt"
+          uv run --no-project --python "$RUNNER_TEMP/lock-exporter" python - \
+            "$GITHUB_ACTION_PATH/../release-build-constraints.txt" \
+            "$RUNNER_TEMP/caller-build-constraints.txt" <<'PY'
+        import sys
+        from pathlib import Path
+
+        pins = {
+            line.partition("==")[0]: line
+            for path in map(Path, sys.argv[1:])
+            for line in path.read_text().splitlines()
+        }
+        Path(sys.argv[2]).write_text("".join(f"{line}\n" for _, line in sorted(pins.items())))
+        PY
         else
           cp "$GITHUB_ACTION_PATH/../release-build-constraints.txt" "$RUNNER_TEMP/caller-build-constraints.txt"
         fi
