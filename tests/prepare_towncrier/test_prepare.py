@@ -413,17 +413,28 @@ def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, ac
     assert "Changes\n=======" in (repository / "CHANGELOG.rst").read_text()
 
 
-@pytest.mark.parametrize("script", ["prepare-towncrier-7.sh", "validate-release-patch-5.sh"])
-def test_prepare_rejects_rst_conflict_marker(repository: Path, action_scripts: Path, script: str) -> None:
-    (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n")
-    run(repository, "git", "add", "CHANGELOG.rst")
-    run(repository, "git", "commit", "-m", "Track RST changelog")
+@pytest.mark.parametrize(
+    "script",
+    [
+        pytest.param("prepare-towncrier-7.sh", id="prepare"),
+        pytest.param("validate-release-patch-5.sh", id="validate"),
+    ],
+)
+@pytest.mark.parametrize("tracked", [pytest.param(True, id="tracked"), pytest.param(False, id="first-release")])
+def test_prepare_rejects_rst_conflict_marker(
+    repository: Path, action_scripts: Path, script: str, tracked: bool
+) -> None:
+    if tracked:
+        (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n")
+        run(repository, "git", "add", "CHANGELOG.rst")
+        run(repository, "git", "commit", "-m", "Track RST changelog")
     (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n\n<<<<<<< HEAD\n")
-    run(repository, "git", "add", "CHANGELOG.rst")
+    run(repository, "git", "add", *(["-N"] if script.startswith("prepare") and not tracked else []), "CHANGELOG.rst")
     result = subprocess.run(
         ["bash", str(action_scripts / script)],
         cwd=repository,
-        env=os.environ | {"CHANGELOG": "CHANGELOG.rst"},
+        env={name: os.environ[name] for name in ("HOME", "LANG", "PATH") if name in os.environ}
+        | {"CHANGELOG": "CHANGELOG.rst"},
         text=True,
         capture_output=True,
         check=False,
