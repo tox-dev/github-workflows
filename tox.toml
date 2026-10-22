@@ -5,10 +5,5 @@ env_list = ["type"]
 description = "type-check Action tests"
 base_python = "3.15"
 skip_install = true
-allowlist_externals = ["uv"]
-commands_pre = [
-  [
-    "uv", "pip", "install", "--python", "{envpython}", "--group", "test",
-  ],
-]
+dependency_groups = ["test"]
 commands = [["ty", "check", "--python-platform", "all", "--error", "all", "--output-format", "concise", "tests"]]
