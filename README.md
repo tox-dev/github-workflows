@@ -274,12 +274,12 @@ fragment directory, commit message, and tag style. Replace this repository's rel
 release commit SHA. In the examples below, `SHA` means that release commit and `TOKEN_ACTION_SHA` means the pinned token
 Action commit in the linked workflow.
 
-All three jobs need a full checkout (`fetch-depth: 0`, `persist-credentials: false`). Only `assemble` and `validate`
-install `release-creator`, Towncrier, and `prek` from the caller's checked-in `pylock.toml`. Preparation needs
-`contents: read` and `pull-requests: read` to resolve PR authors. The `push` job uses the `release-auth` environment
-with `RELEASE_APP_PRIVATE_KEY` and the repository variable `RELEASE_APP_CLIENT_ID`. Restrict `release-auth` to the
-release branch. Install the App on that repository only, with Contents write and Metadata read. Give it the necessary
-branch and tag ruleset bypass.
+All three jobs need a full checkout (`fetch-depth: 0`, `persist-credentials: false`). `assemble` installs
+release-creator, Towncrier, and prek; `validate` installs release-creator and prek. Both use the caller's checked-in
+`pylock.toml`. Preparation needs `contents: read` and `pull-requests: read` to resolve PR authors. The `push` job uses
+the `release-auth` environment with `RELEASE_APP_PRIVATE_KEY` and the repository variable `RELEASE_APP_CLIENT_ID`.
+Restrict `release-auth` to the release branch. Install the App on that repository only, with Contents write and Metadata
+read. Give it the necessary branch and tag ruleset bypass.
 
 ```text
 main + fragments
@@ -353,11 +353,12 @@ without the App key. The second applies that patch in another keyless checkout, 
 last job checks the digest, reads the caller's `release-auth` environment, and uses a repository-scoped App token to
 push the release commit and tag together. Only a dispatch from `main` can reach that job.
 
-```text
+```yaml
 jobs:
   prepare:
     if: github.ref == 'refs/heads/main'
-    uses: tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
+    uses:
+      tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
     permissions:
       contents: read
       pull-requests: read
@@ -418,8 +419,8 @@ rendering, formatting, or checks fail, or if preparation creates untracked files
 - `fragments`: Fragment directory relative to the checkout root; default `changelog.d`. Set this to the caller's
   `tool.towncrier.directory`. Version selection and PR linking both read this directory.
 - `format`: `none` (default), `markdown`, or `rst`. `markdown` runs the caller's `mdformat` hook and `rst` runs its
-  `docstrfmt` hook through `prek` on the assembled changelog. Use `none` when no formatter hook applies. The full `prek`
-  suite runs for every option.
+  `docstrfmt` hook through `prek` on the assembled changelog. Use `none` when no formatter hook applies. The reusable
+  workflow's validation job runs the full `prek` suite for every option.
 - `link-fragments`: `true` (default) resolves named fragments and authors through GitHub; `false` skips that step for a
   caller whose fragments already contain release links and credits.
 - `numbered-prs`: `false` (default) leaves Towncrier's numeric fragment behavior intact. Set `true` only when every
