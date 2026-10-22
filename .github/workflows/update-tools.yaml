@@ -8,12 +8,11 @@ jobs:
   update:
     uses: $/.github/workflows/upgrade-release-tools.yaml
     permissions:
-      actions: write
-      contents: write
-      pull-requests: write
+      contents: read
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
     with:
       python-version: "3.15"
-      check-workflow: check.yaml
       commit-message: "🔧 build: refresh release tool lock"
       pull-request-title: "🔧 build: refresh release tool lock"
       pull-request-body: "Refresh the locked tools used by release preparation and CI."

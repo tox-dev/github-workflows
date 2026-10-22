@@ -225,9 +225,10 @@ runs:
           test "$(gh api "repos/$REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)" = "$BASE_COMMIT"
           pr_number=$(jq -r '.[0].number // empty' "$RUNNER_TEMP/post-release-prs.json")
           if branch_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha 2>"$RUNNER_TEMP/branch-error"); then
-            read -r branch_parent branch_tree branch_author branch_email < <(
-              gh api "repos/$REPOSITORY/git/commits/$branch_sha" --jq '[.parents[0].sha, .tree.sha, .author.name, .author.email] | @tsv'
+            read -r parent_count branch_parent branch_tree branch_author branch_email < <(
+              gh api "repos/$REPOSITORY/git/commits/$branch_sha" --jq '[(.parents | length), .parents[0].sha, .tree.sha, .author.name, .author.email] | @tsv'
             )
+            test "$parent_count" = 1
             test "$branch_parent" = "$BASE_COMMIT"
             test "$branch_tree" = "$(cat "$RUNNER_TEMP/candidate-tree")"
             test "$branch_author" = "${APP_SLUG}[bot]"
@@ -235,11 +236,9 @@ runs:
           elif grep -Fq '(HTTP 404)' "$RUNNER_TEMP/branch-error"; then
             test -z "$pr_number"
             test "$(gh api "repos/$REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)" = "$BASE_COMMIT"
-            if [[ -z "${GIT_REMOTE_URL:-}" ]]; then
-              gh auth setup-git --hostname "${GH_HOST:-github.com}" --force
-            fi
+            gh auth setup-git --hostname "${GH_HOST:-github.com}" --force
             git -C "$RUNNER_TEMP/post-release.git" remote add origin \
-              "${GIT_REMOTE_URL:-https://${GH_HOST:-github.com}/$REPOSITORY.git}"
+              "https://${GH_HOST:-github.com}/$REPOSITORY.git"
             git -C "$RUNNER_TEMP/post-release.git" push origin "refs/heads/release-candidate:refs/heads/$BRANCH"
             branch_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)
             test "$branch_sha" = "$CANDIDATE_COMMIT"
@@ -284,7 +283,8 @@ runs:
       run: |
         set -euo pipefail
         pr_number=$(cat "$RUNNER_TEMP/post-release-number")
-        if ! gh api "repos/$REPOSITORY/issues/$pr_number/labels" --jq '.[].name' | grep -Fxq "$LABEL"; then
+        labels=$(gh api "repos/$REPOSITORY/issues/$pr_number/labels" --jq '.[].name')
+        if ! grep -Fxq "$LABEL" <<<"$labels"; then
           if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") == true ]]; then
             echo '::error::merged pull request lost its required label' >&2
             exit 1

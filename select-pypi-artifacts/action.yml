@@ -37,7 +37,7 @@ runs:
         PARTITIONED: ${{ inputs.partitioned }}
       run: |
         set -euo pipefail
-        test -d "$DIST" && test -f "$MANIFEST" && test ! -e "$OUTPUT_DIR"
+        [[ -d "$DIST" && -f "$MANIFEST" && ! -e "$OUTPUT_DIR" ]] || exit 1
         dist_path=$(realpath "$DIST")
         output_path=$(realpath -m "$OUTPUT_DIR")
         case "$output_path" in
@@ -59,7 +59,7 @@ runs:
           if [[ "$PARTITIONED" == true && ! -e "$DIST/$name" && ! -L "$DIST/$name" ]]; then
             continue
           fi
-          test -f "$DIST/$name" && test ! -L "$DIST/$name" && test ! -e "$OUTPUT_DIR/$name"
+          [[ -f "$DIST/$name" && ! -L "$DIST/$name" && ! -e "$OUTPUT_DIR/$name" ]] || exit 1
           cp -- "$DIST/$name" "$OUTPUT_DIR/$name"
           cmp -s "$DIST/$name" "$OUTPUT_DIR/$name"
           printf '%s\n' "$name" >>"$selected_manifest"

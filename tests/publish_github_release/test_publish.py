@@ -351,7 +351,7 @@ def test_publish_rejects_incomplete_draft_without_upload(
     server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
         {"object": {"type": "commit", "sha": commit}}
     )
-    for _ in range(2):
+    for _ in range(7):
         server.expect_ordered_request(
             f"{prefix}/releases", query_string="per_page=100", method="GET"
         ).respond_with_json([draft])
@@ -372,7 +372,7 @@ def test_publish_rejects_incomplete_draft_without_upload(
         **environment,
     )
     assert result.returncode != 0
-    assert [request.method for request, _ in server.log] == ["GET", "GET", "GET"]
+    assert [request.method for request, _ in server.log] == ["GET"] * 8
 
 
 def test_invalid_mode_rejects_before_api_access(
@@ -469,8 +469,16 @@ def test_matching_draft_is_published_without_recreation(
     ]
 
 
-@pytest.mark.parametrize("is_prerelease", [False, True], ids=["stable", "prerelease"])
-@pytest.mark.parametrize("mode", ["stage", "complete"])
+@pytest.mark.parametrize(
+    ("is_prerelease", "mode", "delayed"),
+    [
+        pytest.param(False, "stage", False, id="stable-stage"),
+        pytest.param(True, "stage", False, id="prerelease-stage"),
+        pytest.param(False, "complete", False, id="stable-complete"),
+        pytest.param(True, "complete", False, id="prerelease-complete"),
+        pytest.param(False, "complete", True, id="delayed-release-list"),
+    ],
+)
 def test_missing_release_is_created_and_published(
     repository: Path,
     tmp_path: Path,
@@ -478,6 +486,7 @@ def test_missing_release_is_created_and_published(
     github_api: tuple[HTTPServer, dict[str, str]],
     is_prerelease: bool,
     mode: str,
+    delayed: bool,
 ) -> None:
     server, environment = github_api
     notes = tmp_path / "notes.md"
@@ -501,6 +510,10 @@ def test_missing_release_is_created_and_published(
         {"data": {"repository": {"ref": {"id": "REF_test"}}}},
     )
     server.expect_ordered_request(f"{prefix}/releases", method="POST").respond_with_json(release, status=201)
+    if delayed:
+        server.expect_ordered_request(
+            f"{prefix}/releases", query_string="per_page=100", method="GET"
+        ).respond_with_json([])
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
         [release],
     )
@@ -508,6 +521,10 @@ def test_missing_release_is_created_and_published(
         server.expect_ordered_request(f"{prefix}/releases/42", method="PATCH").respond_with_json(
             release | {"draft": False},
         )
+    if delayed:
+        server.expect_ordered_request(
+            f"{prefix}/releases", query_string="per_page=100", method="GET"
+        ).respond_with_json([release])
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
         [release | {"draft": mode == "stage"}],
     )
@@ -534,8 +551,10 @@ def test_missing_release_is_created_and_published(
         "GET",
         "POST",
         "POST",
+        *(["GET"] if delayed else []),
         "GET",
         *([] if mode == "stage" else ["PATCH"]),
+        *(["GET"] if delayed else []),
         "GET",
     ]
 

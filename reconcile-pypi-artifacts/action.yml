@@ -47,7 +47,7 @@ runs:
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
-        test -n "$PROJECT" && test -n "$VERSION" && test -d "$DIST"
+        [[ -n "$PROJECT" && -n "$VERSION" && -d "$DIST" ]] || exit 1
         case "$MODE" in
         stage | verify) ;;
         *)

@@ -178,14 +178,15 @@ def candidate(tmp_path: Path, *, extra_path: bool = False, wrong_author: bool = 
 
 
 @pytest.mark.parametrize(
-    ("branch_tree", "branch_author", "base_moved", "expected_success"),
+    ("branch_tree", "branch_author", "base_moved", "parent_count", "expected_success"),
     [
-        ("candidate", "fixture-app[bot]", False, True),
-        ("other", "fixture-app[bot]", False, False),
-        ("candidate", "Other", False, False),
-        ("candidate", "fixture-app[bot]", True, False),
+        ("candidate", "fixture-app[bot]", False, 1, True),
+        ("other", "fixture-app[bot]", False, 1, False),
+        ("candidate", "Other", False, 1, False),
+        ("candidate", "fixture-app[bot]", True, 1, False),
+        ("candidate", "fixture-app[bot]", False, 2, False),
     ],
-    ids=["exact-branch", "divergent-branch", "divergent-author", "moved-base"],
+    ids=["exact-branch", "divergent-branch", "divergent-author", "moved-base", "merge-commit"],
 )
 def test_open_branch_must_match_prepared_candidate(
     tmp_path: Path,
@@ -194,6 +195,7 @@ def test_open_branch_must_match_prepared_candidate(
     branch_tree: str,
     branch_author: str,
     base_moved: bool,
+    parent_count: int,
     expected_success: bool,
 ) -> None:
     server, environment = github_api
@@ -224,7 +226,7 @@ def test_open_branch_must_match_prepared_candidate(
     ).respond_with_json({"object": {"sha": commit}})
     server.expect_request(f"/api/v3/repos/tox-dev/fixture/git/commits/{commit}", method="GET").respond_with_json(
         {
-            "parents": [{"sha": base}],
+            "parents": [{"sha": base}] + ([{"sha": "d" * 40}] if parent_count == 2 else []),
             "author": {"name": branch_author, "email": "123+fixture-app[bot]@users.noreply.github.com"},
             "tree": {
                 "sha": "b" * 40 if branch_tree == "other" else run_git(tmp_path / "source", "rev-parse", "HEAD^{tree}")
@@ -270,6 +272,18 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
     bundle, base, commit, blob = candidate(tmp_path)
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+    git_config = tmp_path / "gitconfig"
+    subprocess.run(
+        [
+            "git",
+            "config",
+            "--file",
+            str(git_config),
+            f"url.{remote}.insteadOf",
+            f"https://{environment['GH_HOST']}/tox-dev/fixture.git",
+        ],
+        check=True,
+    )
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
     paths = tmp_path / "paths.tsv"
@@ -316,7 +330,7 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
             "LABEL": "skip news",
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_OUTPUT": str(tmp_path / "output"),
-            "GIT_REMOTE_URL": str(remote),
+            "GIT_CONFIG_GLOBAL": str(git_config),
         },
     )
     assert result.returncode == 0, result.stderr

@@ -28,6 +28,27 @@ def publish_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return scripts
 
 
+def test_upgrade_pull_request_uses_repository_app() -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/upgrade-release-tools.yaml").read_text()
+    )
+    publish = workflow["jobs"]["publish"]
+    assert publish["environment"] == "release-auth"
+    assert publish["permissions"] == {"contents": "read"}
+    token = next(step for step in publish["steps"] if step.get("id") == "token")
+    assert token["with"]["repositories"] == "${{ github.event.repository.name }}"
+    assert token["with"]["permission-contents"] == "write"
+    assert token["with"]["permission-pull-requests"] == "write"
+    for step in publish["steps"]:
+        if step.get("name") in {
+            "Push dependency branch",
+            "Find dependency pull request",
+            "Update dependency pull request",
+            "Open dependency pull request",
+        }:
+            assert step["env"]["GH_TOKEN"] == "${{ steps.token.outputs.token }}"
+
+
 @pytest.fixture
 def lock_repository(tmp_path: Path) -> Path:
     repository = tmp_path / "repository"

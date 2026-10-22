@@ -41,7 +41,7 @@ runs:
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
-        test -n "$GH_REPO" && test -n "$TAG" && test -n "$TITLE" && test -s "$NOTES_FILE"
+        [[ -n "$GH_REPO" && -n "$TAG" && -n "$TITLE" && -s "$NOTES_FILE" ]] || exit 1
         test "$PRERELEASE" = true || test "$PRERELEASE" = false
         case "$MODE" in
         stage | publish | complete) ;;
@@ -62,7 +62,7 @@ runs:
         test "$object_sha" == "$COMMIT"
         printf '[]\n' >"$RUNNER_TEMP/release-assets.json"
         if [[ -n "$ASSETS_DIRECTORY" ]]; then
-          shopt -s nullglob
+          shopt -s nullglob dotglob
           test -d "$ASSETS_DIRECTORY"
           test -z "$(find "$ASSETS_DIRECTORY" -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
           : >"$RUNNER_TEMP/release-assets.tsv"
@@ -139,16 +139,25 @@ runs:
         set -euo pipefail
         if [[ "$MODE" != publish && -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob
-          gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
-            jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-current.json"
-          jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
-            --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
-              length == 1 and .[0].name == $title and .[0].body == $body and
-              .[0].prerelease == $prerelease and
-              all(.[0].assets[]; .state == "uploaded" and
-                (.name as $name | .digest as $digest |
-                  any($assets[0][]; .name == $name and .digest == $digest)))
-            ' "$RUNNER_TEMP/release-current.json" >/dev/null
+          for attempt in {1..6}; do
+            gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
+              jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-current.json"
+            if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+              --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+                length == 1 and .[0].name == $title and .[0].body == $body and
+                .[0].prerelease == $prerelease and
+                all(.[0].assets[]; .state == "uploaded" and
+                  (.name as $name | .digest as $digest |
+                    any($assets[0][]; .name == $name and .digest == $digest)))
+              ' "$RUNNER_TEMP/release-current.json" >/dev/null; then
+              break
+            fi
+            if ((attempt == 6)); then
+              echo '::error::draft release did not become visible' >&2
+              exit 1
+            fi
+            sleep 2
+          done
           if jq -e '.[0].draft' "$RUNNER_TEMP/release-current.json" >/dev/null; then
             upload_url=$(jq -r '.[0].upload_url | split("{")[0]' "$RUNNER_TEMP/release-current.json")
             for asset in "$ASSETS_DIRECTORY"/*; do
@@ -176,15 +185,22 @@ runs:
         PRERELEASE: ${{ inputs.prerelease }}
       run: |
         set -euo pipefail
-        gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
-          jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-complete.json"
-        jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
-          --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
-            length == 1 and .[0].name == $title and .[0].body == $body and
-            .[0].prerelease == $prerelease and
-            ([.[0].assets[] | select(.state == "uploaded") | {name, digest}] | sort_by(.name)) ==
-            ($assets[0] | sort_by(.name))
-          ' "$RUNNER_TEMP/release-complete.json"
+        for attempt in {1..6}; do
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
+            jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-complete.json"
+          if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+            --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+              length == 1 and .[0].name == $title and .[0].body == $body and
+              .[0].prerelease == $prerelease and
+              ([.[0].assets[] | select(.state == "uploaded") | {name, digest}] | sort_by(.name)) ==
+              ($assets[0] | sort_by(.name))
+            ' "$RUNNER_TEMP/release-complete.json" >/dev/null; then
+            exit 0
+          fi
+          if ((attempt < 6)); then sleep 2; fi
+        done
+        echo '::error::release metadata or assets did not match after publication' >&2
+        exit 1
     - name: Publish the draft
       shell: bash
       env:
@@ -207,13 +223,20 @@ runs:
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
-        gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
-          jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-published.json"
-        jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
-          --arg mode "$MODE" \
-          --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
-            length == 1 and ($mode == "stage" or .[0].draft == false) and .[0].name == $title and
-            .[0].body == $body and .[0].prerelease == $prerelease and
-            ([.[0].assets[] | select(.state == "uploaded") | {name, digest}] | sort_by(.name)) ==
-            ($assets[0] | sort_by(.name))
-          ' "$RUNNER_TEMP/release-published.json"
+        for attempt in {1..6}; do
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
+            jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-published.json"
+          if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+            --arg mode "$MODE" \
+            --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+              length == 1 and ($mode == "stage" or .[0].draft == false) and .[0].name == $title and
+              .[0].body == $body and .[0].prerelease == $prerelease and
+              ([.[0].assets[] | select(.state == "uploaded") | {name, digest}] | sort_by(.name)) ==
+              ($assets[0] | sort_by(.name))
+            ' "$RUNNER_TEMP/release-published.json" >/dev/null; then
+            exit 0
+          fi
+          if ((attempt < 6)); then sleep 2; fi
+        done
+        echo '::error::final release state did not match after publication' >&2
+        exit 1

@@ -76,6 +76,7 @@ def test_signs_and_verifies_exact_archive(
     settings["SIGNED"] = output.read_text().split("archive=", 1)[1].splitlines()[0]
     assert run_step(action_scripts, 4, tmp_path, **settings).returncode == 0
     assert not (tmp_path / "signing-key.pem").exists()
+    assert not (tmp_path / "signing-key-decrypted.pem").exists()
     assert not (tmp_path / "signing-chain.pem").exists()
     output.write_text("")
     assert run_step(action_scripts, 5, tmp_path, **settings).returncode == 0

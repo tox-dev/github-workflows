@@ -11,12 +11,13 @@ inputs:
     description: Exact pull request head from the triggering event
     required: true
   minimum-days:
-    description: Minimum age of the pull request head commit
+    description: Minimum age of a proposed hook revision
     default: "7"
 runs:
   using: composite
   steps:
-    - name: Verify the pull request identity
+    - id: identity
+      name: Verify the pull request identity
       shell: bash
       env:
         REPOSITORY: ${{ inputs.repository }}
@@ -55,25 +56,67 @@ runs:
           .head.sha == $head and
           (.user.login | type == "string")
         ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null
-    - name: Enforce the hook update cooldown
+        if [[ $(jq -r .user.login "$RUNNER_TEMP/hook-update-pr.json") == 'pre-commit-ci[bot]' ]]; then
+          echo 'bot=true' >>"$GITHUB_OUTPUT"
+        fi
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      if: steps.identity.outputs.bot == 'true'
+      with:
+        version: latest-known
+        python-version: "3.15"
+        enable-cache: false
+    - name: Install locked hook tools
+      if: steps.identity.outputs.bot == 'true'
+      shell: bash
+      run: |
+        uv venv --python 3.15 "$RUNNER_TEMP/hook-tools"
+        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/hook-tools/bin/python" \
+          --group release "$GITHUB_ACTION_PATH/../pylock.toml"
+    - name: Read the base and proposed hook configurations
+      if: steps.identity.outputs.bot == 'true'
       shell: bash
       env:
         REPOSITORY: ${{ inputs.repository }}
         HEAD_SHA: ${{ inputs.head-sha }}
-        MINIMUM_DAYS: ${{ inputs.minimum-days }}
         GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        author=$(jq -r .user.login "$RUNNER_TEMP/hook-update-pr.json")
-        if [[ "$author" == 'pre-commit-ci[bot]' ]]; then
-          committed=$(gh api "repos/$REPOSITORY/commits/$HEAD_SHA" --jq .commit.committer.date)
-          committed_epoch=$(date --utc --date="$committed" +%s)
-          now_epoch=$(date --utc +%s)
-          test "$committed_epoch" -le "$now_epoch"
-          eligible_epoch=$((committed_epoch + MINIMUM_DAYS * 86400))
-          if ((now_epoch < eligible_epoch)); then
-            eligible=$(date --utc --date="@$eligible_epoch" '+%Y-%m-%dT%H:%M:%SZ')
-            echo "::error::Hook update cooldown ends $eligible"
-            exit 1
-          fi
-        fi
+        base_sha=$(jq -r .base.sha "$RUNNER_TEMP/hook-update-pr.json")
+        gh api "repos/$REPOSITORY/contents/.pre-commit-config.yaml?ref=$base_sha" --jq .content |
+          base64 --decode >"$RUNNER_TEMP/base-hooks.yaml"
+        gh api "repos/$REPOSITORY/contents/.pre-commit-config.yaml?ref=$HEAD_SHA" --jq .content |
+          base64 --decode >"$RUNNER_TEMP/proposed-hooks.yaml"
+        cp "$RUNNER_TEMP/base-hooks.yaml" "$RUNNER_TEMP/eligible-hooks.yaml"
+        git init -q "$RUNNER_TEMP/hook-cooldown"
+    - name: Select eligible hook revisions
+      if: steps.identity.outputs.bot == 'true'
+      shell: bash
+      env:
+        MINIMUM_DAYS: ${{ inputs.minimum-days }}
+      run: |
+        "$RUNNER_TEMP/hook-tools/bin/prek" update -C "$RUNNER_TEMP/hook-cooldown" \
+          --config "$RUNNER_TEMP/eligible-hooks.yaml" \
+          --cooldown-days "$MINIMUM_DAYS" --no-progress
+    - name: Check proposed hook revisions
+      if: steps.identity.outputs.bot == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        for config in base proposed eligible; do
+          "$RUNNER_TEMP/hook-tools/bin/yq" -c \
+            '[.repos[] | select(.repo != "local" and .repo != "meta") | {repo, rev}]' \
+            "$RUNNER_TEMP/$config-hooks.yaml" >"$RUNNER_TEMP/$config-hooks.json"
+        done
+        jq -e -n \
+          --slurpfile base "$RUNNER_TEMP/base-hooks.json" \
+          --slurpfile proposed "$RUNNER_TEMP/proposed-hooks.json" \
+          --slurpfile eligible "$RUNNER_TEMP/eligible-hooks.json" '
+          ($base[0] | map({key: .repo, value: .rev}) | from_entries) as $old |
+          ($eligible[0] | map({key: .repo, value: .rev}) | from_entries) as $allowed |
+          ($proposed[0] | map({key: .repo, value: .rev}) | from_entries) as $new |
+          ($old | keys) == ($new | keys) and
+          all($new | to_entries[]; .value == $old[.key] or .value == $allowed[.key])
+        ' || {
+          echo '::error::Hook PR proposes a revision newer than the cooldown permits' >&2
+          exit 1
+        }

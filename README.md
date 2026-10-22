@@ -91,7 +91,8 @@ caller repository. It outputs `number` and `bot-author`; `number` is empty when 
 head. It reads GitHub metadata and writes no repository files. `label-bot-news` takes that verified number and bot flag.
 For `.changeset/<name>.md`, pass `fragments: .changeset` and `fragment-style: changeset`; the default `towncrier` style
 expects `<name>.<category>.md` or RST. It only changes the `skip news` label when the bot's fragment state and label
-disagree. A label change retriggers PR CI; the next label run sees the settled state and makes no further write.
+disagree. Label writes made with `GITHUB_TOKEN` do not trigger PR CI. The next contributor or bot update runs the news
+check against the settled label state.
 
 ## Refresh release tools and hooks
 
@@ -99,8 +100,10 @@ Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Two read-
 the full project `pylock.toml`; the other updates frozen hook revisions and exact `additional_dependencies` pins. Both
 exclude releases newer than seven days. They run `prek` and upload separate patches. The write job runs on the
 configured base branch when either patch changes. It accepts only the configured lock and hook paths, then opens or
-updates one `dependencies` and `skip news` pull request and dispatches the caller's check workflow. The write job needs
-Contents, Pull requests, and Actions write access. It does not use a release App key.
+updates one `dependencies` and `skip news` pull request with the repository's release App. The App-created PR starts the
+normal pull request checks. The App needs Contents and Pull requests write access on that repository only. Pass only the
+named key secret to the reusable workflow. GitHub requires this mapping even when the key exists only in the callee
+job's `release-auth` environment; that environment supplies the value at runtime.
 
 ```yaml
 name: Upgrade release tools
@@ -114,20 +117,18 @@ jobs:
     uses: >-
       tox-dev/github-workflows/.github/workflows/upgrade-release-tools.yaml@SHA
     permissions:
-      contents: write
-      pull-requests: write
-      actions: write
+      contents: read
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
     with:
       python-version: '3.15'
-      check-workflow: check.yaml
 ```
 
 The project must declare a `release` group containing `prek` and `release-creator`. The lock also includes every other
 group and extra. `lock` defaults to `pylock.toml`; `hook-config` defaults to `.pre-commit-config.yaml`; `base` defaults
-to `main`; `branch` defaults to `automation/update-release-tools`. `check-workflow` names the caller's workflow file to
-dispatch after a PR update. The caller owns the schedule, so repositories can use different upgrade days without copying
-the jobs. `commit-message`, `pull-request-title`, and `pull-request-body` let a caller retain its existing dependency PR
-wording.
+to `main`; `branch` defaults to `automation/update-release-tools`. The caller owns the schedule, so repositories can use
+different upgrade days without copying the jobs. `commit-message`, `pull-request-title`, and `pull-request-body` let a
+caller retain its existing dependency PR wording.
 
 Set `keep-uv-lock: true` only when the repository commits `uv.lock` for its own build. The lock job then refreshes both
 `uv.lock` and the selectable `pylock.toml` and includes both in one patch. The default rejects `uv.lock` changes. This
@@ -177,13 +178,13 @@ hook dependencies. Its `changed` output is `true` only when that file changes, a
 It fails if a hook modifies another file. The Action does not write to GitHub. pre-commit.ci can open separate
 autoupdate pull requests outside this seven-day path; apply a separate age check before merging those updates.
 
-`check-hook-update-cooldown` checks that age on the live PR head. Add it as a no-checkout job in the caller's
-`pull_request` workflow, with Contents and Pull requests read permission, and include it in the existing required
-aggregate's `needs`. Pass the event PR number and head SHA. The Action checks the event against live PR metadata. For
-`pre-commit-ci[bot]`, it uses the verified head commit date and fails until seven days have elapsed. Labels and comments
-do not restart the cooldown. Git commit dates can be set by the committer, so this check relies on pre-commit.ci to date
-its own update commits accurately. A human PR passes without an age check. Keep `opened`, `synchronize`, and `reopened`
-among the caller's PR event types; rerun the failed job once the date is reached. The Action maps the job's
+`check-hook-update-cooldown` checks proposed revisions in pre-commit.ci PRs. Add it as a no-checkout job in the caller's
+`pull_request` workflow, with Contents and Pull requests read permission, and include it in the required aggregate's
+`needs`. Pass the event PR number and head SHA. The Action verifies both against the live PR, reads the base and head
+hook configurations, and uses locked `prek` to select revisions eligible after seven days. It rejects a proposed
+revision that is newer than that selection. A force push with the same eligible revisions passes; a new PR commit does
+not restart the clock. Human PRs pass without installing the hook tools. Keep `opened`, `synchronize`, and `reopened`
+among the caller's PR event types; rerun a failed job when a revision becomes eligible. The Action maps the job's
 `github.token` to `GH_TOKEN` itself; the caller does not pass a token.
 
 ```yaml
@@ -296,9 +297,11 @@ defaults to `pkg-meta`; set it to `release` when that group contains locked Twin
 An absent group can make `uv pip sync` succeed without installing either tool.
 
 The workflow uploads `python-package-distributions` with the wheel and sdist, and `release-validation-notes` with the
-body rendered from the tagged source. Its notes lack GitHub contributor metadata. The tag-only GitHub Release job must
-fetch generated notes with Contents write, rerender with `render-release-notes`, and create the Release after the
-ecosystem upload. PyPI OIDC stays in the caller's separate `release` environment job:
+body rendered from the tagged source. Callers download the distribution with the pinned
+[`download-artifact` v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
+whose default fails on an artifact digest mismatch. Its notes lack GitHub contributor metadata. The tag-only GitHub
+Release job must fetch generated notes with Contents write, rerender with `render-release-notes`, and create the Release
+after the ecosystem upload. PyPI OIDC stays in the caller's separate `release` environment job:
 [PyPI does not support trusted publishing inside reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/#reusable-workflows-on-github).
 
 ## Prepare and tag with one reusable workflow
@@ -425,7 +428,7 @@ or mode, or modification by `prek` fails the keyless job. The key job accepts on
 `commit-and-tag` accepts only a staged release patch in a clean working tree. It commits with the GitHub App bot
 identity, creates the tag, and atomically pushes the branch and tag to `origin`. A rejected push leaves neither remote
 ref updated. Mint the token after validation with `actions/create-github-app-token`, narrowed to this repository and
-Contents write.
+Contents write. Put `commit-and-tag` last in the writer job: its Git credential helper remains available to later steps.
 
 ```yaml
   - id: token
@@ -621,7 +624,8 @@ until the second call succeeds.
 missing assets, and publishes only after the complete asset set matches. A matching published Release causes no write. A
 different body, title, tag commit, prerelease flag, or asset set fails without changing the existing Release. A failed
 upload leaves the draft for a later retry. An asset in GitHub's incomplete `starter` state requires manual cleanup
-before retrying.
+before retrying. The Action retries GitHub's release listing for up to ten seconds after creating the draft, uploading
+assets, or publishing; a mismatch still fails when that window ends.
 
 ## Reconcile a post-release pull request
 
@@ -630,7 +634,8 @@ base commit, desired branch, and a tab-separated file of changed paths and Git b
 bundle containing `refs/heads/release-candidate`. Upload the bundle, path file, and body as one artifact. Pass the
 upload step's artifact ID to the writer's download step, so a rerun cannot select an older artifact with the same name.
 The writer runs without checkout under the caller's `release-auth` environment and needs Contents, Pull requests, and
-Issues write access for its App token.
+Issues write access for its App token. Put `publish-post-release-pr` last in the writer job because its Git credential
+helper remains available to later steps.
 
 ```yaml
   - uses: actions/download-artifact@DOWNLOAD_SHA

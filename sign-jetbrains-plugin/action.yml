@@ -34,7 +34,7 @@ runs:
         EXPECTED_SHA: ${{ inputs.sha256 }}
       run: |
         set -euo pipefail
-        test -f "$ARCHIVE" && test ! -L "$ARCHIVE"
+        [[ -f "$ARCHIVE" && ! -L "$ARCHIVE" ]] || exit 1
         case "$ARCHIVE" in *.zip) ;; *) exit 1 ;; esac
         echo "$EXPECTED_SHA  $ARCHIVE" | sha256sum --check
         unzip -tq "$ARCHIVE" >/dev/null
@@ -67,7 +67,7 @@ runs:
       run: |
         set -euo pipefail
         umask 077
-        trap 'rm -f "$RUNNER_TEMP/signing-key.pem" "$RUNNER_TEMP/signing-chain.pem"' EXIT
+        trap 'rm -f "$RUNNER_TEMP/signing-key.pem" "$RUNNER_TEMP/signing-key-decrypted.pem" "$RUNNER_TEMP/signing-chain.pem"' EXIT
         if [[ "$CERTIFICATE_CHAIN" == *'-----BEGIN CERTIFICATE-----'* ]]; then
           printf '%s' "$CERTIFICATE_CHAIN" >"$RUNNER_TEMP/signing-chain.pem"
         else
@@ -78,9 +78,15 @@ runs:
         else
           printf '%s' "$PRIVATE_KEY" | base64 --decode >"$RUNNER_TEMP/signing-key.pem"
         fi
+        signing_key="$RUNNER_TEMP/signing-key.pem"
+        if [[ -n "$PRIVATE_KEY_PASSWORD" ]]; then
+          openssl pkey -in "$signing_key" -out "$RUNNER_TEMP/signing-key-decrypted.pem" \
+            -passin env:PRIVATE_KEY_PASSWORD
+          signing_key="$RUNNER_TEMP/signing-key-decrypted.pem"
+        fi
         "$JAVA_HOME_17_X64/bin/java" -jar "$RUNNER_TEMP/marketplace-signer-cli.jar" sign \
           -in "$ARCHIVE" -out "$SIGNED" -cert-file "$RUNNER_TEMP/signing-chain.pem" \
-          -key-file "$RUNNER_TEMP/signing-key.pem" -key-pass "$PRIVATE_KEY_PASSWORD"
+          -key-file "$signing_key"
         "$JAVA_HOME_17_X64/bin/java" -jar "$RUNNER_TEMP/marketplace-signer-cli.jar" verify \
           -in "$SIGNED" -cert "$RUNNER_TEMP/signing-chain.pem"
     - name: Record signed plugin ZIP
@@ -90,7 +96,7 @@ runs:
         SIGNED: ${{ steps.unsigned.outputs.archive }}
       run: |
         set -euo pipefail
-        test -f "$SIGNED" && test ! -L "$SIGNED"
+        [[ -f "$SIGNED" && ! -L "$SIGNED" ]] || exit 1
         unzip -tq "$SIGNED" >/dev/null
         test -z "$(zipinfo -1 "$SIGNED" | LC_ALL=C sort | uniq -d)"
         read -r digest _ < <(sha256sum "$SIGNED")

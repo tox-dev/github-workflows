@@ -102,7 +102,9 @@ def test_select_rejects_count_mismatch(artifact: tuple[Path, Path], tmp_path: Pa
 
 def test_select_rejects_symlink(artifact: tuple[Path, Path], tmp_path: Path, action_scripts: Path) -> None:
     dist, manifest = artifact
+    (tmp_path / "outside").write_bytes(b"real target")
     (dist / "fixture-1.0-py3-none-any.whl").unlink()
     (dist / "fixture-1.0-py3-none-any.whl").symlink_to(tmp_path / "outside")
     result = select(tmp_path, action_scripts, dist, manifest, tmp_path / "selected")
     assert result.returncode != 0
+    assert not (tmp_path / "selected/fixture-1.0-py3-none-any.whl").exists()

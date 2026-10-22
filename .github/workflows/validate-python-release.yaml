@@ -139,10 +139,6 @@ jobs:
           lock: ${{ inputs.lock }}
           python-version: ${{ inputs.python-version }}
           validation-group: ${{ inputs.validation-group }}
-      - name: Record distribution hashes
-        run: sha256sum dist/* >"$RUNNER_TEMP/dist.sha256"
-      - name: Verify distribution hashes
-        run: sha256sum --check "$RUNNER_TEMP/dist.sha256"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.artifact-prefix }}python-package-distributions

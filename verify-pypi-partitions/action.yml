@@ -21,12 +21,12 @@ runs:
         EXPECTED_PARTITIONS: ${{ inputs.expected-partitions }}
       run: |
         set -euo pipefail
-        test -f "$MANIFEST" && test -d "$PARTITIONS_DIR"
+        [[ -f "$MANIFEST" && -d "$PARTITIONS_DIR" ]] || exit 1
         shopt -s nullglob
         partitions=("$PARTITIONS_DIR"/*)
         test "${#partitions[@]}" -eq "$EXPECTED_PARTITIONS"
         for partition in "${partitions[@]}"; do
-          test -f "$partition" && test ! -L "$partition"
+          [[ -f "$partition" && ! -L "$partition" ]] || exit 1
         done
         cat -- "${partitions[@]}" | LC_ALL=C sort >"$RUNNER_TEMP/pypi-partition-names.txt"
         LC_ALL=C sort -u "$RUNNER_TEMP/pypi-partition-names.txt" >"$RUNNER_TEMP/pypi-partition-unique.txt"

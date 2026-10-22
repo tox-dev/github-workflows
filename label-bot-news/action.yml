@@ -61,11 +61,17 @@ runs:
           for directory in "${directories[@]}"; do
             if [[ "$FRAGMENT_STYLE" == changeset ]]; then
               case "$path" in
-              "$directory"/*.md) has_fragment=true ;;
+              "$directory"/*.md)
+                fragment=${path#"$directory"/}
+                if [[ "$fragment" != */* ]]; then has_fragment=true; fi
+                ;;
               esac
             else
               case "$path" in
-              "$directory"/*.*."$EXTENSION") has_fragment=true ;;
+              "$directory"/*.*."$EXTENSION")
+                fragment=${path#"$directory"/}
+                if [[ "$fragment" != */* ]]; then has_fragment=true; fi
+                ;;
               esac
             fi
           done

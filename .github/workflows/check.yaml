@@ -101,7 +101,7 @@ jobs:
         with:
           python-version: "3.15"
   gate:
-    name: Required checks pass
+    name: ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Required checks pass (non-PR)' }}
     if: always()
     needs: [check, changelog, hook-cooldown, release-tools-preview]
     runs-on: ubuntu-26.04

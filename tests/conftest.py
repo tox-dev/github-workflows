@@ -61,6 +61,8 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
     ):
         action = yaml.safe_load((source / action_name / "action.yml").read_text())
         for index, step in enumerate(action["runs"]["steps"]):
+            if "run" not in step:
+                continue
             path = scripts / f"{action_name}-{index}.sh"
             path.write_text(f"#!/usr/bin/env bash\n{step['run']}")
             path.chmod(0o755)

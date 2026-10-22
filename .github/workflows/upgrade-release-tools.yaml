@@ -26,10 +26,6 @@ on:
         description: Branch used for the dependency pull request
         type: string
         default: automation/update-release-tools
-      check-workflow:
-        description: Workflow dispatched on the update branch
-        type: string
-        default: check.yaml
       base:
         description: Target branch for the dependency pull request
         type: string
@@ -47,6 +43,10 @@ on:
         type: string
         default: |-
           Refresh the project lock and exact pre-commit hook dependency pins.
+    secrets:
+      RELEASE_APP_PRIVATE_KEY:
+        description: Repo-only release App key
+        required: true
 permissions: {}
 jobs:
   generate-lock:
@@ -111,10 +111,9 @@ jobs:
     needs: [generate-lock, generate-hooks]
     if: (needs.generate-lock.outputs.changed == 'true' || needs.generate-hooks.outputs.changed == 'true') && github.ref == format('refs/heads/{0}', inputs.base)
     runs-on: ubuntu-26.04
+    environment: release-auth
     permissions:
-      actions: write
-      contents: write
-      pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -183,9 +182,25 @@ jobs:
             echo '::error::dependency branch must differ from the base branch' >&2
             exit 1
           fi
+      - name: Check release App credentials
+        env:
+          RELEASE_APP_CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          test -n "$RELEASE_APP_CLIENT_ID"
+          test -n "$RELEASE_APP_PRIVATE_KEY"
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
       - name: Push dependency branch
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
           BRANCH: ${{ inputs.branch }}
         run: |
           gh auth setup-git --hostname github.com --force
@@ -207,28 +222,22 @@ jobs:
       - name: Find dependency pull request
         id: pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
           BRANCH: ${{ inputs.branch }}
           BASE: ${{ inputs.base }}
         run: printf 'number=%s\n' "$(gh pr list --base "$BASE" --head "$BRANCH" --state open --json number --jq '.[0].number')" >>"$GITHUB_OUTPUT"
       - name: Update dependency pull request
         if: steps.pr.outputs.number != ''
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           PR_TITLE: ${{ inputs.pull-request-title }}
         run: gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body-file "$RUNNER_TEMP/pull-request.md" --add-label dependencies --add-label 'skip news'
       - name: Open dependency pull request
         if: steps.pr.outputs.number == ''
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
           BRANCH: ${{ inputs.branch }}
           BASE: ${{ inputs.base }}
           PR_TITLE: ${{ inputs.pull-request-title }}
         run: gh pr create --base "$BASE" --head "$BRANCH" --title "$PR_TITLE" --body-file "$RUNNER_TEMP/pull-request.md" --label dependencies --label 'skip news'
-      - name: Run dependency branch checks
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ inputs.branch }}
-          CHECK_WORKFLOW: ${{ inputs.check-workflow }}
-        run: gh workflow run "$CHECK_WORKFLOW" --ref "$BRANCH"

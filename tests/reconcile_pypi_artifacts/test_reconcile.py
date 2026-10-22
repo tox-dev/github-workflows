@@ -103,11 +103,13 @@ def test_verify_checks_complete_pypi_release(tmp_path: Path, action_scripts: Pat
 
 def test_local_source_install_uses_checked_out_project(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    with (source / "pyproject.toml").open("rb") as stream:
-        pinned = tomllib.load(stream)["dependency-groups"]["release"][0].rsplit("@", 1)[-1]
+    with (source / "pylock.toml").open("rb") as stream:
+        version = next(
+            item["version"] for item in tomllib.load(stream)["packages"] if item["name"] == "release-creator"
+        )
     project = tmp_path / "release-creator"
     run(tmp_path, "git", "clone", "--quiet", "https://github.com/tox-dev/release-creator", str(project))
-    run(project, "git", "checkout", "--quiet", pinned)
+    run(project, "git", "checkout", "--quiet", version)
     result = execute(
         action_scripts / "reconcile-pypi-artifacts-1.sh",
         project,

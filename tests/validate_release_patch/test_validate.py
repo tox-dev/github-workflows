@@ -102,7 +102,7 @@ def test_validate_rejects_rst_conflict_marker(
 
 def test_validate_rejects_unchanged_changelog(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     fragment = repository / "changelog.d/+feature.feature.md"
-    fragment.write_text("Change the fragment without rendering it.\n")
+    fragment.unlink()
     (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
     run(repository, "git", "reset", "--hard", "HEAD")
     result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
