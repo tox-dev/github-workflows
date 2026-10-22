@@ -9,6 +9,7 @@ lazy from pathlib import Path
 import pytest
 import yaml
 from conftest import action, run
+from pytest_httpserver import HTTPServer
 
 
 def test_prepare_builds_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
@@ -48,7 +49,9 @@ def test_prepare_custom_changelog_and_patch(repository: Path, tmp_path: Path, ac
     assert "HISTORY.md" in patch.read_text()
 
 
-def test_prepare_custom_fragment_directory(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_prepare_custom_fragment_directory(
+    repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     project = repository / "pyproject.toml"
     project.write_text(project.read_text().replace('directory = "changelog.d"', 'directory = "docs/changelog.d"'))
     (repository / "docs").mkdir()
@@ -65,6 +68,7 @@ def test_prepare_custom_fragment_directory(repository: Path, tmp_path: Path, act
         FRAGMENTS="docs/changelog.d",
         LINK_FRAGMENTS="true",
         REPOSITORY="tox-dev/github-workflows",
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     assert "version=0.2.0" in (tmp_path / "output").read_text()
@@ -75,7 +79,9 @@ def test_prepare_custom_fragment_directory(repository: Path, tmp_path: Path, act
     assert "docs/changelog.d/+feature.feature.md" in (tmp_path / "release.patch").read_text()
 
 
-def test_prepare_renders_github_notes(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_prepare_renders_github_notes(
+    repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     result = action(
         repository,
         tmp_path,
@@ -84,6 +90,7 @@ def test_prepare_renders_github_notes(repository: Path, tmp_path: Path, action_s
         version="0.2.0",
         LINK_FRAGMENTS="true",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     result = run(
@@ -195,7 +202,9 @@ def test_prepare_rejects_reused_version(repository: Path, tmp_path: Path, action
     assert not (tmp_path / "release.patch").exists()
 
 
-def test_prepare_links_named_fragments(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_prepare_links_named_fragments(
+    repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     result = action(
         repository,
         tmp_path,
@@ -204,6 +213,7 @@ def test_prepare_links_named_fragments(repository: Path, tmp_path: Path, action_
         version="0.2.0",
         LINK_FRAGMENTS="true",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     assert (
@@ -212,7 +222,9 @@ def test_prepare_links_named_fragments(repository: Path, tmp_path: Path, action_
     ) in (repository / "CHANGELOG.md").read_text()
 
 
-def test_prepare_links_numbered_pull_requests(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_prepare_links_numbered_pull_requests(
+    repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     run(repository, "git", "mv", "changelog.d/+feature.feature.md", "changelog.d/2.feature.md")
     run(repository, "git", "commit", "-m", "Use an original PR fragment")
     run(repository, "git", "push", "origin", "main")
@@ -225,12 +237,15 @@ def test_prepare_links_numbered_pull_requests(repository: Path, tmp_path: Path, 
         LINK_FRAGMENTS="true",
         NUMBERED_PRS="true",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     assert "[#2](https://github.com/tox-dev/github-workflows/pull/2)" in (repository / "CHANGELOG.md").read_text()
 
 
-def test_prepare_keeps_default_numbered_issue(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_prepare_keeps_default_numbered_issue(
+    repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     run(repository, "git", "mv", "changelog.d/+feature.feature.md", "changelog.d/2.feature.md")
     run(repository, "git", "commit", "-m", "Backfill an earlier fragment (#3)")
     run(repository, "git", "push", "origin", "main")
@@ -242,6 +257,7 @@ def test_prepare_keeps_default_numbered_issue(repository: Path, tmp_path: Path, 
         version="0.2.0",
         LINK_FRAGMENTS="true",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
+        **_author_lookup(github_api, 3),
     )
     assert result.returncode == 0, result.stderr
     assert "[#3](https://github.com/tox-dev/github-workflows/pull/3)" in (repository / "CHANGELOG.md").read_text()
@@ -414,3 +430,11 @@ def test_prepare_rejects_rst_conflict_marker(repository: Path, action_scripts: P
     )
     assert result.returncode != 0
     assert "conflict markers" in result.stderr
+
+
+def _author_lookup(github_api: tuple[HTTPServer, dict[str, str]], number: int) -> dict[str, str]:
+    server, environment = github_api
+    server.expect_request(f"/api/v3/repos/tox-dev/github-workflows/pulls/{number}", method="GET").respond_with_json(
+        {"user": {"login": "gaborbernat", "type": "User"}},
+    )
+    return environment
