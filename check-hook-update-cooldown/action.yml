@@ -156,8 +156,9 @@ runs:
       run: |
         set -euo pipefail
         branch=$(jq -r .head.ref "$RUNNER_TEMP/hook-update-pr.json")
+        cutoff=$(jq -nr --argjson days "$MINIMUM_DAYS" 'now - $days * 86400 | todateiso8601')
         gh api --paginate -X GET "repos/$REPOSITORY/actions/runs" -f event=pull_request \
-          -f branch="$branch" -f per_page=100 >"$RUNNER_TEMP/hook-branch-runs.jsonl"
+          -f branch="$branch" -f "created=<$cutoff" -f per_page=100 >"$RUNNER_TEMP/hook-branch-runs.jsonl"
         jq -sr --arg repository "$REPOSITORY" --arg branch "$branch" \
           --argjson number "$PR_NUMBER" --argjson days "$MINIMUM_DAYS" '
           [.[].workflow_runs[] | select(

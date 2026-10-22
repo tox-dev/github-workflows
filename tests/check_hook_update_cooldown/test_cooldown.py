@@ -144,6 +144,12 @@ def test_cooldown_survives_force_push_without_accepting_new_revision(
     expect_config(server, "c" * 40, repository, historical_revision)
     result = run_cooldown(action_scripts, tmp_path, environment)
     assert (result.returncode == 0) is accepted, result.stderr
+    branch_runs = [
+        request for request, _ in server.log if request.path.endswith("/actions/runs") and "branch" in request.args
+    ]
+    assert len(branch_runs) == 1
+    cutoff = datetime.fromisoformat(branch_runs[0].args["created"].removeprefix("<"))
+    assert timedelta(days=6, hours=23) < datetime.now(UTC) - cutoff < timedelta(days=7, hours=1)
     if not accepted:
         assert "hook revision has not been observed" in result.stderr
 
@@ -395,7 +401,6 @@ def expect_historical_runs(
     server.expect_request(
         "/api/v3/repos/tox-dev/fixture/actions/runs",
         method="GET",
-        query_string="branch=bot-update&event=pull_request&per_page=100",
     ).respond_with_json(
         {
             "workflow_runs": [
