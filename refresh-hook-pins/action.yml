@@ -19,6 +19,7 @@ runs:
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
+        unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/hook-tools"
         uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
           --python "$RUNNER_TEMP/hook-tools/bin/python" --group release \

@@ -96,6 +96,20 @@ def test_install_locked_tools_rejects_empty_groups(tmp_path: Path, action_script
     assert result.returncode != 0
 
 
+def test_install_locked_tools_ignores_resolution_cutoff_for_hashed_lock(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    result = install(
+        source,
+        action_scripts,
+        tmp_path,
+        lock=source / "pylock.toml",
+        groups="release",
+        venv=tmp_path / "tools",
+        extra_env={"UV_EXCLUDE_NEWER": "1 week"},
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def install(
     repository: Path,
     action_scripts: Path,

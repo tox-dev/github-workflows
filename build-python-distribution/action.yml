@@ -72,5 +72,6 @@ runs:
         SOURCE: ${{ inputs.source }}
         OUT_DIR: ${{ inputs.out-dir }}
       run: |
+        unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
         uv build --python "$RUNNER_TEMP/build-python/bin/python" --python-preference only-managed --sdist --wheel \
           --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir "$OUT_DIR"

@@ -35,6 +35,7 @@ runs:
         PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
         set -euo pipefail
+        unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/lock-exporter"
         uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
           --python "$RUNNER_TEMP/lock-exporter/bin/python" --group release \
@@ -172,6 +173,7 @@ runs:
         BUILD_CONSTRAINTS: ${{ inputs.build-constraints }}
       run: |
         set -euo pipefail
+        unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
         constraints=$BUILD_CONSTRAINTS
         if [[ -z "$constraints" ]]; then
           constraints="$RUNNER_TEMP/refreshed-build-constraints.txt"
