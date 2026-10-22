@@ -57,6 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
+          git merge-base --is-ancestor HEAD origin/main
           echo "commit=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
           previous=$(git tag --list | .venv/bin/release-creator tags "$TAG" --previous)
           echo "previous=$previous" >>"$GITHUB_OUTPUT"

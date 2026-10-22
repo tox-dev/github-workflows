@@ -86,7 +86,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
         REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ inputs.pull-request || github.event.pull_request.number }}
-      run: gh api "repos/$REPOSITORY/issues/$PR_NUMBER/labels" --jq '.[].name' >"$RUNNER_TEMP/bot-pr-labels"
+      run: gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/labels" --jq '.[].name' >"$RUNNER_TEMP/bot-pr-labels"
     - name: Set skip news for a bot PR
       if: inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'
       shell: bash
