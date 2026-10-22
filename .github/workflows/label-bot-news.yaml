@@ -4,6 +4,9 @@ on:
     workflows: [Check]
     types: [completed]
 permissions: {}
+concurrency:
+  group: label-bot-news-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
 jobs:
   label:
     if: github.event.workflow_run.event == 'pull_request'
