@@ -104,6 +104,7 @@ def publish(
             "BASE_COMMIT": "a" * 40,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
+            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "PATHS_FILE": str(paths),
             "ALLOWED_PATHS": "gradle.properties\nother.txt\n" if additional_blob is not None else "gradle.properties",
@@ -174,6 +175,7 @@ def test_open_pull_request_metadata_change_fails(
             "BASE": "main",
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
+            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "RUNNER_TEMP": str(tmp_path),
         },
@@ -220,6 +222,7 @@ def test_closed_unmerged_pr_blocks_retry_before_write(
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
+            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "PATHS_FILE": str(paths),
             "ALLOWED_PATHS": "gradle.properties",
@@ -242,7 +245,14 @@ def run_git(directory: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def candidate(tmp_path: Path, *, extra_path: bool = False, wrong_author: bool = False) -> tuple[Path, str, str, str]:
+def candidate(
+    tmp_path: Path,
+    *,
+    extra_path: bool = False,
+    wrong_author: bool = False,
+    wrong_committer: bool = False,
+    wrong_message: bool = False,
+) -> tuple[Path, str, str, str]:
     repository = tmp_path / "source"
     repository.mkdir()
     run_git(repository, "init", "-q", "-b", "main")
@@ -260,7 +270,11 @@ def candidate(tmp_path: Path, *, extra_path: bool = False, wrong_author: bool = 
         run_git(repository, "add", "other.txt")
     if wrong_author:
         run_git(repository, "config", "user.name", "Different author")
-    run_git(repository, "commit", "-qm", "Bump version")
+    subprocess.run(
+        ["git", "-C", str(repository), "commit", "-qm", "Different message" if wrong_message else "Bump version"],
+        env=os.environ | ({"GIT_COMMITTER_NAME": "Different committer"} if wrong_committer else {}),
+        check=True,
+    )
     commit = run_git(repository, "rev-parse", "HEAD")
     blob = run_git(repository, "rev-parse", "HEAD:gradle.properties")
     bundle = tmp_path / "candidate.bundle"
@@ -269,25 +283,23 @@ def candidate(tmp_path: Path, *, extra_path: bool = False, wrong_author: bool = 
 
 
 @pytest.mark.parametrize(
-    ("branch_tree", "branch_author", "base_moved", "parent_count", "expected_success"),
-    [
-        ("candidate", "fixture-app[bot]", False, 1, True),
-        ("other", "fixture-app[bot]", False, 1, False),
-        ("candidate", "Other", False, 1, False),
-        ("candidate", "fixture-app[bot]", True, 1, False),
-        ("candidate", "fixture-app[bot]", False, 2, False),
+    "branch_tamper",
+    ["none", "tree", "author", "committer", "message", "base", "parent"],
+    ids=[
+        "exact-branch",
+        "divergent-tree",
+        "divergent-author",
+        "divergent-committer",
+        "divergent-message",
+        "moved-base",
+        "merge-commit",
     ],
-    ids=["exact-branch", "divergent-branch", "divergent-author", "moved-base", "merge-commit"],
 )
 def test_open_branch_must_match_prepared_candidate(
     tmp_path: Path,
     action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
-    branch_tree: str,
-    branch_author: str,
-    base_moved: bool,
-    parent_count: int,
-    expected_success: bool,
+    branch_tamper: str,
 ) -> None:
     server, environment = github_api
     expect_bot(server)
@@ -310,21 +322,29 @@ def test_open_branch_must_match_prepared_candidate(
         ]
     )
     server.expect_request("/api/v3/repos/tox-dev/fixture/git/ref/heads/main", method="GET").respond_with_json(
-        {"object": {"sha": "c" * 40 if base_moved else base}}
+        {"object": {"sha": "c" * 40 if branch_tamper == "base" else base}}
     )
     server.expect_request(
         "/api/v3/repos/tox-dev/fixture/git/ref/heads/post-release-v2.4.7", method="GET"
     ).respond_with_json({"object": {"sha": commit}})
     server.expect_request(f"/api/v3/repos/tox-dev/fixture/git/commits/{commit}", method="GET").respond_with_json(
         {
-            "parents": [{"sha": base}] + ([{"sha": "d" * 40}] if parent_count == 2 else []),
-            "author": {"name": branch_author, "email": "123+fixture-app[bot]@users.noreply.github.com"},
+            "parents": [{"sha": base}] + ([{"sha": "d" * 40}] if branch_tamper == "parent" else []),
+            "author": {
+                "name": "Other" if branch_tamper == "author" else "fixture-app[bot]",
+                "email": "123+fixture-app[bot]@users.noreply.github.com",
+            },
+            "committer": {
+                "name": "Other" if branch_tamper == "committer" else "fixture-app[bot]",
+                "email": "123+fixture-app[bot]@users.noreply.github.com",
+            },
+            "message": "Other" if branch_tamper == "message" else "Bump version",
             "tree": {
-                "sha": "b" * 40 if branch_tree == "other" else run_git(tmp_path / "source", "rev-parse", "HEAD^{tree}")
+                "sha": "b" * 40 if branch_tamper == "tree" else run_git(tmp_path / "source", "rev-parse", "HEAD^{tree}")
             },
         }
     )
-    if expected_success:
+    if branch_tamper == "none":
         server.expect_request("/api/v3/repos/tox-dev/fixture/issues/7/labels", method="GET").respond_with_json(
             [{"name": "skip news"}]
         )
@@ -340,6 +360,7 @@ def test_open_branch_must_match_prepared_candidate(
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
+            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "PATHS_FILE": str(paths),
             "ALLOWED_PATHS": "gradle.properties",
@@ -350,8 +371,8 @@ def test_open_branch_must_match_prepared_candidate(
             "GITHUB_OUTPUT": str(tmp_path / "output"),
         },
     )
-    assert (result.returncode == 0) is expected_success, result.stderr
-    assert (tmp_path / "output").exists() is expected_success
+    assert (result.returncode == 0) is (branch_tamper == "none"), result.stderr
+    assert (tmp_path / "output").exists() is (branch_tamper == "none")
     assert all(request.method == "GET" for request, _ in server.log)
 
 
@@ -420,6 +441,7 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
+            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "PATHS_FILE": str(paths),
             "ALLOWED_PATHS": "gradle.properties",
@@ -438,8 +460,16 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
 
 @pytest.mark.parametrize(
     "changed_input",
-    ["commit", "blob", "extra", "author", "unauthorized"],
-    ids=["stale-bundle", "changed-path-manifest", "extra-path", "wrong-author", "unauthorized-path"],
+    ["commit", "blob", "extra", "author", "committer", "message", "unauthorized"],
+    ids=[
+        "stale-bundle",
+        "changed-path-manifest",
+        "extra-path",
+        "wrong-author",
+        "wrong-committer",
+        "wrong-message",
+        "unauthorized-path",
+    ],
 )
 def test_prepared_candidate_identity_is_checked_before_api_write(
     tmp_path: Path,
@@ -450,7 +480,11 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
     server, environment = github_api
     expect_bot(server)
     bundle, base, commit, blob = candidate(
-        tmp_path, extra_path=changed_input in {"extra", "unauthorized"}, wrong_author=changed_input == "author"
+        tmp_path,
+        extra_path=changed_input in {"extra", "unauthorized"},
+        wrong_author=changed_input == "author",
+        wrong_committer=changed_input == "committer",
+        wrong_message=changed_input == "message",
     )
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
@@ -476,6 +510,7 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
             "ALLOWED_PATHS": "gradle.properties",
             "BUNDLE": str(bundle),
             "CANDIDATE_COMMIT": "d" * 40 if changed_input == "commit" else commit,
+            "COMMIT_MESSAGE": "Bump version",
             "LABEL": "skip news",
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_OUTPUT": str(tmp_path / "output"),

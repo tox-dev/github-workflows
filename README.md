@@ -280,12 +280,13 @@ fragment directory, commit message, and tag style. Replace this repository's rel
 release commit SHA. In the examples below, `SHA` means that release commit and `TOKEN_ACTION_SHA` means the pinned token
 Action commit in the linked workflow.
 
-All three jobs need a full checkout (`fetch-depth: 0`, `persist-credentials: false`). `assemble` installs
-release-creator, Towncrier, and prek; `validate` installs release-creator and prek. Both use the caller's checked-in
-`pylock.toml`. Preparation needs `contents: read` and `pull-requests: read` to resolve PR authors. The `push` job uses
-the `release-auth` environment with `RELEASE_APP_PRIVATE_KEY` and the repository variable `RELEASE_APP_CLIENT_ID`.
-Restrict `release-auth` to the release branch. Install the App on that repository only, with Contents write and Metadata
-read. Give it the necessary branch and tag ruleset bypass.
+The assembly job needs release history to select a tag. The validation and writer jobs can check out the source commit
+with `fetch-depth: 1`. All three jobs use `persist-credentials: false`. `assemble` installs release-creator, Towncrier,
+and prek; `validate` installs release-creator and prek. Both use the caller's checked-in `pylock.toml`. Preparation
+needs `contents: read` and `pull-requests: read` to resolve PR authors. The `push` job uses the `release-auth`
+environment with `RELEASE_APP_PRIVATE_KEY` and the repository variable `RELEASE_APP_CLIENT_ID`. Restrict `release-auth`
+to the release branch. Install the App on that repository only, with Contents write and Metadata read. Give it the
+necessary branch and tag ruleset bypass.
 
 ```text
 main + fragments
@@ -399,8 +400,9 @@ tag-triggered ecosystem publisher stays in the caller repository.
 ## Prepare Towncrier release
 
 `prepare-towncrier` reads a clean checkout, chooses the next version, links fragments to their squash PRs, runs
-Towncrier and `prek`, and writes a binary Git patch. It does not commit or push. It fails if version selection, notes
-rendering, formatting, or checks fail, or if preparation creates untracked files or no patch.
+Towncrier and the selected formatter hook through `prek`, then writes a binary Git patch. It does not commit or push. It
+fails if version selection, notes rendering, formatting, or checks fail, or if preparation creates untracked files or no
+patch.
 
 ```yaml
   - id: prepare
@@ -709,6 +711,7 @@ steps.
       base-commit: ${{ needs.prepare.outputs.base-commit }}
       branch: post-release-${{ github.ref_name }}
       title: Bump version to 2.4.8-dev
+      commit-message: Bump version to 2.4.8-dev after 2.4.7
       body-file: prepared/body.md
       paths-file: prepared/paths.tsv
       allowed-paths: gradle.properties
@@ -716,11 +719,13 @@ steps.
       candidate-commit: ${{ needs.prepare.outputs.candidate-commit }}
 ```
 
-The Action derives the bot identity from the writer's App slug and verifies the commit author, single-parent commit,
-changed path set against the writer's `allowed-paths`, regular file modes, and blob identities before any write.
+The Action derives the bot identity from the writer's App slug and verifies the commit author and committer, exact
+commit message, single-parent commit, changed path set against the writer's `allowed-paths`, regular file modes, and
+blob identities before any write.
 
-Pass the keyless job's `base-commit`, the desired `branch` and `title`, and the exact PR body in `body-file`.
-`paths-file` contains one tab-separated path and desired Git blob SHA1 per line. `label` defaults to `skip news`.
+Pass the keyless job's `base-commit`, the desired `branch` and `title`, its exact one-line `commit-message`, and the
+exact PR body in `body-file`. `paths-file` contains one tab-separated path and desired Git blob SHA1 per line. `label`
+defaults to `skip news`.
 
 A matching open branch and PR need no second push. If a matching branch has no PR, it creates one. A merged PR with a
 deleted branch succeeds only when the current base still has the expected file bytes. A closed, unmerged PR fails before

@@ -155,6 +155,7 @@ def action(
     stdout = []
     stderr = []
     steps = action_config["runs"]["steps"]
+    step_outputs: dict[str, dict[str, str]] = {}
     github_bash: Final[tuple[str, ...]] = ("bash", "--noprofile", "--norc", "-e", "-o", "pipefail")
     command = list(github_bash)
     for index, step in enumerate(steps):
@@ -204,12 +205,14 @@ def action(
         if (condition := step.get("if")) is not None and not _condition(condition, environment):
             continue
         command = [*github_bash, str(script)]
+        output_path = Path(environment["GITHUB_OUTPUT"])
+        prior_output = output_path.read_text() if output_path.exists() else ""
         result = subprocess.run(
             command,
             cwd=repository,
             env=environment
             | {
-                variable: _step_value(value, variable, environment, action_config["inputs"])
+                variable: _step_value(value, environment, action_config["inputs"], step_outputs)
                 for variable, value in step.get("env", {}).items()
             },
             text=True,
@@ -220,10 +223,12 @@ def action(
         stderr.append(result.stderr)
         if result.returncode:
             return subprocess.CompletedProcess(command, result.returncode, "".join(stdout), "".join(stderr))
-        if name == "prepare-towncrier" and script.name == "prepare-towncrier-1.sh":
-            environment["VERSION"] = (tmp_path / "output").read_text().split("version=", 1)[1].splitlines()[0]
-        if name == "render-release-notes" and script.name == "render-release-notes-0.sh":
-            environment["PREVIOUS"] = (tmp_path / "output").read_text().split("previous=", 1)[1].splitlines()[0]
+        if step_id := step.get("id"):
+            current_output = output_path.read_text() if output_path.exists() else ""
+            assert current_output.startswith(prior_output)
+            step_outputs[step_id] = dict(
+                line.split("=", 1) for line in current_output[len(prior_output) :].splitlines()
+            )
     return subprocess.CompletedProcess(command, 0, "".join(stdout), "".join(stderr))
 
 
@@ -271,13 +276,19 @@ def _safe_environment() -> dict[str, str]:
 
 
 def _step_value(
-    value: str, variable: str, environment: dict[str, str], action_inputs: dict[str, dict[str, str | bool]]
+    value: str,
+    environment: dict[str, str],
+    action_inputs: dict[str, dict[str, str | bool]],
+    step_outputs: dict[str, dict[str, str]],
 ) -> str:
     if not value.startswith("${{ ") or not value.endswith(" }}"):
         return value
     for expression in value[4:-3].split(" || "):
         if expression.startswith("inputs."):
-            resolved = environment.get(variable, str(action_inputs[expression[7:]].get("default", "")))
+            input_name = expression[7:]
+            resolved = environment.get(
+                input_name.replace("-", "_").upper(), str(action_inputs[input_name].get("default", ""))
+            )
         elif expression == "github.repository":
             resolved = environment["GITHUB_REPOSITORY"]
         elif expression == "github.base_ref":
@@ -289,7 +300,8 @@ def _step_value(
         elif expression == "github.event.pull_request.user.type == 'Bot'":
             resolved = environment.get("BOT_AUTHOR", "false")
         elif expression.startswith("steps."):
-            resolved = environment.get(variable, "")
+            _, step_id, _, output_name = expression.split(".")
+            resolved = step_outputs.get(step_id, {}).get(output_name, "")
         else:
             msg = f"unsupported GitHub step environment: {expression}"
             raise ValueError(msg)
