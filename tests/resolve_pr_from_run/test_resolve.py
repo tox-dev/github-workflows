@@ -153,10 +153,10 @@ def test_resolve_pr_from_run_rejects_untrusted_source(
     action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     field: str,
-    value: object,
+    value: _JsonValue,
 ) -> None:
     server, environment = github_api
-    source: dict[str, object] = {
+    source: dict[str, _JsonValue] = {
         "id": 42,
         "repository": {"full_name": "tox-dev/fixture"},
         "event": "pull_request",
@@ -183,3 +183,6 @@ def test_resolve_pr_from_run_rejects_non_numeric_id(
     assert result.returncode != 0
     assert "run-id must be a decimal integer" in result.stderr
     assert not server.log
+
+
+type _JsonValue = str | int | dict[str, _JsonValue]

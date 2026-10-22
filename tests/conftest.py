@@ -210,7 +210,7 @@ def action(
             cwd=repository,
             env=environment
             | {
-                variable: _step_value(value, variable, environment, action_config)
+                variable: _step_value(value, variable, environment, action_config["inputs"])
                 for variable, value in step.get("env", {}).items()
             },
             text=True,
@@ -271,16 +271,14 @@ def _safe_environment() -> dict[str, str]:
     }
 
 
-def _step_value(value: str, variable: str, environment: dict[str, str], action_config: dict[str, object]) -> str:
+def _step_value(
+    value: str, variable: str, environment: dict[str, str], action_inputs: dict[str, dict[str, str | bool]]
+) -> str:
     if not value.startswith("${{ ") or not value.endswith(" }}"):
         return value
     for expression in value[4:-3].split(" || "):
         if expression.startswith("inputs."):
-            defaults = action_config["inputs"]
-            assert isinstance(defaults, dict)
-            selected = defaults[expression[7:]]
-            assert isinstance(selected, dict)
-            resolved = environment.get(variable, str(selected.get("default", "")))
+            resolved = environment.get(variable, str(action_inputs[expression[7:]].get("default", "")))
         elif expression == "github.repository":
             resolved = environment["GITHUB_REPOSITORY"]
         elif expression == "github.base_ref":
