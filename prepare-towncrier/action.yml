@@ -21,7 +21,7 @@ inputs:
     default: changelog.d
   format:
     description: Changelog format, markdown, rst, or none
-    default: markdown
+    default: none
   link-fragments:
     description: Resolve named fragments and authors with release-creator
     default: "true"
@@ -156,10 +156,14 @@ runs:
         CHANGELOG: ${{ inputs.changelog }}
       run: |
         set -euo pipefail
-        if grep -Fq -e '<<<<<<<' -e '|||||||' -e '>>>>>>>' "$CHANGELOG"; then
-          echo '::error::release changelog contains conflict markers' >&2
-          exit 1
-        fi
+        while IFS= read -r line; do
+          case "$line" in
+          +'<<<<<<<'* | +'|||||||'* | +'>>>>>>>'*)
+            echo '::error::release changelog contains conflict markers' >&2
+            exit 1
+            ;;
+          esac
+        done < <(git diff HEAD --unified=0 -- "$CHANGELOG")
         printf '%s conflict-marker-size=10\n' "$CHANGELOG" >>"$(git rev-parse --git-path info/attributes)"
     - name: Write release patch
       shell: bash

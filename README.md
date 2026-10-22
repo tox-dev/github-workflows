@@ -7,13 +7,14 @@ repository keeps its dispatch form, publisher, GitHub environment, and required 
 ## Install locked tools
 
 `install-locked-tools` creates a virtual environment and installs selected groups from the caller's `pylock.toml`. It
-checks build dependency hashes against `release-build-constraints.txt` in this Actions repository. A source-only
-dependency fails when its build requirement is absent or has a different hash. The Action does not change tracked files
-or write to GitHub.
+derives build dependency hashes from that lock's `build` group. The shared lock and constraints file are used only to
+start the exporter. A source-only dependency fails when its build requirement is absent or has a different hash. The
+Action requires a wheel for `release-creator`, so its source distribution cannot introduce an undeclared build backend.
+It does not change tracked files or write to GitHub.
 
 - `venv` (required): directory for the virtual environment.
 - `lock`: caller's full project lock; default `pylock.toml`.
-- `groups`: space-separated dependency groups; default `release`.
+- `groups`: whitespace-separated dependency groups; default `release`.
 - `python-version`: interpreter for the environment; default `3.15`.
 
 There is no named output. The installed commands are in `venv/bin` or Windows `venv/Scripts`; add that directory to
@@ -156,8 +157,12 @@ is the path for toml-fmt's workspace lock.
 
 The `build-constraints` input is for a repository that checks in a generated build constraints file beside its full
 lock. It makes the lock job regenerate that file from the lock's `build` group and include both paths in the dependency
-PR. This repository passes `release-build-constraints.txt`; consumers use the constraints included with their pinned
-shared Action and can leave the input empty.
+PR. This repository passes `release-build-constraints.txt`. Each consumer's installs derive constraints from its own
+lock. Source-only packages need their build backend requirements in that lock; an absent backend fails the install.
+
+Use `build-requirements` for build dependencies that are not declared by the project's own build system, one requirement
+per line. For example, a release group containing source-only PyYAML on Python 3.15 needs Cython and setuptools in the
+`build` group. The input affects the caller's lock only; it does not add these packages to other repositories.
 
 Set `exclude-newer-packages` to one reviewed `package=UTC cutoff` entry per line when a required version was published
 within the past seven days. Set that cutoff just after the latest file of the reviewed version was uploaded. The Action
@@ -204,13 +209,14 @@ It fails if a hook modifies another file. The Action does not write to GitHub. p
 autoupdate pull requests outside this seven-day path; apply a separate age check before merging those updates.
 
 `check-hook-update-cooldown` checks proposed revisions in pre-commit.ci PRs. Add it as a no-checkout job in the caller's
-`pull_request` workflow, with Contents and Pull requests read permission, and include it in the required aggregate's
-`needs`. Pass the event PR number and head SHA. The Action verifies both against the live PR, reads the base and head
-hook configurations, and uses locked `prek` to select revisions eligible after seven days. It rejects a proposed
-revision that is newer than that selection. GitHub's first PR workflow run for the exact head must also be seven days
-old, so a backdated upstream tag or commit does not bypass the wait. Human PRs pass without installing the hook tools.
-Keep `opened`, `synchronize`, and `reopened` among the caller's PR event types. Grant Actions, Contents, and Pull
-requests read access. The Action maps the job's `github.token` to `GH_TOKEN` itself; the caller does not pass a token.
+`pull_request` workflow with `actions: read`, `contents: read`, and `pull-requests: read`. Include it in the required
+aggregate's `needs`. Pass the event PR number and head SHA. The Action verifies both against the live PR, reads the base
+and head hook configurations, and uses locked `prek` to select revisions eligible after seven days. It rejects a
+proposed revision that is newer than that selection. Each changed revision must have appeared in a GitHub PR workflow
+run at least seven days earlier. The Action reads the hook config at that run's SHA, so a force push does not reset an
+unchanged revision's age or grant a new revision the old one's age. Human PRs pass without installing the hook tools.
+Keep `opened`, `synchronize`, and `reopened` among the caller's PR event types. The Action maps the job's `github.token`
+to `GH_TOKEN` itself; the caller does not pass a token.
 
 ```yaml
 hook-cooldown:
@@ -232,11 +238,11 @@ The aggregate must require `hook-cooldown` to succeed on PRs and allow it to ski
 pre-commit.ci PR against the repository's actual required aggregate before relying on the gate.
 
 Schedule `recheck-hook-update-cooldown` once a day in a separate workflow with `actions: write`, `contents: read`, and
-`pull-requests: read`. It reruns a failed `hook-cooldown` job and its dependent aggregate seven days after GitHub first
-ran the exact PR head. A failed recheck is not repeated every day. The workflow does not check out PR code or use the
-release App key. The [caller in this repository](.github/workflows/recheck-hook-cooldown.yaml) shows the trigger and
-permissions. Set `workflow` when the PR check workflow is not named `check.yaml`. Set `job-name` when the required job
-is not named `hook-cooldown`.
+`pull-requests: read`. It reruns the current head's failed `hook-cooldown` job each day; that job checks the proposed
+revision's first verified observation. A failed rerun is tried again on the next schedule. The workflow does not check
+out PR code or use the release App key. The [caller in this repository](.github/workflows/recheck-hook-cooldown.yaml)
+shows the trigger and permissions. Set `workflow` when the PR check workflow is not named `check.yaml`. Set `job-name`
+when the required job is not named `hook-cooldown`.
 
 Run the hook preview in its own job so its path check sees only the hook configuration change:
 
@@ -404,7 +410,7 @@ rendering, formatting, or checks fail, or if preparation creates untracked files
   match `tool.towncrier.filename` in the caller's `pyproject.toml`.
 - `fragments`: Fragment directory relative to the checkout root; default `changelog.d`. Set this to the caller's
   `tool.towncrier.directory`. Version selection and PR linking both read this directory.
-- `format`: `markdown` (default), `rst`, or `none`. `markdown` runs the caller's `mdformat` hook and `rst` runs its
+- `format`: `none` (default), `markdown`, or `rst`. `markdown` runs the caller's `mdformat` hook and `rst` runs its
   `docstrfmt` hook through `prek` on the assembled changelog. Use `none` when no formatter hook applies. The full `prek`
   suite runs for every option.
 - `link-fragments`: `true` (default) resolves named fragments and authors through GitHub; `false` skips that step for a

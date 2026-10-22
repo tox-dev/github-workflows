@@ -22,6 +22,7 @@ def test_release_notes_run_without_write_access() -> None:
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
     notes = workflow["jobs"]["notes"]
     assert notes["permissions"] == {"contents": "read"}
+    assert notes["steps"][0]["with"]["fetch-depth"] == 0
     assert "$/render-release-notes" in [step.get("uses") for step in notes["steps"]]
     assert notes["outputs"]["artifact-id"] == "${{ steps.artifact.outputs.artifact-id }}"
     assert (

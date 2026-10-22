@@ -29,7 +29,7 @@ on:
       format:
         description: Changelog format for the repository's prek hook
         type: string
-        default: markdown
+        default: none
       lock:
         description: Full project pylock path
         type: string

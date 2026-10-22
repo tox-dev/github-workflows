@@ -7,6 +7,7 @@ from textwrap import dedent
 lazy from pathlib import Path
 
 import pytest
+import yaml
 from conftest import action, run
 
 
@@ -15,6 +16,14 @@ def test_prepare_builds_patch(repository: Path, tmp_path: Path, action_scripts: 
     assert result.returncode == 0, result.stderr
     assert "version=0.2.0" in (tmp_path / "output").read_text()
     assert "0.2.0" in (tmp_path / "release.patch").read_text()
+
+
+def test_prepare_workflow_preserves_unformatted_default() -> None:
+    workflow = yaml.load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    assert workflow["on"]["workflow_call"]["inputs"]["format"]["default"] == "none"
 
 
 def test_prepare_custom_changelog_and_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
@@ -361,7 +370,11 @@ def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, ac
         .replace("title_format = false", 'underlines = ["*", "=", "-"]\ntitle_format = false')
     )
     (repository / "CHANGELOG.md").rename(repository / "CHANGELOG.rst")
-    (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n\n.. towncrier release notes start\n")
+    (repository / "CHANGELOG.rst").write_text(
+        "Changelog\n=========\n\n.. towncrier release notes start\n\n"
+        "0.1.0 (2026-01-01)\n******************\n\nChanges\n=======\n\n"
+        "- ``>>>>>>> historical branch`` remains quoted.\n"
+    )
     (repository / "changelog.d/+feature.feature.md").rename(repository / "changelog.d/+feature.feature.rst")
     (repository / ".pre-commit-config.yaml").write_text(
         "repos:\n  - repo: local\n    hooks:\n      - id: docstrfmt\n"
@@ -396,7 +409,11 @@ def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, ac
 
 @pytest.mark.parametrize("script", ["prepare-towncrier-8.sh", "validate-release-patch-5.sh"])
 def test_prepare_rejects_rst_conflict_marker(repository: Path, action_scripts: Path, script: str) -> None:
-    (repository / "CHANGELOG.rst").write_text("<<<<<<< HEAD\n")
+    (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n")
+    run(repository, "git", "add", "CHANGELOG.rst")
+    run(repository, "git", "commit", "-m", "Track RST changelog")
+    (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n\n<<<<<<< HEAD\n")
+    run(repository, "git", "add", "CHANGELOG.rst")
     result = subprocess.run(
         ["bash", str(action_scripts / script)],
         cwd=repository,
