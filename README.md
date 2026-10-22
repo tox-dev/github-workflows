@@ -616,15 +616,17 @@ or extra files before GitHub publication.
       dist: dist
       mode: stage
       missing-dir: missing
+      tool-group: release-notes
 ```
 
 `project`, `version`, `dist`, and `mode` are required. `mode` is `stage` or `verify`. `missing-dir` defaults to
 `missing` and must be a fresh directory outside `dist`. `wait-seconds` defaults to 120 for verify. `lock` defaults to
-`pylock.toml`, whose `release` group supplies the command; `python-version` defaults to 3.15. Set
+`pylock.toml`; `tool-group` selects the group containing `release-creator` and defaults to `release`. Use a narrower
+group such as `release-notes` when the lock provides one. `python-version` defaults to 3.15. Set
 `local-tool-source: "true"` only when releasing release-creator itself: it installs the tagged checkout without
-resolving dependencies after installing its locked release, build, and runtime groups. This Action writes only the
-missing directory, manifest, and `missing-count`; it never uploads to PyPI. Use `mode: verify` after the OIDC job,
-including when `missing-count` was zero.
+resolving dependencies after installing its locked tool, build, and runtime groups. This Action writes only the missing
+directory, manifest, and `missing-count`; it never uploads to PyPI. Use `mode: verify` after the OIDC job, including
+when `missing-count` was zero.
 
 `select-pypi-artifacts` takes `dist`, `manifest`, `output-dir`, and `expected-count` from stage's `missing-count`. The
 output directory must be fresh and outside `dist`. It rejects unknown, duplicate, unsafe, or symlinked filenames and

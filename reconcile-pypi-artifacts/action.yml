@@ -20,8 +20,11 @@ inputs:
     description: Maximum PyPI JSON propagation wait in verify mode
     default: "120"
   lock:
-    description: Full project pylock containing the release group
+    description: Full project pylock containing release-creator
     default: pylock.toml
+  tool-group:
+    description: Dependency group containing release-creator
+    default: release
   python-version:
     description: Python version used for the locked release tool
     default: "3.15"
@@ -59,7 +62,7 @@ runs:
       uses: $/install-locked-tools
       with:
         lock: ${{ inputs.lock }}
-        groups: ${{ inputs.local-tool-source == 'true' && 'release build project-runtime' || 'release' }}
+        groups: ${{ inputs.tool-group }}${{ inputs.local-tool-source == 'true' && ' build project-runtime' || '' }}
         python-version: ${{ inputs.python-version }}
         venv: ${{ runner.temp }}/pypi-reconcile
     - name: Install tagged release tool

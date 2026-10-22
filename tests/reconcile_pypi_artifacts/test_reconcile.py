@@ -134,7 +134,7 @@ def install_reconcile(action_scripts: Path, repository: Path, tmp_path: Path, *,
         repository,
         tmp_path,
         tmp_path / "pypi-reconcile",
-        "release build project-runtime" if local_source else "release",
+        "release build project-runtime" if local_source else "release-notes",
     )
     if local_source:
         result = execute(
