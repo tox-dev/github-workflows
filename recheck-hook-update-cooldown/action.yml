@@ -1,5 +1,5 @@
 name: Recheck cooled hook updates
-description: Recheck failed pre-commit.ci cooldown jobs each day
+description: Recheck failed bot hook-update cooldown jobs each day
 inputs:
   workflow:
     description: Workflow file containing the required hook-cooldown job
@@ -18,7 +18,7 @@ runs:
         set -euo pipefail
         gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" |
           jq -c --arg repository "$GITHUB_REPOSITORY" '
-            .[] | select(.user.login == "pre-commit-ci[bot]" and
+            .[] | select(.user.type == "Bot" and
               .head.repo.full_name == $repository and .base.repo.full_name == $repository) |
             {number, head: .head.sha, branch: .head.ref}
           ' >"$RUNNER_TEMP/hook-pulls.jsonl"
@@ -31,17 +31,26 @@ runs:
       run: |
         set -euo pipefail
         while IFS= read -r pull; do
+          number=$(jq -r .number <<<"$pull")
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$number/files" --jq '.[].filename' \
+            >"$RUNNER_TEMP/hook-files"
+          if ! grep -Fxq .pre-commit-config.yaml "$RUNNER_TEMP/hook-files"; then
+            continue
+          fi
           head=$(jq -r .head <<<"$pull")
           branch=$(jq -r .branch <<<"$pull")
           runs=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs" \
             -f event=pull_request -f head_sha="$head" -f per_page=100 |
             jq -sc --arg repository "$GITHUB_REPOSITORY" --arg branch "$branch" --arg head "$head" \
-              --argjson number "$(jq -r .number <<<"$pull")" '
+              --argjson number "$number" '
               [.[].workflow_runs[] | select(
                 .event == "pull_request" and .head_repository.full_name == $repository and
                 .head_branch == $branch and .head_sha == $head and
                 any(.pull_requests[]; .number == $number)
               )]')
+          if ! jq -e '[.[].created_at | fromdateiso8601] | min <= now - 7 * 86400' <<<"$runs" >/dev/null; then
+            continue
+          fi
           run=$(jq -c '[.[] | select(.status == "completed")] | sort_by(.created_at) | last // empty' <<<"$runs")
           if [[ -z "$run" ]]; then
             continue
@@ -54,6 +63,9 @@ runs:
             jq -sc --arg name "$JOB_NAME" \
               '[.[].jobs[] | select(.name == $name and .conclusion == "failure")] | first // empty')
           if [[ -n "$job" ]]; then
-            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/jobs/$(jq -r .id <<<"$job")/rerun" >/dev/null
+            if ! gh run rerun "$(jq -r .id <<<"$run")" --job "$(jq -r .id <<<"$job")" \
+              --repo "$GITHUB_REPOSITORY"; then
+              echo "::warning::could not rerun hook cooldown for pull request #$number" >&2
+            fi
           fi
         done <"$RUNNER_TEMP/hook-pulls.jsonl"
