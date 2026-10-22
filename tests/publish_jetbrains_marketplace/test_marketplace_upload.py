@@ -60,7 +60,9 @@ def test_invalid_archive_or_input_fails_before_upload(
     elif changed == "channel":
         settings["CHANNEL"] = "beta release"
     elif changed == "extension":
-        settings["ARCHIVE"] = str(tmp_path / "plugin.tar")
+        wrong_extension = tmp_path / "plugin.tar"
+        wrong_extension.write_bytes(signed_archive.read_bytes())
+        settings["ARCHIVE"] = str(wrong_extension)
     elif changed == "corrupt":
         signed_archive.write_bytes(b"not a zip")
         settings["EXPECTED_SHA"] = sha256(signed_archive.read_bytes()).hexdigest()
@@ -77,9 +79,15 @@ def test_invalid_archive_or_input_fails_before_upload(
 
 
 @pytest.mark.parametrize("status", [200, 403])
+@pytest.mark.parametrize(
+    "archive_name",
+    ["Fish Shell 2-0.1.11-signed.zip", "Fish Shell, 2; 0.1.11-signed.zip"],
+    ids=["plain-path", "multipart-delimiters"],
+)
 def test_multipart_upload_uses_exact_archive_and_channel(
-    signed_archive: Path, tmp_path: Path, action_scripts: Path, httpserver: HTTPServer, status: int
+    signed_archive: Path, tmp_path: Path, action_scripts: Path, httpserver: HTTPServer, status: int, archive_name: str
 ) -> None:
+    signed_archive = signed_archive.rename(tmp_path / archive_name)
     httpserver.expect_request("/api/updates/upload", method="POST").respond_with_data("{}", status=status)
     script = tmp_path / "upload.sh"
     script.write_text(
@@ -91,6 +99,7 @@ def test_multipart_upload_uses_exact_archive_and_channel(
         script,
         tmp_path,
         ARCHIVE=str(signed_archive),
+        EXPECTED_SHA=sha256(signed_archive.read_bytes()).hexdigest(),
         PLUGIN_ID="29973",
         CHANNEL="beta",
         PUBLISH_TOKEN="fixture-token",
@@ -101,7 +110,7 @@ def test_multipart_upload_uses_exact_archive_and_channel(
     assert request.headers["Authorization"] == "Bearer fixture-token"
     assert request.form["pluginId"] == "29973"
     assert request.form["channel"] == "beta"
-    assert request.files["file"].filename == signed_archive.name
+    assert request.files["file"].filename == "plugin.zip"
     assert request.files["file"].read() == signed_archive.read_bytes()
 
 

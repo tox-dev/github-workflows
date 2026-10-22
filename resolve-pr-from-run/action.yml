@@ -64,7 +64,8 @@ runs:
         head_sha=$(jq -r .head_sha "$RUNNER_TEMP/source-run.json")
         gh api -X GET "repos/$REPOSITORY/pulls" -f state=open -f "head=$head_owner:$head_branch" -f per_page=100 \
           >"$RUNNER_TEMP/source-pulls.json"
-        matches=$(jq --arg repository "$REPOSITORY" --arg head_repository "$head_repository" --arg head_sha "$head_sha" '
+        matches=$(jq --arg repository "$REPOSITORY" --arg head_repository "$head_repository" \
+          --arg head_sha "$head_sha" '
           [.[] | select(
             .state == "open" and
             .head.sha == $head_sha and

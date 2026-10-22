@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 from conftest import run
+from pytest_httpserver import HTTPServer
 
 
 @pytest.fixture(scope="session")
@@ -36,7 +37,7 @@ def test_upgrade_pull_request_uses_repository_app() -> None:
     assert publish["environment"] == "release-auth"
     assert publish["permissions"] == {"contents": "read"}
     token = next(step for step in publish["steps"] if step.get("id") == "token")
-    assert token["with"]["repositories"] == "${{ github.event.repository.name }}"
+    assert token["with"]["repositories"] == "${{ steps.repository.outputs.name }}"
     assert token["with"]["permission-contents"] == "write"
     assert token["with"]["permission-pull-requests"] == "write"
     for step in publish["steps"]:
@@ -83,7 +84,35 @@ def test_upgrade_exports_every_group(lock_repository: Path, tmp_path: Path, upgr
     )
     assert result.returncode == 0, result.stderr
     lock = tomllib.loads((lock_repository / "pylock.toml").read_text())
-    assert (lock["requires-python"], lock["dependency-groups"]) == (">=3.15", ["project-runtime", "release", "test"])
+    assert (lock["requires-python"], lock["dependency-groups"]) == (
+        ">=3.15",
+        ["project-runtime", "release", "test", "build"],
+    )
+
+
+def test_upgrade_refreshes_backend_constraints(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path, PYTHON_VERSION="3.15")
+    assert installed.returncode == 0, installed.stderr
+    locked = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-3.sh",
+        tmp_path,
+        LOCK="pylock.toml",
+        PYTHON_VERSION="3.15",
+    )
+    assert locked.returncode == 0, locked.stderr
+    generated = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-5.sh",
+        tmp_path,
+        LOCK="pylock.toml",
+        BUILD_CONSTRAINTS="release-build-constraints.txt",
+        PYTHON_VERSION="3.15",
+    )
+    assert generated.returncode == 0, generated.stderr
+    constraints = (lock_repository / "release-build-constraints.txt").read_text()
+    assert "cython==" in constraints
+    assert "setuptools==" in constraints
 
 
 def test_upgrade_sets_seven_day_cutoff(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
@@ -178,14 +207,15 @@ def test_upgrade_refreshes_uv_lock_with_same_exception(
 
 
 @pytest.mark.parametrize(
-    ("changed_path", "keep_uv_lock", "expected"),
+    ("changed_path", "keep_uv_lock", "build_constraints", "expected"),
     [
-        (None, False, False),
-        ("pylock.toml", False, True),
-        ("uv.lock", False, False),
-        ("uv.lock", True, True),
+        (None, False, False, False),
+        ("pylock.toml", False, False, True),
+        ("uv.lock", False, False, False),
+        ("uv.lock", True, False, True),
+        ("release-build-constraints.txt", False, True, True),
     ],
-    ids=["unchanged", "pylock", "ignored-uv-lock", "retained-uv-lock"],
+    ids=["unchanged", "pylock", "ignored-uv-lock", "retained-uv-lock", "backend-constraints"],
 )
 def test_upgrade_emits_patch_only_for_change(
     lock_repository: Path,
@@ -193,21 +223,24 @@ def test_upgrade_emits_patch_only_for_change(
     upgrade_scripts: Path,
     changed_path: str | None,
     keep_uv_lock: bool,
+    build_constraints: bool,
     expected: bool,
 ) -> None:
     lock = lock_repository / "pylock.toml"
     lock.write_text('lock-version = "1.0"\n')
     (lock_repository / "uv.lock").write_text("before\n")
+    (lock_repository / "release-build-constraints.txt").write_text("before\n")
     run(lock_repository, "git", "add", ".")
     run(lock_repository, "git", "commit", "-m", "Add lock")
     if changed_path is not None:
         (lock_repository / changed_path).write_text("after\n")
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-8.sh",
+        upgrade_scripts / "refresh-release-lock-9.sh",
         tmp_path,
         LOCK="pylock.toml",
         KEEP_UV_LOCK=str(keep_uv_lock).lower(),
+        BUILD_CONSTRAINTS="release-build-constraints.txt" if build_constraints else "",
         GITHUB_OUTPUT=str(tmp_path / "output"),
     )
     assert result.returncode == 0
@@ -239,35 +272,41 @@ def test_upgrade_checks_refreshed_lock(
     (lock_repository / "other.txt").write_text("before\n")
     run(
         lock_repository,
-        "uv",
-        "pip",
-        "compile",
-        "--preview-features",
-        "pylock",
-        "--group",
-        "pyproject.toml:release",
-        "--python-version",
-        "3.15",
-        "--output-file",
+        "release-creator",
+        "locks",
+        "--output",
         "pylock.toml",
+        "--tool-python",
+        ">=3.15",
+        "--build-requirement",
+        "Cython>=3.0",
+        "--build-requirement",
+        "setuptools>=80",
     )
     run(lock_repository, "git", "add", ".")
     run(lock_repository, "git", "commit", "-m", "Add release tools")
     if unrelated is not None:
         (lock_repository / unrelated).write_text("after\n")
+    exporter = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-0.sh",
+        tmp_path,
+        PYTHON_VERSION="3.15",
+    )
+    assert exporter.returncode == 0, exporter.stderr
     installed = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-5.sh",
+        upgrade_scripts / "refresh-release-lock-6.sh",
         tmp_path,
         LOCK="pylock.toml",
         PYTHON_VERSION="3.15",
     )
     assert installed.returncode == 0, installed.stderr
-    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-6.sh", tmp_path)
+    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-7.sh", tmp_path)
     assert checked.returncode == 0, checked.stderr
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-7.sh",
+        upgrade_scripts / "refresh-release-lock-8.sh",
         tmp_path,
         LOCK="pylock.toml",
         KEEP_UV_LOCK=str(keep_uv_lock).lower(),
@@ -420,6 +459,45 @@ def test_upgrade_rejects_unsafe_branch(
     assert (result.returncode == 0) == accepted
 
 
+def test_upgrade_finds_only_own_dependency_pull_request(
+    lock_repository: Path,
+    tmp_path: Path,
+    publish_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+) -> None:
+    server, environment = github_api
+    server.expect_request(
+        "/api/v3/repos/tox-dev/fixture/pulls",
+        method="GET",
+        query_string="base=main&head=tox-dev%3Aautomation%2Fupdate-release-tools&state=open",
+    ).respond_with_json(
+        [
+            {
+                "number": 17,
+                "head": {"repo": {"full_name": "attacker/fork"}, "ref": "automation/update-release-tools"},
+                "base": {"ref": "main"},
+            },
+            {
+                "number": 18,
+                "head": {"repo": {"full_name": "tox-dev/fixture"}, "ref": "automation/update-release-tools"},
+                "base": {"ref": "main"},
+            },
+        ]
+    )
+    result = execute(
+        lock_repository,
+        publish_scripts / "publish-pr.sh",
+        tmp_path,
+        **environment,
+        GITHUB_REPOSITORY="tox-dev/fixture",
+        GITHUB_OUTPUT=str(tmp_path / "output"),
+        BRANCH="automation/update-release-tools",
+        BASE="main",
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "output").read_text() == "number=18\n"
+
+
 def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) -> subprocess.CompletedProcess[str]:
     active_cutoffs = tmp_path / "active-package-cutoffs"
     active_cutoffs.write_text(f"{environment.get('EXCLUDE_NEWER_PACKAGES', '')}\n")
@@ -431,6 +509,7 @@ def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) 
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "refresh-release-lock"),
             "EXCLUDE_NEWER_PACKAGES": "",
+            "BUILD_CONSTRAINTS": "",
             "ACTIVE_PACKAGE_CUTOFFS": str(active_cutoffs),
         }
         | environment,

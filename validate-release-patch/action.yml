@@ -109,14 +109,15 @@ runs:
         from pathlib import Path
 
         document = tomllib.loads(Path(sys.argv[1]).read_text())
-        config = document.get('tool', {}).get('towncrier', {})
-        if config.get('directory', sys.argv[2]) != sys.argv[2] or config.get('filename', sys.argv[3]) != sys.argv[3]:
+        config = document.get('tool', {}).get('towncrier')
+        if not config or not config.get('type'):
+            raise SystemExit('Towncrier configuration and categories are required')
+        if config.get('directory') != sys.argv[2] or config.get('filename') != sys.argv[3]:
             raise SystemExit('Towncrier paths do not match release inputs')
-        for category in config.get('type', []):
+        for category in config['type']:
             print(category['directory'])
         PY
-        mapfile -d '' -t paths < <(git diff --cached --name-only -z)
-        for path in "${paths[@]}"; do
+        while IFS= read -r -d '' status && IFS= read -r -d '' path; do
           if [[ "$path" == "$CHANGELOG" ]]; then
             continue
           fi
@@ -124,7 +125,7 @@ runs:
             echo "::error::unexpected release path: $path" >&2
             exit 1
           fi
-          if [[ $(git diff --cached --diff-filter=AD --name-only -- "$path") != "$path" ]]; then
+          if [[ "$status" != D ]]; then
             reject_fragment
           fi
           fragment=${path#"$FRAGMENTS/"}
@@ -147,7 +148,7 @@ runs:
             ;;
           '' | *[!0-9]*) reject_fragment ;;
           esac
-        done
+        done < <(git diff --cached --name-status --no-renames -z)
 
         if git diff --cached --quiet -- "$CHANGELOG"; then
           echo "::error::release patch does not change $CHANGELOG" >&2
@@ -178,7 +179,10 @@ runs:
               exit 1
             fi
             ;;
-          *) exit 1 ;;
+          *)
+            echo "::error::unexpected release file mode in $path: ${fields[1]}" >&2
+            exit 1
+            ;;
           esac
           if [[ "${fields[0]#\:}" != "$old_mode" ]]; then
             echo "::error::unexpected previous release file mode in $path: ${fields[0]#\:}" >&2
@@ -196,7 +200,7 @@ runs:
         CHANGELOG: ${{ inputs.changelog }}
       run: |
         set -euo pipefail
-        if grep -Eq '^(<{7}|\|{7}|>{7})([[:space:]]|$)' "$CHANGELOG"; then
+        if grep -Fq -e '<<<<<<<' -e '|||||||' -e '>>>>>>>' "$CHANGELOG"; then
           echo '::error::release changelog contains conflict markers' >&2
           exit 1
         fi

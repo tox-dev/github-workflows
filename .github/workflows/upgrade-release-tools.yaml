@@ -18,6 +18,10 @@ on:
         description: Also refresh a checked-in uv.lock used by the project build
         type: boolean
         default: false
+      build-constraints:
+        description: Generated backend constraints path kept with the project lock
+        type: string
+        default: ""
       exclude-newer-packages:
         description: Reviewed package=UTC minimum cutoffs; each expires when the seven-day cutoff passes it
         type: string
@@ -71,6 +75,7 @@ jobs:
           lock: ${{ inputs.lock }}
           python-version: ${{ inputs.python-version }}
           keep-uv-lock: ${{ inputs.keep-uv-lock }}
+          build-constraints: ${{ inputs.build-constraints }}
           exclude-newer-packages: ${{ inputs.exclude-newer-packages }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.lock.outputs.changed == 'true'
@@ -109,7 +114,9 @@ jobs:
           retention-days: 1
   publish:
     needs: [generate-lock, generate-hooks]
-    if: (needs.generate-lock.outputs.changed == 'true' || needs.generate-hooks.outputs.changed == 'true') && github.ref == format('refs/heads/{0}', inputs.base)
+    if: |
+      (needs.generate-lock.outputs.changed == 'true' || needs.generate-hooks.outputs.changed == 'true') &&
+      github.ref == format('refs/heads/{0}', inputs.base)
     runs-on: ubuntu-26.04
     environment: release-auth
     permissions:
@@ -145,10 +152,12 @@ jobs:
           LOCK: ${{ inputs.lock }}
           CONFIG: ${{ inputs.hook-config }}
           KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
+          BUILD_CONSTRAINTS: ${{ inputs.build-constraints }}
         run: |
           set -euo pipefail
           while IFS= read -r path; do
-            if [[ "$path" != "$LOCK" && "$path" != "$CONFIG" && ("$KEEP_UV_LOCK" != true || "$path" != uv.lock) ]]; then
+            if [[ "$path" != "$LOCK" && "$path" != "$CONFIG" && "$path" != "$BUILD_CONSTRAINTS" ]] && \
+              [[ "$KEEP_UV_LOCK" != true || "$path" != uv.lock ]]; then
               echo "::error::unexpected dependency path: $path" >&2
               exit 1
             fi
@@ -189,13 +198,18 @@ jobs:
         run: |
           test -n "$RELEASE_APP_CLIENT_ID"
           test -n "$RELEASE_APP_PRIVATE_KEY"
+      - id: repository
+        name: Select the current repository
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=${REPOSITORY#*/}" >>"$GITHUB_OUTPUT"
       - id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
+          repositories: ${{ steps.repository.outputs.name }}
           permission-contents: write
           permission-pull-requests: write
       - name: Push dependency branch
@@ -225,14 +239,25 @@ jobs:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           BRANCH: ${{ inputs.branch }}
           BASE: ${{ inputs.base }}
-        run: printf 'number=%s\n' "$(gh pr list --base "$BASE" --head "$BRANCH" --state open --json number --jq '.[0].number')" >>"$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          owner=${GITHUB_REPOSITORY%%/*}
+          gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f head="$owner:$BRANCH" -f base="$BASE" |
+            jq -r --arg repository "$GITHUB_REPOSITORY" --arg branch "$BRANCH" --arg base "$BASE" '
+              [.[] | select(.head.repo.full_name == $repository and .head.ref == $branch and .base.ref == $base)] |
+              if length == 0 then "number="
+              elif length == 1 then "number=\(.[0].number)"
+              else error("multiple dependency pull requests") end
+            ' >>"$GITHUB_OUTPUT"
       - name: Update dependency pull request
         if: steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           PR_TITLE: ${{ inputs.pull-request-title }}
-        run: gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body-file "$RUNNER_TEMP/pull-request.md" --add-label dependencies --add-label 'skip news'
+        run: |
+          gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body-file "$RUNNER_TEMP/pull-request.md" \
+            --add-label dependencies --add-label 'skip news'
       - name: Open dependency pull request
         if: steps.pr.outputs.number == ''
         env:
@@ -240,4 +265,6 @@ jobs:
           BRANCH: ${{ inputs.branch }}
           BASE: ${{ inputs.base }}
           PR_TITLE: ${{ inputs.pull-request-title }}
-        run: gh pr create --base "$BASE" --head "$BRANCH" --title "$PR_TITLE" --body-file "$RUNNER_TEMP/pull-request.md" --label dependencies --label 'skip news'
+        run: |
+          gh pr create --base "$BASE" --head "$BRANCH" --title "$PR_TITLE" \
+            --body-file "$RUNNER_TEMP/pull-request.md" --label dependencies --label 'skip news'

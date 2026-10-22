@@ -36,3 +36,12 @@ def test_release_contributors_job_has_no_checkout() -> None:
     assert contributors["permissions"] == {"contents": "write"}
     assert not any("checkout" in step.get("uses", "") for step in contributors["steps"])
     assert not any("setup-uv" in step.get("uses", "") for step in contributors["steps"])
+
+
+def test_release_contributors_job_uploads_generated_notes() -> None:
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
+    contributors = workflow["jobs"]["contributors"]
+    assert contributors["steps"][0]["name"] == "Fetch contributor metadata"
+    assert "releases/generate-notes" in contributors["steps"][0]["run"]
+    assert contributors["steps"][1]["with"]["path"] == "${{ runner.temp }}/generated-notes.md"
+    assert contributors["outputs"]["artifact-id"] == "${{ steps.artifact.outputs.artifact-id }}"

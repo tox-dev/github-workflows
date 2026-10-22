@@ -1,0 +1,15 @@
+name: Recheck hook cooldown
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  recheck:
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: $/recheck-hook-update-cooldown

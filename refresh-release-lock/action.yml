@@ -10,6 +10,9 @@ inputs:
   keep-uv-lock:
     description: Also refresh a checked-in uv.lock for projects that use it for their build
     default: "false"
+  build-constraints:
+    description: Optional generated backend constraints path kept with this repository's lock
+    default: ""
   exclude-newer-packages:
     description: Reviewed package=UTC minimum cutoffs; each expires when the seven-day cutoff passes it
     default: ""
@@ -27,8 +30,10 @@ runs:
       run: |
         set -euo pipefail
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/lock-exporter"
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/lock-exporter/bin/python" \
-          --group release "$GITHUB_ACTION_PATH/../pylock.toml"
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+          --python "$RUNNER_TEMP/lock-exporter/bin/python" --group release \
+          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes \
+          "$GITHUB_ACTION_PATH/../pylock.toml"
     - id: cutoff
       name: Set dependency age cutoff
       shell: bash
@@ -62,7 +67,8 @@ runs:
             exit 1
             ;;
           esac
-          if [[ $(date --utc --date="$timestamp" '+%Y-%m-%dT%H:%M:%SZ') != "$timestamp" || "$timestamp" > "$now" ]]; then
+          if [[ "$timestamp" > "$now" ]] || \
+            [[ $(date --utc --date="$timestamp" '+%Y-%m-%dT%H:%M:%SZ') != "$timestamp" ]]; then
             echo "::error::invalid package cutoff: $entry" >&2
             exit 1
           fi
@@ -88,7 +94,8 @@ runs:
           exceptions+=(--exclude-newer-package "$entry")
         done <"$ACTIVE_PACKAGE_CUTOFFS"
         "$RUNNER_TEMP/lock-exporter/bin/release-creator" locks --output "$LOCK" \
-          --tool-python ">=$PYTHON_VERSION" "${exceptions[@]}"
+          --tool-python ">=$PYTHON_VERSION" --build-requirement 'Cython>=3.0' \
+          --build-requirement 'setuptools>=80' "${exceptions[@]}"
     - name: Refresh uv lock
       if: inputs.keep-uv-lock == 'true'
       shell: bash
@@ -105,6 +112,16 @@ runs:
           exceptions+=(--exclude-newer-package "$entry")
         done <"$ACTIVE_PACKAGE_CUTOFFS"
         uv lock --upgrade "${exceptions[@]}"
+    - name: Refresh backend constraints
+      if: inputs.build-constraints != ''
+      shell: bash
+      env:
+        LOCK: ${{ inputs.lock }}
+        BUILD_CONSTRAINTS: ${{ inputs.build-constraints }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: |
+        "$RUNNER_TEMP/lock-exporter/bin/release-creator" build-constraints --lock "$LOCK" --group build \
+          --python-version "$PYTHON_VERSION" --output "$BUILD_CONSTRAINTS"
     - name: Install refreshed release tools
       shell: bash
       env:
@@ -112,9 +129,12 @@ runs:
         PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
         set -euo pipefail
+        "$RUNNER_TEMP/lock-exporter/bin/release-creator" build-constraints --lock "$LOCK" --group build \
+          --python-version "$PYTHON_VERSION" --output "$RUNNER_TEMP/refreshed-build-constraints.txt"
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/release-tools"
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" \
-          --group release "$LOCK"
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+          --python "$RUNNER_TEMP/release-tools/bin/python" --group release \
+          --build-constraints "$RUNNER_TEMP/refreshed-build-constraints.txt" --require-build-hashes "$LOCK"
     - name: Run repository checks
       shell: bash
       run: >-
@@ -124,11 +144,13 @@ runs:
       env:
         LOCK: ${{ inputs.lock }}
         KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
+        BUILD_CONSTRAINTS: ${{ inputs.build-constraints }}
       run: |
         set -euo pipefail
         while IFS= read -r entry; do
           path=${entry:3}
-          if [[ "$path" != "$LOCK" && ("$KEEP_UV_LOCK" != true || "$path" != uv.lock) ]]; then
+          if [[ "$path" != "$LOCK" && "$path" != "$BUILD_CONSTRAINTS" ]] && \
+            [[ "$KEEP_UV_LOCK" != true || "$path" != uv.lock ]]; then
             echo "::error::prek changed file outside the lock file: $path" >&2
             exit 1
           fi
@@ -138,11 +160,15 @@ runs:
       env:
         LOCK: ${{ inputs.lock }}
         KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
+        BUILD_CONSTRAINTS: ${{ inputs.build-constraints }}
       run: |
         set -euo pipefail
         paths=("$LOCK")
         if [[ "$KEEP_UV_LOCK" == true ]]; then
           paths+=(uv.lock)
+        fi
+        if [[ -n "$BUILD_CONSTRAINTS" ]]; then
+          paths+=("$BUILD_CONSTRAINTS")
         fi
         if git diff --quiet -- "${paths[@]}"; then
           echo 'changed=false' >>"$GITHUB_OUTPUT"

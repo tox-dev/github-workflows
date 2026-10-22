@@ -49,6 +49,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "label-bot-news",
         "resolve-pr-from-run",
         "refresh-release-lock",
+        "install-locked-tools",
         "refresh-hook-pins",
         "publish-github-release",
         "reconcile-pypi-artifacts",
@@ -57,6 +58,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "publish-jetbrains-marketplace",
         "sign-jetbrains-plugin",
         "check-hook-update-cooldown",
+        "recheck-hook-update-cooldown",
         "publish-post-release-pr",
     ):
         action = yaml.safe_load((source / action_name / "action.yml").read_text())
@@ -141,12 +143,11 @@ def action(
             "RUN_ID": "42",
             "WORKFLOW_PATH": ".github/workflows/check.yaml",
             "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[1] / name),
         }
         | extra_env
     )
     environment["REPOSITORY"] = extra_env.get("REPOSITORY", environment["GITHUB_REPOSITORY"])
-    if name == "label-bot-news" and environment.get("BOT_AUTHOR") != "true":
-        return subprocess.CompletedProcess([], 0, "", "")
     stdout = []
     stderr = []
     scripts = sorted(action_scripts.glob(f"{name}-*.sh"), key=lambda path: int(path.stem.rsplit("-", 1)[1]))
@@ -154,6 +155,12 @@ def action(
     steps = yaml.safe_load((Path(__file__).resolve().parents[1] / name / "action.yml").read_text())["runs"]["steps"]
     command = ["bash", str(scripts[0])]
     for index, script in enumerate(scripts):
+        if (
+            name == "label-bot-news"
+            and environment.get("BOT_AUTHOR") != "true"
+            and steps[index].get("if") == "inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'"
+        ):
+            continue
         if steps[index].get("if") == "inputs.checks == 'true'" and environment["CHECKS"] == "false":
             continue
         if steps[index].get("if") == "inputs.format == 'rst'" and environment["FORMAT"] != "rst":

@@ -20,8 +20,10 @@ runs:
         PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/hook-tools"
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/hook-tools/bin/python" \
-          --group release "$GITHUB_ACTION_PATH/../pylock.toml"
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+          --python "$RUNNER_TEMP/hook-tools/bin/python" --group release \
+          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes \
+          "$GITHUB_ACTION_PATH/../pylock.toml"
     - id: cutoff
       name: Set dependency age cutoff
       shell: bash
@@ -38,8 +40,9 @@ runs:
         CONFIG: ${{ inputs.config }}
         PYTHON_VERSION: ${{ inputs.python-version }}
         CUTOFF: ${{ steps.cutoff.outputs.timestamp }}
-      run: >-
-        "$RUNNER_TEMP/hook-tools/bin/release-creator" hooks --config "$CONFIG" --exclude-newer "$CUTOFF" --python-version "$PYTHON_VERSION"
+      run: |
+        "$RUNNER_TEMP/hook-tools/bin/release-creator" hooks --config "$CONFIG" \
+          --exclude-newer "$CUTOFF" --python-version "$PYTHON_VERSION"
     - name: Run repository checks
       shell: bash
       env:

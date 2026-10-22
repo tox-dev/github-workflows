@@ -46,7 +46,6 @@ def test_unrelated_package_keeps_rolling_cutoff(action_scripts: Path, tmp_path: 
     )
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "active-package-cutoffs").read_text() == "certifi=2026-10-20T02:25:00Z\n"
-    assert "uv" not in (tmp_path / "active-package-cutoffs").read_text()
 
 
 @pytest.mark.parametrize(

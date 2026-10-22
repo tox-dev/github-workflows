@@ -86,22 +86,17 @@ jobs:
           version: latest-known
           python-version: ${{ inputs.python-version }}
           enable-cache: false
-      - name: Install locked release tools
-        env:
-          PYTHON_VERSION: ${{ inputs.python-version }}
-          LOCK: ${{ inputs.lock }}
-        run: |
-          uv venv --python "$PYTHON_VERSION" .venv
-          uv pip sync --preview-features pylock --python .venv/bin/python --group release "$LOCK"
-          echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
+      - uses: $/install-locked-tools
+        with:
+          lock: ${{ inputs.lock }}
+          groups: ${{ inputs.local-tool-source && 'release fix build project-runtime' || 'release' }}
+          python-version: ${{ inputs.python-version }}
+          venv: .venv
+      - name: Add locked tools to PATH
+        run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - name: Install the tagged release tool
         if: inputs.local-tool-source
-        env:
-          LOCK: ${{ inputs.lock }}
-        run: |
-          uv pip sync --preview-features pylock --python .venv/bin/python \
-            --group release --group fix --group build --group project-runtime "$LOCK"
-          uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
+        run: uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
       - id: prepare
         uses: $/prepare-towncrier
         with:
@@ -141,22 +136,17 @@ jobs:
           version: latest-known
           python-version: ${{ inputs.python-version }}
           enable-cache: false
-      - name: Install locked release tools
-        env:
-          PYTHON_VERSION: ${{ inputs.python-version }}
-          LOCK: ${{ inputs.lock }}
-        run: |
-          uv venv --python "$PYTHON_VERSION" .venv
-          uv pip sync --preview-features pylock --python .venv/bin/python --group release "$LOCK"
-          echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
+      - uses: $/install-locked-tools
+        with:
+          lock: ${{ inputs.lock }}
+          groups: ${{ inputs.local-tool-source && 'release fix build project-runtime' || 'release' }}
+          python-version: ${{ inputs.python-version }}
+          venv: .venv
+      - name: Add locked tools to PATH
+        run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - name: Install the tagged release tool
         if: inputs.local-tool-source
-        env:
-          LOCK: ${{ inputs.lock }}
-        run: |
-          uv pip sync --preview-features pylock --python .venv/bin/python \
-            --group release --group fix --group build --group project-runtime "$LOCK"
-          uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
+        run: uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
       - uses: $/validate-release-patch
         with:
           version: ${{ needs.assemble.outputs.version }}

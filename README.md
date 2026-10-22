@@ -4,6 +4,23 @@ Composite Actions check PR news, prepare a Towncrier release, verify its patch, 
 build a Python wheel and sdist, and render GitHub Release notes. They run as steps in the caller's workflow. Each
 repository keeps its dispatch form, publisher, GitHub environment, and required check names.
 
+## Install locked tools
+
+`install-locked-tools` creates a virtual environment and installs selected groups from the caller's `pylock.toml`. It
+checks build dependency hashes against `release-build-constraints.txt` in this Actions repository. A source-only
+dependency fails when its build requirement is absent or has a different hash. The Action does not change tracked files
+or write to GitHub.
+
+- `venv` (required): directory for the virtual environment.
+- `lock`: caller's full project lock; default `pylock.toml`.
+- `groups`: space-separated dependency groups; default `release`.
+- `python-version`: interpreter for the environment; default `3.15`.
+
+There is no named output. The installed commands are in `venv/bin` or Windows `venv/Scripts`; add that directory to
+`GITHUB_PATH` when later steps call them by name. Run `actions/checkout` and `astral-sh/setup-uv` before this Action.
+The shared weekly updater regenerates `release-build-constraints.txt` from the build group in this repository's full
+lock and commits the two files together.
+
 ## Check pull request news
 
 `validate-news` reads `tool.towncrier` from `pyproject.toml`. It checks every added or modified fragment in the
@@ -30,12 +47,9 @@ changelog:
       with:
         version: latest-known
         python-version: '3.15'
-    - name: Create release tool environment
-      run: uv venv --python 3.15 "$RUNNER_TEMP/release-tools"
-    - name: Install locked release tools
-      run: >-
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python"
-        --group release pylock.toml
+    - uses: tox-dev/github-workflows/install-locked-tools@SHA
+      with:
+        venv: ${{ runner.temp }}/release-tools
     - name: Expose release tools
       run: echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
     - uses: tox-dev/github-workflows/validate-news@SHA
@@ -105,6 +119,12 @@ normal pull request checks. The App needs Contents and Pull requests write acces
 named key secret to the reusable workflow. GitHub requires this mapping even when the key exists only in the callee
 job's `release-auth` environment; that environment supplies the value at runtime.
 
+Before enabling the schedule, install that App on only this repository, set `RELEASE_APP_CLIENT_ID` as a repository
+variable, and store `RELEASE_APP_PRIVATE_KEY` in the `release-auth` environment. Limit that environment to `main` (or
+the chosen `base` branch), create `dependencies` and `skip news` labels, and allow the App to push its dependency
+branch. The App must be allowed to start PR checks. A missing Pull requests grant makes token creation fail before any
+branch is pushed.
+
 ```yaml
 name: Upgrade release tools
 on:
@@ -134,6 +154,11 @@ Set `keep-uv-lock: true` only when the repository commits `uv.lock` for its own 
 `uv.lock` and the selectable `pylock.toml` and includes both in one patch. The default rejects `uv.lock` changes. This
 is the path for toml-fmt's workspace lock.
 
+The `build-constraints` input is for a repository that checks in a generated build constraints file beside its full
+lock. It makes the lock job regenerate that file from the lock's `build` group and include both paths in the dependency
+PR. This repository passes `release-build-constraints.txt`; consumers use the constraints included with their pinned
+shared Action and can leave the input empty.
+
 Set `exclude-newer-packages` to one reviewed `package=UTC cutoff` entry per line when a required version was published
 within the past seven days. Set that cutoff just after the latest file of the reviewed version was uploaded. The Action
 uses the later of that timestamp and the rolling seven-day cutoff. Once the rolling cutoff passes the reviewed
@@ -143,9 +168,9 @@ when `keep-uv-lock` is true. The dependency PR lists the reviewed floors.
 To check the same lock refresh on a PR, call `refresh-release-lock` in a job with Contents read permission. The reusable
 updater calls this Action in its lock generator job. It excludes dependencies published in the last seven days, resolves
 the project through uv, rewrites the local `pylock.toml`, installs its `release` group, and runs `prek`. It rejects
-changes to any other file; `uv.lock` is allowed only with `keep-uv-lock: true`. Its `changed` output is `true` when a
-selected lock differs from the checkout, and it writes `$RUNNER_TEMP/lock.patch`. The Action does not push a branch,
-open a PR, or request a write token.
+changes to any other file; `uv.lock` is allowed only with `keep-uv-lock: true`, and a generated constraints file only
+with `build-constraints`. Its `changed` output is `true` when a selected file differs from the checkout, and it writes
+`$RUNNER_TEMP/lock.patch`. The Action does not push a branch, open a PR, or request a write token.
 
 ```yaml
 release-tools-preview:
@@ -182,16 +207,17 @@ autoupdate pull requests outside this seven-day path; apply a separate age check
 `pull_request` workflow, with Contents and Pull requests read permission, and include it in the required aggregate's
 `needs`. Pass the event PR number and head SHA. The Action verifies both against the live PR, reads the base and head
 hook configurations, and uses locked `prek` to select revisions eligible after seven days. It rejects a proposed
-revision that is newer than that selection. A force push with the same eligible revisions passes; a new PR commit does
-not restart the clock. Human PRs pass without installing the hook tools. Keep `opened`, `synchronize`, and `reopened`
-among the caller's PR event types; rerun a failed job when a revision becomes eligible. The Action maps the job's
-`github.token` to `GH_TOKEN` itself; the caller does not pass a token.
+revision that is newer than that selection. GitHub's first PR workflow run for the exact head must also be seven days
+old, so a backdated upstream tag or commit does not bypass the wait. Human PRs pass without installing the hook tools.
+Keep `opened`, `synchronize`, and `reopened` among the caller's PR event types. Grant Actions, Contents, and Pull
+requests read access. The Action maps the job's `github.token` to `GH_TOKEN` itself; the caller does not pass a token.
 
 ```yaml
 hook-cooldown:
   if: github.event_name == 'pull_request'
   runs-on: ubuntu-26.04
   permissions:
+    actions: read
     contents: read
     pull-requests: read
   steps:
@@ -204,6 +230,13 @@ hook-cooldown:
 
 The aggregate must require `hook-cooldown` to succeed on PRs and allow it to skip on non-PR events. Rehearse a young
 pre-commit.ci PR against the repository's actual required aggregate before relying on the gate.
+
+Schedule `recheck-hook-update-cooldown` once a day in a separate workflow with `actions: write`, `contents: read`, and
+`pull-requests: read`. It reruns a failed `hook-cooldown` job and its dependent aggregate seven days after GitHub first
+ran the exact PR head. A failed recheck is not repeated every day. The workflow does not check out PR code or use the
+release App key. The [caller in this repository](.github/workflows/recheck-hook-cooldown.yaml) shows the trigger and
+permissions. Set `workflow` when the PR check workflow is not named `check.yaml`. Set `job-name` when the required job
+is not named `hook-cooldown`.
 
 Run the hook preview in its own job so its path check sees only the hook configuration change:
 
@@ -301,8 +334,7 @@ body rendered from the tagged source. Callers download the distribution with the
 [`download-artifact` v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
 whose default fails on an artifact digest mismatch. Its notes lack GitHub contributor metadata. The tag-only GitHub
 Release job must fetch generated notes with Contents write, rerender with `render-release-notes`, and create the Release
-after the ecosystem upload. PyPI OIDC stays in the caller's separate `release` environment job:
-[PyPI does not support trusted publishing inside reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/#reusable-workflows-on-github).
+after the ecosystem upload. PyPI OIDC stays in the caller's separate `release` environment job.
 
 ## Prepare and tag with one reusable workflow
 
@@ -339,7 +371,7 @@ back to the caller. A successful run pushes a tag, which the caller's tag workfl
 `bump`, `tag-prefix`, `changelog-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, `numbered-prs`, and
 `annotated` have the same meanings as the `prepare-towncrier` inputs below. `release-auth-deployment` defaults to
 `true`; set it to `false` if the current App-key job uses `release-auth` without creating a GitHub Deployment.
-`local-tool-source: true` installs release-creator from the tagged checkout with locked third-party dependencies in both
+`local-tool-source: true` installs release-creator from the source checkout with locked third-party dependencies in both
 keyless jobs; use it for release-creator itself. The caller can place repository-specific checks in a preceding job and
 make this job depend on it. The tag-triggered ecosystem publisher stays in the caller repository.
 
@@ -372,7 +404,7 @@ rendering, formatting, or checks fail, or if preparation creates untracked files
   match `tool.towncrier.filename` in the caller's `pyproject.toml`.
 - `fragments`: Fragment directory relative to the checkout root; default `changelog.d`. Set this to the caller's
   `tool.towncrier.directory`. Version selection and PR linking both read this directory.
-- `format`: `none` (default), `markdown`, or `rst`. `markdown` runs the caller's `mdformat` hook and `rst` runs its
+- `format`: `markdown` (default), `rst`, or `none`. `markdown` runs the caller's `mdformat` hook and `rst` runs its
   `docstrfmt` hook through `prek` on the assembled changelog. Use `none` when no formatter hook applies. The full `prek`
   suite runs for every option.
 - `link-fragments`: `true` (default) resolves named fragments and authors through GitHub; `false` skips that step for a
@@ -682,6 +714,9 @@ sign:
   runs-on: ubuntu-26.04
   environment: release
   permissions: {}
+  outputs:
+    archive: ${{ steps.signed.outputs.archive }}
+    sha256: ${{ steps.signed.outputs.sha256 }}
   steps:
     - uses: actions/download-artifact@DOWNLOAD_SHA
       with:

@@ -65,12 +65,14 @@ runs:
         set -euo pipefail
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/pypi-reconcile"
         if [[ "$LOCAL_TOOL_SOURCE" == true ]]; then
-          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/pypi-reconcile/bin/python" \
-            --group release --group build --group project-runtime "$LOCK"
+          uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+            --python "$RUNNER_TEMP/pypi-reconcile/bin/python" --group release --group build --group project-runtime \
+            --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes "$LOCK"
           uv pip install --python "$RUNNER_TEMP/pypi-reconcile/bin/python" --no-deps --no-build-isolation .
         else
-          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/pypi-reconcile/bin/python" \
-            --group release "$LOCK"
+          uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+            --python "$RUNNER_TEMP/pypi-reconcile/bin/python" --group release \
+            --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes "$LOCK"
         fi
     - id: stage
       name: Stage files missing from PyPI
@@ -81,8 +83,10 @@ runs:
         VERSION: ${{ inputs.version }}
         DIST: ${{ inputs.dist }}
         MISSING_DIR: ${{ inputs.missing-dir }}
-      run: >-
-        "$RUNNER_TEMP/pypi-reconcile/bin/release-creator" artifacts --project "$PROJECT" --version "$VERSION" --dist "$DIST" --mode stage --missing-dir "$MISSING_DIR" --github-output "$GITHUB_OUTPUT"
+      run: |
+        "$RUNNER_TEMP/pypi-reconcile/bin/release-creator" artifacts --project "$PROJECT" \
+          --version "$VERSION" --dist "$DIST" --mode stage --missing-dir "$MISSING_DIR" \
+          --github-output "$GITHUB_OUTPUT"
     - id: manifest
       name: Record missing artifact names
       if: inputs.mode == 'stage'
@@ -108,5 +112,6 @@ runs:
         VERSION: ${{ inputs.version }}
         DIST: ${{ inputs.dist }}
         WAIT_SECONDS: ${{ inputs.wait-seconds }}
-      run: >-
-        "$RUNNER_TEMP/pypi-reconcile/bin/release-creator" artifacts --project "$PROJECT" --version "$VERSION" --dist "$DIST" --mode verify --wait-seconds "$WAIT_SECONDS"
+      run: |
+        "$RUNNER_TEMP/pypi-reconcile/bin/release-creator" artifacts --project "$PROJECT" \
+          --version "$VERSION" --dist "$DIST" --mode verify --wait-seconds "$WAIT_SECONDS"

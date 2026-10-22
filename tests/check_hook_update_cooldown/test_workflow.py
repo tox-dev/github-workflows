@@ -16,7 +16,7 @@ def test_cooldown_job_is_read_only_and_required() -> None:
     )
     job = workflow["jobs"]["hook-cooldown"]
     assert job["if"] == "github.event_name == 'pull_request'"
-    assert job["permissions"] == {"contents": "read", "pull-requests": "read"}
+    assert job["permissions"] == {"actions": "read", "contents": "read", "pull-requests": "read"}
     assert job["steps"][0] == {
         "uses": "$/check-hook-update-cooldown",
         "with": {

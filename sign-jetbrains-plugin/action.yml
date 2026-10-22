@@ -67,7 +67,7 @@ runs:
       run: |
         set -euo pipefail
         umask 077
-        trap 'rm -f "$RUNNER_TEMP/signing-key.pem" "$RUNNER_TEMP/signing-key-decrypted.pem" "$RUNNER_TEMP/signing-chain.pem"' EXIT
+        trap 'rm -f "$RUNNER_TEMP"/signing-{key,key-decrypted,chain}.pem' EXIT
         if [[ "$CERTIFICATE_CHAIN" == *'-----BEGIN CERTIFICATE-----'* ]]; then
           printf '%s' "$CERTIFICATE_CHAIN" >"$RUNNER_TEMP/signing-chain.pem"
         else

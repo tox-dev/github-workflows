@@ -59,19 +59,12 @@ jobs:
           version: latest-known
           python-version: ${{ inputs.python-version }}
           enable-cache: false
-      - name: Install locked check tools
-        env:
-          LOCK: ${{ inputs.lock }}
-          PYTHON_VERSION: ${{ inputs.python-version }}
-        run: |
-          uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/release-tools"
-          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release "$LOCK"
-      - name: Install locked local check tools
-        if: inputs.local-tool-source
-        env:
-          LOCK: ${{ inputs.lock }}
-        run: >-
-          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release --group fix "$LOCK"
+      - uses: $/install-locked-tools
+        with:
+          lock: ${{ inputs.lock }}
+          groups: ${{ inputs.local-tool-source && 'release fix' || 'release' }}
+          python-version: ${{ inputs.python-version }}
+          venv: ${{ runner.temp }}/release-tools
       - name: Run tagged source checks
         run: >-
           "$RUNNER_TEMP/release-tools/bin/prek" run --all-files
@@ -101,23 +94,17 @@ jobs:
           version: latest-known
           python-version: ${{ inputs.python-version }}
           enable-cache: false
-      - name: Install locked release tools
-        env:
-          LOCK: ${{ inputs.lock }}
-          PYTHON_VERSION: ${{ inputs.python-version }}
-        run: |
-          set -euo pipefail
-          uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/release-tools"
-          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release "$LOCK"
-          echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
+      - uses: $/install-locked-tools
+        with:
+          lock: ${{ inputs.lock }}
+          groups: ${{ inputs.local-tool-source && 'release fix build project-runtime' || 'release' }}
+          python-version: ${{ inputs.python-version }}
+          venv: ${{ runner.temp }}/release-tools
+      - name: Add locked tools to PATH
+        run: echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
       - name: Install the local release tool
         if: inputs.local-tool-source
-        env:
-          LOCK: ${{ inputs.lock }}
-        run: |
-          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" \
-            --group release --group fix --group build --group project-runtime "$LOCK"
-          uv pip install --python "$RUNNER_TEMP/release-tools/bin/python" --no-deps --no-build-isolation .
+        run: uv pip install --python "$RUNNER_TEMP/release-tools/bin/python" --no-deps --no-build-isolation .
       - name: Render tagged-source notes
         uses: $/render-release-notes
         with:

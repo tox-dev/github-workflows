@@ -79,8 +79,13 @@ runs:
           args+=(--generated-notes "$GENERATED_NOTES")
         fi
         release-creator notes "${args[@]}" >"$OUTPUT"
-        if [[ ! -s "$OUTPUT" ]] ||
-          [[ -n "$PREVIOUS" && $(grep -c '^\*\*Full Changelog\*\*:' "$OUTPUT") != 1 ]]; then
+        comparisons=0
+        while IFS= read -r line; do
+          case "$line" in
+          '**Full Changelog**:'*) comparisons=$((comparisons + 1)) ;;
+          esac
+        done <"$OUTPUT"
+        if [[ ! -s "$OUTPUT" ]] || [[ -n "$PREVIOUS" && "$comparisons" -ne 1 ]]; then
           echo '::error::release notes must contain one comparison link' >&2
           exit 1
         fi

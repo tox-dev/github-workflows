@@ -33,7 +33,9 @@ runs:
       run: |
         set -euo pipefail
         uv venv --python 3.15 "$RUNNER_TEMP/build-planner"
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/build-planner/bin/python" --group release "$LOCK"
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+          --python "$RUNNER_TEMP/build-planner/bin/python" --group release \
+          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes "$LOCK"
     - name: Select build interpreter
       shell: bash
       env:
@@ -46,8 +48,9 @@ runs:
         LOCK: ${{ inputs.lock }}
         SOURCE: ${{ inputs.source }}
       run: |
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/build-planner/bin/python" \
-          --group release --group build --group project-runtime "$LOCK"
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+          --python "$RUNNER_TEMP/build-planner/bin/python" --group release --group build --group project-runtime \
+          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes "$LOCK"
         uv pip install --python "$RUNNER_TEMP/build-planner/bin/python" --no-deps --no-build-isolation "$SOURCE"
     - name: Write backend constraints
       shell: bash
@@ -55,7 +58,9 @@ runs:
         LOCK: ${{ inputs.lock }}
       run: |
         "$RUNNER_TEMP/build-planner/bin/release-creator" build-constraints --lock "$LOCK" \
-          --python-version "$("$RUNNER_TEMP/build-python/bin/python" -c 'import platform; print(platform.python_version())')" \
+          --python-version "$(
+            "$RUNNER_TEMP/build-python/bin/python" -c 'import platform; print(platform.python_version())'
+          )" \
           --output "$RUNNER_TEMP/build-constraints.txt"
     - name: Build wheel and sdist
       shell: bash

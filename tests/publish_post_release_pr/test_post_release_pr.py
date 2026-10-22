@@ -145,6 +145,61 @@ def test_merged_branch_deleted_and_later_main_change_fails(
     assert [request.method for request, _ in server.log] == ["GET"] * 4
 
 
+@pytest.mark.parametrize(
+    ("state", "title", "accepted"),
+    [
+        pytest.param("closed", "Bump version to 2.4.8-dev", True, id="closed-unmerged"),
+        pytest.param("open", "Different title", False, id="open-metadata-changed"),
+    ],
+)
+def test_existing_pull_request_metadata(
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    state: str,
+    title: str,
+    accepted: bool,
+) -> None:
+    server, environment = github_api
+    body = tmp_path / "body.md"
+    body.write_text("Set the next development version.\n")
+    server.expect_request("/api/v3/repos/tox-dev/fixture/pulls", method="GET").respond_with_json(
+        [
+            {
+                "number": 7,
+                "state": state,
+                "merged_at": None,
+                "title": title,
+                "body": body.read_text(),
+                "base": {"ref": "main"},
+                "head": {"repo": {"full_name": "tox-dev/fixture"}, "ref": "post-release-v2.4.7"},
+            }
+        ]
+    )
+    result = subprocess.run(
+        ["bash", str(action_scripts / "publish-post-release-pr-3.sh")],
+        cwd=tmp_path,
+        env=os.environ
+        | environment
+        | {
+            "REPOSITORY": "tox-dev/fixture",
+            "BASE": "main",
+            "BRANCH": "post-release-v2.4.7",
+            "TITLE": "Bump version to 2.4.8-dev",
+            "BODY_FILE": str(body),
+            "RUNNER_TEMP": str(tmp_path),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is accepted, result.stderr
+    if accepted:
+        assert (tmp_path / "post-release-prs.json").read_text().strip() == "[]"
+    else:
+        assert "open pull request metadata changed" in result.stderr
+
+
 def run_git(directory: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(directory), *args], capture_output=True, text=True, check=True
@@ -264,8 +319,9 @@ def test_open_branch_must_match_prepared_candidate(
     assert all(request.method == "GET" for request, _ in server.log)
 
 
+@pytest.mark.parametrize("matching_head", [True, False], ids=["prepared-head", "changed-head"])
 def test_absent_branch_pushes_prepared_commit_and_opens_pr(
-    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]], matching_head: bool
 ) -> None:
     server, environment = github_api
     server.expect_ordered_request("/api/v3/users/fixture-app[bot]", method="GET").respond_with_json({"id": 123})
@@ -305,11 +361,17 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
     server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
         {"object": {"sha": commit}}
     )
-    server.expect_ordered_request(f"{prefix}/pulls", method="POST").respond_with_json({"number": 7}, status=201)
-    server.expect_ordered_request(f"{prefix}/issues/7/labels", method="GET").respond_with_json([])
-    server.expect_ordered_request(f"{prefix}/issues/7/labels", method="POST").respond_with_json(
-        [{"name": "skip news"}], status=200
+    server.expect_ordered_request(f"{prefix}/pulls", method="POST").respond_with_json(
+        {"number": 7, "head": {"sha": commit if matching_head else "b" * 40}}, status=201
     )
+    if matching_head:
+        server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
+            {"object": {"sha": commit}}
+        )
+        server.expect_ordered_request(f"{prefix}/issues/7/labels", method="GET").respond_with_json([])
+        server.expect_ordered_request(f"{prefix}/issues/7/labels", method="POST").respond_with_json(
+            [{"name": "skip news"}], status=200
+        )
     result = run_publish(
         action_scripts,
         cwd=tmp_path,
@@ -333,9 +395,9 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
             "GIT_CONFIG_GLOBAL": str(git_config),
         },
     )
-    assert result.returncode == 0, result.stderr
+    assert (result.returncode == 0) is matching_head, result.stderr
     assert run_git(remote, "rev-parse", "refs/heads/post-release-v2.4.7") == commit
-    assert (tmp_path / "output").read_text() == "pull-request=7\n"
+    assert (tmp_path / "output").exists() is matching_head
 
 
 @pytest.mark.parametrize(

@@ -57,6 +57,20 @@ runs:
           (.user.login | type == "string")
         ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null
         if [[ $(jq -r .user.login "$RUNNER_TEMP/hook-update-pr.json") == 'pre-commit-ci[bot]' ]]; then
+          gh api --paginate -X GET "repos/$REPOSITORY/actions/runs" -f event=pull_request \
+            -f head_sha="$HEAD_SHA" -f per_page=100 >"$RUNNER_TEMP/hook-update-runs.jsonl"
+          if ! jq -se --arg repository "$REPOSITORY" --arg branch "$(jq -r .head.ref "$RUNNER_TEMP/hook-update-pr.json")" \
+            --arg head "$HEAD_SHA" --argjson number "$PR_NUMBER" --argjson days "$MINIMUM_DAYS" '
+            [.[].workflow_runs[] | select(
+              .event == "pull_request" and .head_repository.full_name == $repository and
+              .head_branch == $branch and .head_sha == $head and
+              any(.pull_requests[]; .number == $number)
+            ) | .created_at | fromdateiso8601] as $observed |
+            ($observed | length) > 0 and ($observed | min) <= now - ($days * 86400)
+          ' "$RUNNER_TEMP/hook-update-runs.jsonl" >/dev/null; then
+            echo '::error::pull request head is still in its cooldown period' >&2
+            exit 1
+          fi
           echo 'bot=true' >>"$GITHUB_OUTPUT"
         fi
     - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -70,8 +84,10 @@ runs:
       shell: bash
       run: |
         uv venv --python 3.15 "$RUNNER_TEMP/hook-tools"
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/hook-tools/bin/python" \
-          --group release "$GITHUB_ACTION_PATH/../pylock.toml"
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+          --python "$RUNNER_TEMP/hook-tools/bin/python" --group release \
+          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes \
+          "$GITHUB_ACTION_PATH/../pylock.toml"
     - name: Read the base and proposed hook configurations
       if: steps.identity.outputs.bot == 'true'
       shell: bash
@@ -97,7 +113,7 @@ runs:
         "$RUNNER_TEMP/hook-tools/bin/prek" update -C "$RUNNER_TEMP/hook-cooldown" \
           --config "$RUNNER_TEMP/eligible-hooks.yaml" \
           --cooldown-days "$MINIMUM_DAYS" --no-progress
-    - name: Check proposed hook revisions
+    - name: Compare proposed hook revisions
       if: steps.identity.outputs.bot == 'true'
       shell: bash
       run: |
@@ -114,9 +130,55 @@ runs:
           ($base[0] | map({key: .repo, value: .rev}) | from_entries) as $old |
           ($eligible[0] | map({key: .repo, value: .rev}) | from_entries) as $allowed |
           ($proposed[0] | map({key: .repo, value: .rev}) | from_entries) as $new |
-          ($old | keys) == ($new | keys) and
-          all($new | to_entries[]; .value == $old[.key] or .value == $allowed[.key])
-        ' || {
+          if ($old | keys) != ($new | keys) then error("hook repositories changed")
+          else [$new | to_entries[] |
+            select(.value != $old[.key] and .value != $allowed[.key]) |
+            [.key, .value]] end
+        ' >"$RUNNER_TEMP/older-hook-revisions.json" || {
           echo '::error::Hook PR proposes a revision newer than the cooldown permits' >&2
           exit 1
         }
+        jq -r '.[] | @tsv' "$RUNNER_TEMP/older-hook-revisions.json" >"$RUNNER_TEMP/older-hook-revisions"
+    - name: Verify older pinned revisions
+      if: steps.identity.outputs.bot == 'true'
+      shell: bash
+      env:
+        MINIMUM_DAYS: ${{ inputs.minimum-days }}
+      run: |
+        set -euo pipefail
+        while IFS=$'\t' read -r repository revision; do
+          if [[ ${#revision} -eq 40 ]]; then
+            case "$revision" in
+            *[!0-9a-f]*) exit 1 ;;
+            esac
+            tags=()
+            while read -r commit ref; do
+              if [[ "$commit" == "$revision" ]]; then
+                tag=${ref#refs/tags/}
+                tags+=("${tag%"^{}"}")
+              fi
+            done < <(git ls-remote --tags "$repository")
+            options=(--freeze)
+          else
+            tags=("$revision")
+            options=()
+          fi
+          accepted=false
+          for tag in "${tags[@]}"; do
+            cp "$RUNNER_TEMP/base-hooks.yaml" "$RUNNER_TEMP/candidate-hooks.yaml"
+            "$RUNNER_TEMP/hook-tools/bin/prek" update -C "$RUNNER_TEMP/hook-cooldown" \
+              --config "$RUNNER_TEMP/candidate-hooks.yaml" --repo "$repository" \
+              --repo-include-tag "$repository=$tag" --cooldown-days "$MINIMUM_DAYS" \
+              "${options[@]}" --no-progress
+            selected=$(HOOK_REPOSITORY="$repository" "$RUNNER_TEMP/hook-tools/bin/yq" -r \
+              '.repos[] | select(.repo == env.HOOK_REPOSITORY) | .rev' "$RUNNER_TEMP/candidate-hooks.yaml")
+            if [[ "$selected" == "$revision" ]]; then
+              accepted=true
+              break
+            fi
+          done
+          if [[ "$accepted" != true ]]; then
+            echo "::error::hook revision is not eligible: $repository $revision" >&2
+            exit 1
+          fi
+        done <"$RUNNER_TEMP/older-hook-revisions"

@@ -1,0 +1,38 @@
+name: Install locked release tools
+description: Install selected pylock groups with hashed build dependencies
+inputs:
+  lock:
+    description: Full project pylock file
+    default: pylock.toml
+  groups:
+    description: Space-separated dependency groups to install
+    default: release
+  python-version:
+    description: Python version for the tool environment
+    default: "3.15"
+  venv:
+    description: Virtual environment directory
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install locked groups
+      shell: bash
+      env:
+        LOCK: ${{ inputs.lock }}
+        DEPENDENCY_GROUPS: ${{ inputs.groups }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        VENV: ${{ inputs.venv }}
+      run: |
+        set -euo pipefail
+        uv venv --python "$PYTHON_VERSION" "$VENV"
+        read -ra selected <<<"$DEPENDENCY_GROUPS"
+        groups=()
+        for group in "${selected[@]}"; do
+          groups+=(--group "$group")
+        done
+        test "${#groups[@]}" -gt 0
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+          --python "$VENV" "${groups[@]}" \
+          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" \
+          --require-build-hashes "$LOCK"

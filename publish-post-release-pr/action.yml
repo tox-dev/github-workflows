@@ -145,7 +145,9 @@ runs:
           git -C "$RUNNER_TEMP/post-release.git" fetch "$BUNDLE" \
             refs/heads/release-candidate:refs/heads/release-candidate >/dev/null
           test "$(git -C "$RUNNER_TEMP/post-release.git" rev-parse refs/heads/release-candidate)" = "$CANDIDATE_COMMIT"
-          read -r commit parent extra < <(git -C "$RUNNER_TEMP/post-release.git" rev-list --parents -n 1 "$CANDIDATE_COMMIT")
+          read -r commit parent extra < <(
+            git -C "$RUNNER_TEMP/post-release.git" rev-list --parents -n 1 "$CANDIDATE_COMMIT"
+          )
           test "$commit" = "$CANDIDATE_COMMIT"
           test "$parent" = "$BASE_COMMIT"
           test -z "${extra:-}"
@@ -158,7 +160,9 @@ runs:
             LC_ALL=C sort >"$RUNNER_TEMP/candidate-paths"
           cmp -s "$RUNNER_TEMP/expected-paths" "$RUNNER_TEMP/candidate-paths"
           while IFS=$'\t' read -r path blob; do
-            read -r mode object actual _ < <(git -C "$RUNNER_TEMP/post-release.git" ls-tree "$CANDIDATE_COMMIT" -- "$path")
+            read -r mode object actual _ < <(
+              git -C "$RUNNER_TEMP/post-release.git" ls-tree "$CANDIDATE_COMMIT" -- "$path"
+            )
             test "$mode" = 100644
             test "$object" = blob
             test "$actual" = "$blob"
@@ -176,14 +180,18 @@ runs:
         set -euo pipefail
         head_owner=${REPOSITORY%%/*}
         gh api -X GET "repos/$REPOSITORY/pulls" -f state=all -f "head=$head_owner:$BRANCH" -f per_page=100 \
-          >"$RUNNER_TEMP/post-release-prs.json"
-        jq -e --arg repository "$REPOSITORY" --arg title "$TITLE" --arg base "$BASE" --arg branch "$BRANCH" --rawfile body "$BODY_FILE" '
-          length <= 1 and all(.[];
+          >"$RUNNER_TEMP/post-release-all-prs.json"
+        jq -e --arg repository "$REPOSITORY" --arg title "$TITLE" --arg base "$BASE" \
+          --arg branch "$BRANCH" --rawfile body "$BODY_FILE" '
+          [.[] | select(.head.repo.full_name == $repository and .head.ref == $branch)] as $existing |
+          if any($existing[]; .state == "open" and
+            (.title != $title or .body != $body or .base.ref != $base)) then
+            error("open pull request metadata changed")
+          else [$existing[] | select(
             .title == $title and .body == $body and .base.ref == $base and
-            .head.repo.full_name == $repository and .head.ref == $branch and
-            (.state == "open" or (.state == "closed" and .merged_at != null))
-          )
-        ' "$RUNNER_TEMP/post-release-prs.json" >/dev/null
+            (.state == "open" or .merged_at != null)
+          )] | if length <= 1 then . else error("multiple matching pull requests") end end
+        ' "$RUNNER_TEMP/post-release-all-prs.json" >"$RUNNER_TEMP/post-release-prs.json"
     - name: Verify an already merged pull request
       shell: bash
       env:
@@ -224,9 +232,11 @@ runs:
           test -n "$BUNDLE"
           test "$(gh api "repos/$REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)" = "$BASE_COMMIT"
           pr_number=$(jq -r '.[0].number // empty' "$RUNNER_TEMP/post-release-prs.json")
-          if branch_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha 2>"$RUNNER_TEMP/branch-error"); then
+          if branch_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha \
+            2>"$RUNNER_TEMP/branch-error"); then
             read -r parent_count branch_parent branch_tree branch_author branch_email < <(
-              gh api "repos/$REPOSITORY/git/commits/$branch_sha" --jq '[(.parents | length), .parents[0].sha, .tree.sha, .author.name, .author.email] | @tsv'
+              gh api "repos/$REPOSITORY/git/commits/$branch_sha" \
+                --jq '[(.parents | length), .parents[0].sha, .tree.sha, .author.name, .author.email] | @tsv'
             )
             test "$parent_count" = 1
             test "$branch_parent" = "$BASE_COMMIT"
@@ -271,6 +281,8 @@ runs:
             case "$pr_number" in
             '' | 0* | *[!0-9]*) exit 1 ;;
             esac
+            test "$(jq -r .head.sha "$RUNNER_TEMP/post-release-created.json")" = "$branch_sha"
+            test "$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)" = "$branch_sha"
           fi
           printf '%s\n' "$pr_number" >"$RUNNER_TEMP/post-release-number"
         fi

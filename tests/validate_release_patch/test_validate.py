@@ -213,6 +213,7 @@ def test_validate_rejects_unexpected_path(repository: Path, tmp_path: Path, acti
         pytest.param("evil.feature.md", id="unsupported-stem"),
         pytest.param("7.bugfix.md", id="unconfigured-category"),
         pytest.param("7.feature.rst", id="wrong-format"),
+        pytest.param("7.feature.md", id="added-valid-fragment"),
     ],
 )
 def test_validate_rejects_unsupported_fragment_path(
@@ -239,6 +240,67 @@ def test_validate_rejects_unsupported_fragment_path(
     assert "unsupported release fragment" in result.stderr
 
 
+def test_validate_rejects_renamed_fragment_source(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    source = repository / "changelog.d/template.jinja"
+    source.write_text("Add a feature.\n")
+    run(repository, "git", "add", str(source.relative_to(repository)))
+    run(repository, "git", "commit", "-m", "Track release template")
+    run(repository, "git", "push", "origin", "main")
+    run(repository, "git", "mv", str(source.relative_to(repository)), "changelog.d/1.feature.md")
+    (repository / "CHANGELOG.md").write_text("# Changelog\n\n## 0.2.0 (2026-10-22)\n\n- Add a feature.\n")
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        CHECKS="false",
+        EXPECTED_PATCH_SHA=sha256((tmp_path / "release.patch").read_bytes()).hexdigest(),
+    )
+    assert result.returncode != 0
+    assert "unsupported release fragment" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "error"),
+    [
+        pytest.param("[tool.towncrier]", "[tool.other]", "configuration and categories", id="missing-config"),
+        pytest.param('directory = "changelog.d"\n', "", "paths do not match", id="missing-directory"),
+        pytest.param('filename = "CHANGELOG.md"\n', "", "paths do not match", id="missing-filename"),
+        pytest.param(
+            'type = [{ directory = "feature", name = "Added", showcontent = true }]\n',
+            "",
+            "configuration and categories",
+            id="missing-categories",
+        ),
+    ],
+)
+def test_validate_requires_explicit_towncrier_config(
+    repository: Path, tmp_path: Path, action_scripts: Path, before: str, after: str, error: str
+) -> None:
+    project = repository / "pyproject.toml"
+    project.write_text(project.read_text().replace(before, after))
+    run(repository, "git", "add", "pyproject.toml")
+    run(repository, "git", "commit", "-m", "Remove release configuration")
+    run(repository, "git", "push", "origin", "main")
+    (repository / "CHANGELOG.md").write_text("# Changelog\n\n## 0.2.0 (2026-10-22)\n\n- Add a feature.\n")
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        CHECKS="false",
+        EXPECTED_PATCH_SHA=sha256((tmp_path / "release.patch").read_bytes()).hexdigest(),
+    )
+    assert result.returncode != 0
+    assert error in result.stderr
+
+
 @pytest.mark.parametrize(
     "file_mode",
     [pytest.param("executable", id="executable"), pytest.param("symlink", id="symlink")],
@@ -250,9 +312,9 @@ def test_validate_rejects_unsafe_file_mode(
     if file_mode == "executable":
         (repository / "CHANGELOG.md").chmod(0o755)
     else:
-        (repository / "changelog.d").mkdir(exist_ok=True)
-        (repository / "changelog.d/+link.feature.md").symlink_to("../CHANGELOG.md")
-        run(repository, "git", "add", "changelog.d/+link.feature.md")
+        (repository / "CHANGELOG.md").unlink()
+        (repository / "CHANGELOG.md").symlink_to("pyproject.toml")
+        run(repository, "git", "add", "CHANGELOG.md")
     (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
     run(repository, "git", "reset", "--hard", "HEAD")
     result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")

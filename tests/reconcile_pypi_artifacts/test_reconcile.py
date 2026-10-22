@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tomllib
 from pathlib import Path
@@ -16,7 +17,9 @@ def execute(script: Path, directory: Path, **settings: str) -> subprocess.Comple
     return subprocess.run(
         ["bash", str(script)],
         cwd=directory,
-        env=os.environ | settings,
+        env=os.environ
+        | {"GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "reconcile-pypi-artifacts")}
+        | settings,
         text=True,
         capture_output=True,
         check=False,
@@ -123,16 +126,21 @@ def test_local_source_install_uses_checked_out_project(tmp_path: Path, action_sc
     assert "artifacts" in version
     workflow = yaml.safe_load((source / ".github/workflows/prepare-towncrier-release.yaml").read_text())
     for job in ("assemble", "validate"):
-        for step in workflow["jobs"][job]["steps"]:
-            if step.get("name") in {"Install locked release tools", "Install the tagged release tool"}:
-                script = tmp_path / "prepare-install.sh"
-                script.write_text(step["run"])
-                result = execute(
-                    script,
-                    project,
-                    PYTHON_VERSION="3.15",
-                    LOCK=str(project / "pylock.toml"),
-                    GITHUB_PATH=str(tmp_path / "path"),
-                )
-                assert result.returncode == 0, result.stderr
+        steps = workflow["jobs"][job]["steps"]
+        assert any(step.get("uses") == "$/install-locked-tools" for step in steps)
+        result = execute(
+            action_scripts / "install-locked-tools-0.sh",
+            project,
+            LOCK=str(project / "pylock.toml"),
+            DEPENDENCY_GROUPS="release fix build project-runtime",
+            PYTHON_VERSION="3.15",
+            VENV=str(project / ".venv"),
+            GITHUB_ACTION_PATH=str(source / "install-locked-tools"),
+        )
+        assert result.returncode == 0, result.stderr
+        script = tmp_path / "prepare-install.sh"
+        script.write_text(next(step["run"] for step in steps if step.get("name") == "Install the tagged release tool"))
+        result = execute(script, project)
+        assert result.returncode == 0, result.stderr
         assert "artifacts" in run(project, str(project / ".venv/bin/release-creator"), "--help").stdout
+        shutil.rmtree(project / ".venv")

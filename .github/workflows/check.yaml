@@ -23,11 +23,12 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: Install locked tools
-        run: |
-          uv venv --python 3.15 .venv
-          uv pip sync --preview-features pylock --python .venv/bin/python --group release --group test pylock.toml
-          echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
+      - uses: $/install-locked-tools
+        with:
+          groups: release test
+          venv: .venv
+      - name: Add locked tools to PATH
+        run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - name: Check repository formatting
         run: prek run --all-files
       - name: Check Python types
@@ -64,17 +65,17 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: Install locked release tools
-        run: |
-          set -euo pipefail
-          uv venv --python 3.15 "$RUNNER_TEMP/release-tools"
-          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release pylock.toml
-          echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
+      - uses: $/install-locked-tools
+        with:
+          venv: ${{ runner.temp }}/release-tools
+      - name: Add locked tools to PATH
+        run: echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
       - uses: $/validate-news
   hook-cooldown:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     steps:
@@ -100,6 +101,7 @@ jobs:
       - uses: $/refresh-release-lock
         with:
           python-version: "3.15"
+          build-constraints: release-build-constraints.txt
           exclude-newer-packages: release-creator=2026-10-22T06:33:00Z
   gate:
     name: ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Required checks pass (non-PR)' }}
