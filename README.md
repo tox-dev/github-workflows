@@ -103,13 +103,13 @@ jobs:
           extension: rst
 ```
 
-`resolve-pr-from-run` needs the source run ID and PR workflow path. Its optional `repository` input defaults to the
+`resolve-pr-from-run` takes the source `run-id` and `workflow-path`. Its optional `repository` input defaults to the
 caller repository. It outputs `number` and `bot-author`; `number` is empty when the run's head is no longer the open PR
 head. It reads GitHub metadata and writes no repository files. `label-bot-news` takes that verified number and bot flag.
-For `.changeset/<name>.md`, pass `fragments: .changeset` and `fragment-style: changeset`; the default `towncrier` style
-expects `<name>.<category>.md` or RST. It only changes the `skip news` label when the bot's fragment state and label
-disagree. Label writes made with `GITHUB_TOKEN` do not trigger PR CI. The next contributor or bot update runs the news
-check against the settled label state.
+For `.changeset/<name>.md`, pass `fragments: .changeset` and `fragment-style: changeset`. `fragment-style` defaults to
+`towncrier`, which expects `<name>.<category>.md` or RST. It only changes the `skip news` label when the bot's fragment
+state and label disagree. Label writes made with `GITHUB_TOKEN` do not trigger PR CI. The next contributor or bot update
+runs the news check against the settled label state.
 
 ## Refresh release tools and hooks
 
@@ -238,6 +238,10 @@ hook-cooldown:
 
 The aggregate must require `hook-cooldown` to succeed on PRs and allow it to skip on non-PR events. Rehearse a young
 pre-commit.ci PR against the repository's actual required aggregate before relying on the gate.
+
+`repository` identifies the PR's base repository, `pull-request` is its number, and `head-sha` must match the triggering
+event's head. `minimum-days` defaults to 7. The Action has no output or write side effect; a rejected revision fails its
+job.
 
 Schedule `recheck-hook-update-cooldown` once a day in a separate workflow with `actions: write`, `contents: read`, and
 `pull-requests: read`. It reruns the current head's failed `hook-cooldown` job each day; that job checks the proposed
@@ -633,11 +637,11 @@ output directory must be fresh and outside `dist`. It rejects unknown, duplicate
 copies bytes only from `dist`. Its `selected-count` output controls the PyPI upload step. The manifest supplies names
 only; it is not a source of publishable bytes.
 
-For a build matrix whose jobs each hold one distribution artifact, set `partitioned: "true"` and omit `expected-count`.
-Each cell selects names present in its original artifact and uploads its `selected-manifest` as a separate artifact.
-Before public release, download all cell manifests into one directory and run `verify-pypi-partitions` with the global
-stage `manifest`, `partitions-dir`, and `expected-partitions`. It rejects duplicate, missing, and extra names. The
-keyless full-set PyPI verification still checks the published bytes.
+For a build matrix whose jobs each hold one distribution artifact, set `partitioned` to `"true"` and omit
+`expected-count`. Each cell selects names present in its original artifact and uploads its `selected-manifest` as a
+separate artifact. Before public release, download all cell manifests into one directory and run
+`verify-pypi-partitions` with the global stage `manifest`, `partitions-dir`, and `expected-partitions`. It rejects
+duplicate, missing, and extra names. The keyless full-set PyPI verification still checks the published bytes.
 
 ## Publish a GitHub Release
 
@@ -710,8 +714,12 @@ steps.
 ```
 
 The Action derives the bot identity from the writer's App slug and verifies the commit author, single-parent commit,
-changed path set against the writer's `allowed-paths`, regular file modes, and blob identities before any write. A
-matching open branch and PR need no second push. If a matching branch has no PR, it creates one. A merged PR with a
+changed path set against the writer's `allowed-paths`, regular file modes, and blob identities before any write.
+
+Pass the keyless job's `base-commit`, the desired `branch` and `title`, and the exact PR body in `body-file`.
+`paths-file` contains one tab-separated path and desired Git blob SHA1 per line. `label` defaults to `skip news`.
+
+A matching open branch and PR need no second push. If a matching branch has no PR, it creates one. A merged PR with a
 deleted branch succeeds only when the current base still has the expected file bytes. A closed, unmerged PR fails before
 the Action creates a replacement branch or PR; reopen the PR before retrying. A different branch, PR title, body, base,
 path set, or merged file state fails without a force-push. When the prepared change has already merged and produced no
