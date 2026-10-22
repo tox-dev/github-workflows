@@ -160,12 +160,17 @@ def action(
     command = list(_GITHUB_BASH)
     for index, step in enumerate(steps):
         if step.get("uses") == "$/install-locked-tools":
-            groups = environment.get("VALIDATION_GROUP", "release")
+            group_input = {
+                "build-python-distribution": "PLANNER_GROUP",
+                "reconcile-pypi-artifacts": "TOOL_GROUP",
+                "validate-python-distribution": "VALIDATION_GROUP",
+            }[name]
+            groups = environment.get(group_input, "pkg-meta" if name == "validate-python-distribution" else "release")
             if (
                 name in {"build-python-distribution", "reconcile-pypi-artifacts"}
                 and environment.get("LOCAL_TOOL_SOURCE") == "true"
             ):
-                groups = "release build project-runtime"
+                groups = f"{groups} build project-runtime"
             destination = {
                 "build-python-distribution": "build-planner",
                 "reconcile-pypi-artifacts": "pypi-reconcile",

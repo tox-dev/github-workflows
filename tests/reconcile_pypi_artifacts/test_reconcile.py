@@ -10,7 +10,7 @@ from urllib.request import urlopen
 
 import pytest
 import yaml
-from conftest import run
+from conftest import action, run
 
 
 def execute(script: Path, directory: Path, **settings: str) -> subprocess.CompletedProcess[str]:
@@ -36,24 +36,22 @@ def distribution(tmp_path: Path) -> Path:
 
 def test_stage_selects_missing_artifact(distribution: Path, tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    environment = {
-        "PROJECT": "codex-fixture-never-publish",
-        "VERSION": "999999",
-        "DIST": str(distribution),
-        "MODE": "stage",
-        "LOCK": str(source / "pylock.toml"),
-        "PYTHON_VERSION": "3.15",
-        "LOCAL_TOOL_SOURCE": "false",
-        "RUNNER_TEMP": str(tmp_path),
-        "MISSING_DIR": str(tmp_path / "missing"),
-        "GITHUB_OUTPUT": str(tmp_path / "output"),
-    }
-    result = execute(action_scripts / "reconcile-pypi-artifacts-0.sh", source, **environment)
+    result = action(
+        source,
+        tmp_path,
+        action_scripts,
+        "reconcile-pypi-artifacts",
+        version="999999",
+        PROJECT="codex-fixture-never-publish",
+        DIST=str(distribution),
+        MODE="stage",
+        LOCK=str(source / "pylock.toml"),
+        PYTHON_VERSION="3.15",
+        LOCAL_TOOL_SOURCE="false",
+        TOOL_GROUP="release-notes",
+        MISSING_DIR=str(tmp_path / "missing"),
+    )
     assert result.returncode == 0, result.stderr
-    install_reconcile(action_scripts, source, tmp_path)
-    for index in (3, 4):
-        result = execute(action_scripts / f"reconcile-pypi-artifacts-{index}.sh", source, **environment)
-        assert result.returncode == 0, result.stderr
     assert (tmp_path / "output").read_text().splitlines() == [
         "missing_count=1",
         f"path={tmp_path}/pypi-missing-names.txt",
