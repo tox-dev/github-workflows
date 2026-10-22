@@ -46,6 +46,7 @@ def test_install_locked_tools_installs_groups(tmp_path: Path, action_scripts: Pa
         pytest.param("release-news", "towncrier", "prek", id="pr-news"),
         pytest.param("release-validate", "release-creator", "towncrier", id="patch-validation"),
         pytest.param("release-shell", "yq", "release-creator", id="inline-shell"),
+        pytest.param("release-hooks", "towncrier", "twine", id="action-tests"),
     ],
 )
 def test_install_locked_tools_selects_job_tools(
