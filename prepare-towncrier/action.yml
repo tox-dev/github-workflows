@@ -1,5 +1,5 @@
 name: Prepare Towncrier release
-description: Resolve a version, build the changelog, run prek, and write a release patch
+description: Resolve a version, build and format the changelog, and write a release patch
 inputs:
   bump:
     description: Version bump passed to release-creator tags
@@ -139,12 +139,14 @@ runs:
           echo '::error::release preparation has no release notes' >&2
           exit 1
         fi
-    - name: Run repository checks
-      shell: bash
-      run: prek run --all-files
     - name: Check generated files
       shell: bash
+      env:
+        CHANGELOG: ${{ inputs.changelog }}
       run: |
+        if [[ -f "$CHANGELOG" ]] && ! git ls-files --error-unmatch "$CHANGELOG" >/dev/null 2>&1; then
+          git add -N -- "$CHANGELOG"
+        fi
         if [[ -n $(git ls-files --others --exclude-standard) ]]; then
           echo '::error::release preparation created untracked files' >&2
           exit 1
@@ -156,6 +158,9 @@ runs:
         CHANGELOG: ${{ inputs.changelog }}
       run: |
         set -euo pipefail
+        diff_file=$(mktemp)
+        trap 'rm -f "$diff_file"' EXIT
+        git diff HEAD --unified=0 -- "$CHANGELOG" >"$diff_file"
         while IFS= read -r line; do
           case "$line" in
           +'<<<<<<<'* | +'|||||||'* | +'>>>>>>>'*)
@@ -163,7 +168,7 @@ runs:
             exit 1
             ;;
           esac
-        done < <(git diff HEAD --unified=0 -- "$CHANGELOG")
+        done <"$diff_file"
         printf '%s conflict-marker-size=10\n' "$CHANGELOG" >>"$(git rev-parse --git-path info/attributes)"
     - name: Write release patch
       shell: bash

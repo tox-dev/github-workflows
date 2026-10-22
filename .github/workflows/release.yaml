@@ -4,7 +4,31 @@ on:
     tags: ["*"]
 permissions:
   contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
+  check:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - uses: $/install-locked-tools
+        with:
+          groups: release-check
+          venv: .venv
+      - name: Check tagged source
+        run: .venv/bin/prek run --all-files
+      - name: Check source remains clean
+        run: test -z "$(git status --porcelain)"
   source:
     runs-on: ubuntu-26.04
     permissions:
@@ -24,9 +48,8 @@ jobs:
           enable-cache: false
       - uses: $/install-locked-tools
         with:
+          groups: release-notes
           venv: .venv
-      - name: Check tagged source
-        run: .venv/bin/prek run --all-files
       - name: Verify tag and select previous release
         id: tag
         env:
@@ -81,6 +104,7 @@ jobs:
           enable-cache: false
       - uses: $/install-locked-tools
         with:
+          groups: release-notes
           venv: .venv
       - name: Add locked tools to PATH
         run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
@@ -102,7 +126,7 @@ jobs:
           path: ${{ runner.temp }}/release-notes.md
           if-no-files-found: error
   publish:
-    needs: [source, notes]
+    needs: [check, source, notes]
     runs-on: ubuntu-26.04
     permissions:
       contents: write

@@ -353,14 +353,21 @@ def test_upgrade_checks_refreshed_lock(
         PYTHON_VERSION="3.15",
     )
     assert exporter.returncode == 0, exporter.stderr
-    installed = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-6.sh",
-        tmp_path,
-        LOCK="pylock.toml",
-        PYTHON_VERSION="3.15",
-    )
-    assert installed.returncode == 0, installed.stderr
+    source = Path(__file__).resolve().parents[2]
+    refresh = yaml.safe_load((source / "refresh-release-lock/action.yml").read_text())
+    assert refresh["runs"]["steps"][6]["uses"] == "$/install-locked-tools"
+    for index in range(3):
+        installed = execute(
+            lock_repository,
+            upgrade_scripts / f"install-locked-tools-{index}.sh",
+            tmp_path,
+            GITHUB_ACTION_PATH=str(source / "install-locked-tools"),
+            LOCK="pylock.toml",
+            DEPENDENCY_GROUPS="release",
+            VENV=str(tmp_path / "release-tools"),
+            PYTHON_VERSION="3.15",
+        )
+        assert installed.returncode == 0, installed.stderr
     checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-7.sh", tmp_path)
     assert checked.returncode == 0, checked.stderr
     result = execute(

@@ -117,10 +117,17 @@ def test_multipart_upload_uses_exact_archive_and_channel(
 def test_missing_token_fails_without_request(
     signed_archive: Path, tmp_path: Path, action_scripts: Path, httpserver: HTTPServer
 ) -> None:
+    script = tmp_path / "upload.sh"
+    script.write_text(
+        (action_scripts / "publish-jetbrains-marketplace-1.sh")
+        .read_text()
+        .replace("https://plugins.jetbrains.com/api/updates/upload", httpserver.url_for("/api/updates/upload"))
+    )
     result = execute(
-        action_scripts / "publish-jetbrains-marketplace-1.sh",
+        script,
         tmp_path,
         ARCHIVE=str(signed_archive),
+        EXPECTED_SHA=sha256(signed_archive.read_bytes()).hexdigest(),
         PLUGIN_ID="29973",
         CHANNEL="",
         PUBLISH_TOKEN="",

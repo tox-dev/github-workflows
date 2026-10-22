@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import tomllib
 from textwrap import dedent
 lazy from pathlib import Path
@@ -154,3 +156,29 @@ def test_build_python_distribution_does_not_run_hooks(
     )
     assert result.returncode == 0, result.stderr
     assert not (build_repository / "generated-file").exists()
+
+
+def test_build_python_distribution_stops_when_interpreter_lookup_fails(tmp_path: Path, action_scripts: Path) -> None:
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    (tools / "uv").write_text(
+        '#!/usr/bin/env bash\nif [[ "$1" == python ]]; then exit 19; fi\n'
+        'printf "build called\\n" >>"$RUNNER_TEMP/build-calls"\n',
+    )
+    (tools / "uv").chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", str(action_scripts / "build-python-distribution-6.sh")],
+        cwd=tmp_path,
+        env=os.environ
+        | {
+            "PATH": f"{tools}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "SOURCE": ".",
+            "OUT_DIR": "dist",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert not (tmp_path / "build-calls").exists()

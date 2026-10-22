@@ -140,6 +140,7 @@ runs:
       run: |
         set -euo pipefail
         if [[ -n "$BUNDLE" ]]; then
+          BUNDLE=$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$BUNDLE")
           git init --bare "$RUNNER_TEMP/post-release.git" >/dev/null
           git -C "$RUNNER_TEMP/post-release.git" bundle verify "$BUNDLE" >/dev/null
           git -C "$RUNNER_TEMP/post-release.git" fetch "$BUNDLE" \

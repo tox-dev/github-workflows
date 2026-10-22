@@ -10,3 +10,13 @@ updates:
     labels:
       - dependencies
       - skip news
+  - package-ecosystem: github-actions
+    directory: /check-hook-update-cooldown
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+      day: tuesday
+    labels:
+      - dependencies
+      - skip news

@@ -33,6 +33,7 @@ jobs:
           enable-cache: false
       - uses: $/install-locked-tools
         with:
+          groups: release-prepare
           venv: .venv
       - name: Add locked tools to PATH
         run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
@@ -71,6 +72,7 @@ jobs:
           enable-cache: false
       - uses: $/install-locked-tools
         with:
+          groups: release-validate
           venv: .venv
       - name: Add locked tools to PATH
         run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"

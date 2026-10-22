@@ -5,22 +5,24 @@ and test its inputs and outputs before opening a pull request.
 
 ## Set up
 
-Use Python 3.15 and the checked-in release-tool lock:
+Use Python 3.15. Install the release tools from the lock and test tools from the current index:
 
 ```bash
-uv venv --python 3.15 .venv
+uv venv --python 3.15 .release-tools
 uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
-  --python .venv/bin/python --group release --group test \
+  --python .release-tools/bin/python --group release-hooks \
   --build-constraints release-build-constraints.txt --require-build-hashes pylock.toml
-export PATH="$PWD/.venv/bin:$PATH"
+uv venv --python 3.15 .venv
+uv pip install --python .venv/bin/python --group test
+export PATH="$PWD/.release-tools/bin:$PWD/.venv/bin:$PATH"
 ```
 
 Run the checks before pushing:
 
 ```bash
 prek run --all-files
-tox run -e type
-pytest -q
+.venv/bin/tox run -e type
+.venv/bin/pytest -q -n auto
 ```
 
 `prek` formats YAML with `yamlfmt` and runs zizmor. Run it again after accepting formatter changes. CI extracts inline

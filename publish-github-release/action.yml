@@ -94,6 +94,9 @@ runs:
         set -euo pipefail
         gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
           jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-existing.json"
+        if jq -e 'length == 1' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
+          jq -er '.[0].id' "$RUNNER_TEMP/release-existing.json" >"$RUNNER_TEMP/release-id"
+        fi
         jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
           --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
             length <= 1 and all(.[];
@@ -121,9 +124,13 @@ runs:
       run: |
         set -euo pipefail
         if [[ "$MODE" != publish ]] && jq -e 'length == 0' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
-          args=(--draft --verify-tag --target "$COMMIT" --title "$TITLE" --notes-file "$NOTES_FILE")
-          if [[ "$PRERELEASE" == true ]]; then args+=(--prerelease); fi
-          gh release create "$TAG" --repo "$GH_REPO" "${args[@]}"
+          jq -n --arg tag "$TAG" --arg commit "$COMMIT" --arg title "$TITLE" \
+            --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+            '{tag_name: $tag, target_commitish: $commit, name: $title, body: $body,
+              draft: true, prerelease: $prerelease}' >"$RUNNER_TEMP/release-request.json"
+          gh api -X POST "repos/$GH_REPO/releases" --input "$RUNNER_TEMP/release-request.json" \
+            >"$RUNNER_TEMP/release-created.json"
+          jq -er '.id | select(type == "number")' "$RUNNER_TEMP/release-created.json" >"$RUNNER_TEMP/release-id"
         fi
     - name: Upload missing draft assets
       shell: bash
@@ -139,9 +146,9 @@ runs:
         set -euo pipefail
         if [[ "$MODE" != publish && -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob
+          release_id=$(<"$RUNNER_TEMP/release-id")
           for attempt in {1..6}; do
-            gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
-              jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-current.json"
+            gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-current.json"
             if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
               --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
                 length == 1 and .[0].name == $title and .[0].body == $body and
@@ -185,9 +192,9 @@ runs:
         PRERELEASE: ${{ inputs.prerelease }}
       run: |
         set -euo pipefail
+        release_id=$(<"$RUNNER_TEMP/release-id")
         for attempt in {1..6}; do
-          gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
-            jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-complete.json"
+          gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-complete.json"
           if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
             --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
               length == 1 and .[0].name == $title and .[0].body == $body and
@@ -209,7 +216,7 @@ runs:
       run: |
         set -euo pipefail
         if [[ "$MODE" != stage ]] && jq -e '.[0].draft' "$RUNNER_TEMP/release-complete.json" >/dev/null; then
-          release_id=$(jq -r '.[0].id' "$RUNNER_TEMP/release-complete.json")
+          release_id=$(<"$RUNNER_TEMP/release-id")
           gh api -X PATCH "repos/$GH_REPO/releases/$release_id" -F draft=false >/dev/null
         fi
     - name: Verify the final release state
@@ -223,9 +230,9 @@ runs:
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
+        release_id=$(<"$RUNNER_TEMP/release-id")
         for attempt in {1..6}; do
-          gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
-            jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-published.json"
+          gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-published.json"
           if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
             --arg mode "$MODE" \
             --slurpfile assets "$RUNNER_TEMP/release-assets.json" '

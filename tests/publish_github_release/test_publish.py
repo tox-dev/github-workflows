@@ -31,33 +31,28 @@ def test_published_release_is_verified_without_writes(
         (assets / "fixture.zip").write_bytes(b"release archive")
     commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
     prefix = "/api/v3/repos/tox-dev/fixture"
-    server.expect_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+    server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
         {"object": {"type": "commit", "sha": commit}}
     )
-    for _ in range(3):
-        server.expect_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
-            [
-                {
-                    "tag_name": "0.1.0",
-                    "name": "0.1.0",
-                    "body": notes.read_text(),
-                    "draft": False,
-                    "prerelease": False,
-                    "assets": (
-                        [
-                            {
-                                "name": "fixture.zip",
-                                "digest": f"sha256:{sha256(b'release archive').hexdigest()}",
-                                "state": "uploaded",
-                            }
-                        ]
-                        if with_asset
-                        else []
-                    ),
-                    "target_commitish": "main",
-                },
-            ],
-        )
+    release = {
+        "id": 42,
+        "tag_name": "0.1.0",
+        "name": "0.1.0",
+        "body": notes.read_text(),
+        "draft": False,
+        "prerelease": False,
+        "assets": (
+            [{"name": "fixture.zip", "digest": f"sha256:{sha256(b'release archive').hexdigest()}", "state": "uploaded"}]
+            if with_asset
+            else []
+        ),
+        "target_commitish": "main",
+    }
+    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
+        [release],
+    )
+    for _ in range(2 + int(with_asset or empty_directory)):
+        server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(release)
     result = action(
         repository,
         tmp_path,
@@ -74,7 +69,11 @@ def test_published_release_is_verified_without_writes(
         **environment,
     )
     assert result.returncode == 0, result.stderr
-    assert [request.method for request, _ in server.log] == ["GET"] * (5 if with_asset or empty_directory else 4)
+    assert [request.path for request, _ in server.log] == [
+        f"{prefix}/git/ref/tags/0.1.0",
+        f"{prefix}/releases",
+        *[f"{prefix}/releases/42"] * (2 + int(with_asset or empty_directory)),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -102,6 +101,7 @@ def test_existing_release_rejects_changed_content(
     commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
     prefix = "/api/v3/repos/tox-dev/fixture"
     release = {
+        "id": 42,
         "tag_name": "0.1.0",
         "name": "0.1.0",
         "body": notes.read_text(),
@@ -177,25 +177,26 @@ def test_annotated_tag_points_to_expected_commit(
     notes.write_text("Release notes.\n")
     commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
     prefix = "/api/v3/repos/tox-dev/fixture"
-    server.expect_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+    server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
         {"object": {"type": "tag", "sha": "2" * 40}},
     )
-    server.expect_request(f"{prefix}/git/tags/{'2' * 40}", method="GET").respond_with_json(
+    server.expect_ordered_request(f"{prefix}/git/tags/{'2' * 40}", method="GET").respond_with_json(
         {"object": {"type": "commit", "sha": commit}},
     )
-    for _ in range(3):
-        server.expect_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
-            [
-                {
-                    "tag_name": "0.1.0",
-                    "name": "0.1.0",
-                    "body": notes.read_text(),
-                    "draft": False,
-                    "prerelease": False,
-                    "assets": [],
-                }
-            ],
-        )
+    release = {
+        "id": 42,
+        "tag_name": "0.1.0",
+        "name": "0.1.0",
+        "body": notes.read_text(),
+        "draft": False,
+        "prerelease": False,
+        "assets": [],
+    }
+    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
+        [release],
+    )
+    for _ in range(2):
+        server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(release)
     result = action(
         repository,
         tmp_path,
@@ -215,7 +216,8 @@ def test_annotated_tag_points_to_expected_commit(
     assert [request.path for request, _ in server.log] == [
         f"{prefix}/git/ref/tags/0.1.0",
         f"{prefix}/git/tags/{'2' * 40}",
-        *[f"{prefix}/releases"] * 3,
+        f"{prefix}/releases",
+        *[f"{prefix}/releases/42"] * 2,
     ]
 
 
@@ -351,10 +353,11 @@ def test_publish_rejects_incomplete_draft_without_upload(
     server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
         {"object": {"type": "commit", "sha": commit}}
     )
-    for _ in range(7):
-        server.expect_ordered_request(
-            f"{prefix}/releases", query_string="per_page=100", method="GET"
-        ).respond_with_json([draft])
+    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
+        [draft],
+    )
+    for _ in range(6):
+        server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(draft)
     result = action(
         repository,
         tmp_path,
@@ -433,15 +436,13 @@ def test_matching_draft_is_published_without_recreation(
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
         [draft],
     )
-    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
-        [draft],
-    )
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(draft)
     if mode != "stage":
         server.expect_ordered_request(f"{prefix}/releases/42", method="PATCH").respond_with_json(
             draft | {"draft": False}
         )
-    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
-        [draft | {"draft": mode == "stage"}],
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(
+        draft | {"draft": mode == "stage"},
     )
     result = action(
         repository,
@@ -470,13 +471,12 @@ def test_matching_draft_is_published_without_recreation(
 
 
 @pytest.mark.parametrize(
-    ("is_prerelease", "mode", "delayed"),
+    ("is_prerelease", "mode"),
     [
-        pytest.param(False, "stage", False, id="stable-stage"),
-        pytest.param(True, "stage", False, id="prerelease-stage"),
-        pytest.param(False, "complete", False, id="stable-complete"),
-        pytest.param(True, "complete", False, id="prerelease-complete"),
-        pytest.param(False, "complete", True, id="delayed-release-list"),
+        pytest.param(False, "stage", id="stable-stage"),
+        pytest.param(True, "stage", id="prerelease-stage"),
+        pytest.param(False, "complete", id="stable-complete"),
+        pytest.param(True, "complete", id="prerelease-complete"),
     ],
 )
 def test_missing_release_is_created_and_published(
@@ -486,7 +486,6 @@ def test_missing_release_is_created_and_published(
     github_api: tuple[HTTPServer, dict[str, str]],
     is_prerelease: bool,
     mode: str,
-    delayed: bool,
 ) -> None:
     server, environment = github_api
     notes = tmp_path / "notes.md"
@@ -506,27 +505,14 @@ def test_missing_release_is_created_and_published(
         {"object": {"type": "commit", "sha": commit}}
     )
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json([])
-    server.expect_ordered_request("/api/graphql", method="POST").respond_with_json(
-        {"data": {"repository": {"ref": {"id": "REF_test"}}}},
-    )
     server.expect_ordered_request(f"{prefix}/releases", method="POST").respond_with_json(release, status=201)
-    if delayed:
-        server.expect_ordered_request(
-            f"{prefix}/releases", query_string="per_page=100", method="GET"
-        ).respond_with_json([])
-    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
-        [release],
-    )
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(release)
     if mode == "complete":
         server.expect_ordered_request(f"{prefix}/releases/42", method="PATCH").respond_with_json(
             release | {"draft": False},
         )
-    if delayed:
-        server.expect_ordered_request(
-            f"{prefix}/releases", query_string="per_page=100", method="GET"
-        ).respond_with_json([release])
-    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
-        [release | {"draft": mode == "stage"}],
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(
+        release | {"draft": mode == "stage"},
     )
     result = action(
         repository,
@@ -550,13 +536,21 @@ def test_missing_release_is_created_and_published(
         "GET",
         "GET",
         "POST",
-        "POST",
-        *(["GET"] if delayed else []),
         "GET",
         *([] if mode == "stage" else ["PATCH"]),
-        *(["GET"] if delayed else []),
         "GET",
     ]
+    request = next(
+        request for request, _ in server.log if request.path == f"{prefix}/releases" and request.method == "POST"
+    )
+    assert request.get_json() == {
+        "tag_name": "0.1.0",
+        "target_commitish": commit,
+        "name": "0.1.0",
+        "body": notes.read_text(),
+        "draft": True,
+        "prerelease": is_prerelease,
+    }
 
 
 @pytest.mark.parametrize("mode", ["stage", "complete"])
@@ -595,24 +589,22 @@ def test_draft_release_resumes_missing_asset(
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
         [release],
     )
-    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
-        [release],
-    )
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(release)
     server.expect_ordered_request(
         f"{prefix}/releases/42/assets",
         query_string=f"name={asset_name.replace('+', '%2B').replace(' ', '%20')}",
         method="POST",
         data=b"release archive",
     ).respond_with_json(asset, status=201)
-    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
-        [release | {"assets": [asset]}],
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(
+        release | {"assets": [asset]},
     )
     if mode == "complete":
         server.expect_ordered_request(f"{prefix}/releases/42", method="PATCH").respond_with_json(
             release | {"draft": False},
         )
-    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
-        [release | {"draft": mode == "stage", "assets": [asset]}],
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(
+        release | {"draft": mode == "stage", "assets": [asset]},
     )
     result = action(
         repository,
@@ -669,12 +661,10 @@ def test_failed_asset_upload_leaves_draft_unpublished(
     server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
         {"object": {"type": "commit", "sha": commit}}
     )
-    for _ in range(2):
-        server.expect_ordered_request(
-            f"{prefix}/releases", query_string="per_page=100", method="GET"
-        ).respond_with_json(
-            [draft],
-        )
+    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
+        [draft],
+    )
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(draft)
     server.expect_ordered_request(
         f"{prefix}/releases/42/assets",
         query_string="name=fixture.zip",

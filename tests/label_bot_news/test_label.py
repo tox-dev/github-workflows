@@ -12,6 +12,15 @@ from pytest_httpserver import HTTPServer
     ("files", "labels", "write_method", "fragment_dirs", "extension", "fragment_style"),
     [
         pytest.param([], [], "POST", "changelog.d", "md", "towncrier", id="add"),
+        pytest.param(
+            [{"filename": "changelog.d/+old.feature.md", "status": "removed"}],
+            [],
+            "POST",
+            "changelog.d",
+            "md",
+            "towncrier",
+            id="deleted-fragment-needs-label",
+        ),
         pytest.param([], [{"name": "skip news"}], None, "changelog.d", "md", "towncrier", id="already-labeled"),
         pytest.param(
             [{"filename": "changelog.d/+fix.bugfix.md"}],

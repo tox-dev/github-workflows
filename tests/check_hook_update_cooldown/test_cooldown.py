@@ -132,6 +132,25 @@ def test_cooldown_survives_force_push_without_accepting_new_revision(
         assert "hook revision has not been observed" in result.stderr
 
 
+def test_cooldown_skips_unavailable_old_head(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(server, author="pre-commit-ci[bot]", observed_days=0)
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1")
+    expect_historical_runs(server, older_head=("c" * 40, "d" * 40))
+    server.expect_request(
+        "/api/v3/repos/tox-dev/fixture/contents/.pre-commit-config.yaml",
+        method="GET",
+        query_string=f"ref={'c' * 40}",
+    ).respond_with_json({"message": "Not Found"}, status=404)
+    expect_config(server, "d" * 40, repository, "v1")
+    result = run_cooldown(action_scripts, tmp_path, environment)
+    assert result.returncode == 0, result.stderr
+
+
 def test_cooldown_ignores_another_pull_request_history(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
@@ -201,7 +220,7 @@ def run_cooldown(
         "runs"
     ]["steps"]
     values = (
-        os.environ
+        {name: os.environ[name] for name in ("HOME", "PATH", "LANG", "UV_CACHE_DIR") if name in os.environ}
         | environment
         | {
             "REPOSITORY": "tox-dev/fixture",
@@ -220,12 +239,22 @@ def run_cooldown(
     for index, step in enumerate(steps):
         if "run" not in step or step.get("name") == "Install locked hook tools":
             continue
-        if step.get("if") and not (tmp_path / "outputs").exists():
+        condition = step.get("if")
+        if condition not in {
+            None,
+            "steps.identity.outputs.bot == 'true'",
+            "steps.identity.outputs.bot == 'true' && steps.identity.outputs.cooled != 'true'",
+        }:
+            msg = f"unsupported cooldown condition: {condition}"
+            raise ValueError(msg)
+        if condition and (not (tmp_path / "outputs").exists() or "bot=true" not in (tmp_path / "outputs").read_text()):
             continue
-        if "cooled != 'true'" in step.get("if", "") and "cooled=true" in (tmp_path / "outputs").read_text():
+        if condition == "steps.identity.outputs.bot == 'true' && steps.identity.outputs.cooled != 'true'" and (
+            "cooled=true" in (tmp_path / "outputs").read_text()
+        ):
             continue
         result = subprocess.run(
-            ["bash", str(action_scripts / f"check-hook-update-cooldown-{index}.sh")],
+            ["bash", "-e", "-o", "pipefail", str(action_scripts / f"check-hook-update-cooldown-{index}.sh")],
             cwd=tmp_path,
             env=values,
             text=True,
@@ -291,24 +320,26 @@ def expect_config(server: HTTPServer, sha: str, repository: Path, revision: str 
     )
 
 
-def expect_historical_runs(server: HTTPServer, *, older_head: str | None, pull_request: int = 7) -> None:
+def expect_historical_runs(
+    server: HTTPServer, *, older_head: str | tuple[str, ...] | None, pull_request: int = 7
+) -> None:
+    heads = () if older_head is None else (older_head,) if isinstance(older_head, str) else older_head
     server.expect_request(
         "/api/v3/repos/tox-dev/fixture/actions/runs",
         method="GET",
         query_string="branch=bot-update&event=pull_request&per_page=100",
     ).respond_with_json(
         {
-            "workflow_runs": []
-            if older_head is None
-            else [
+            "workflow_runs": [
                 {
                     "event": "pull_request",
                     "head_repository": {"full_name": "tox-dev/fixture"},
                     "head_branch": "bot-update",
-                    "head_sha": older_head,
+                    "head_sha": head,
                     "pull_requests": [{"number": pull_request}],
                     "created_at": (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 }
+                for head in heads
             ]
         }
     )

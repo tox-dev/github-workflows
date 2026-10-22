@@ -25,7 +25,7 @@ repos:
     rev: 479be5958357ba5ab65ce47172117348516860e9 # v3.14.1-1
     hooks:
       - id: shfmt
-        args: ["-i", "2"]
+        args: ["-i", "2", "-d"]
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: 745eface02aef23e168a8afb6b5737818efbea95 # v0.11.0.1
     hooks:

@@ -7,6 +7,9 @@ inputs:
   python-version:
     description: Python version for uv build
     default: "3.15"
+  planner-group:
+    description: Dependency group containing release-creator
+    default: release
   source:
     description: Distribution source directory
     default: .
@@ -40,7 +43,7 @@ runs:
       uses: $/install-locked-tools
       with:
         lock: ${{ inputs.lock }}
-        groups: ${{ inputs.local-tool-source == 'true' && 'release build project-runtime' || 'release' }}
+        groups: ${{ inputs.planner-group }}${{ inputs.local-tool-source == 'true' && ' build project-runtime' || '' }}
         python-version: "3.15"
         venv: ${{ runner.temp }}/build-planner
     - name: Select build interpreter
@@ -73,7 +76,10 @@ runs:
         SOURCE: ${{ inputs.source }}
         OUT_DIR: ${{ inputs.out-dir }}
       run: |
+        set -euo pipefail
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
-        uv build --python "$(uv python find "$RUNNER_TEMP/build-python")" \
+        build_python=$(uv python find "$RUNNER_TEMP/build-python")
+        test -n "$build_python"
+        uv build --python "$build_python" \
           --python-preference only-managed --sdist --wheel \
           --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir "$OUT_DIR"

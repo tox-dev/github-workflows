@@ -7,12 +7,14 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   check:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
-      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,33 +27,75 @@ jobs:
           enable-cache: false
       - uses: $/install-locked-tools
         with:
-          groups: release test
-          venv: .venv
+          groups: release-shell
+          venv: .release-tools
       - name: Add locked tools to PATH
-        run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
+        run: echo "$PWD/.release-tools/bin" >>"$GITHUB_PATH"
       - name: Check repository formatting
         run: prek run --all-files
-      - name: Check Python types
-        run: tox run -e type
-      - name: Run Action tests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: pytest -q
       - name: Check inline shell
         run: |
           set -euo pipefail
+          script_dir=./inline-shell-check
+          mkdir "$script_dir"
+          trap 'rm -rf "$script_dir"' EXIT
           for file in .github/workflows/*.yaml */action.yml; do
             yq -rj '[.. | objects | select(has("run")) | .run] | .[] | . + "\u0000"' "$file" \
               >"$RUNNER_TEMP/run-blocks"
             index=0
             while IFS= read -r -d '' script; do
-              echo "$file: run block $index"
-              printf '#!/usr/bin/env bash\n%s\n' "${script%$'\n'}" >"$RUNNER_TEMP/inline-shell.sh"
-              prek run shellcheck --files "$RUNNER_TEMP/inline-shell.sh"
-              prek run shfmt --files "$RUNNER_TEMP/inline-shell.sh"
+              script_file="$script_dir/${file//\//-}-$index.sh"
+              printf '#!/usr/bin/env bash\n%s\n' "${script%$'\n'}" >"$script_file"
               index=$((index + 1))
             done <"$RUNNER_TEMP/run-blocks"
           done
+          prek run shellcheck --files "$script_dir"/*.sh
+          prek run shfmt --files "$script_dir"/*.sh
+  test:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - uses: $/install-locked-tools
+        with:
+          groups: release-hooks
+          venv: .release-tools
+      - name: Add locked tools to PATH
+        run: echo "$PWD/.release-tools/bin" >>"$GITHUB_PATH"
+      - name: Install current test tools
+        run: |
+          uv venv --python 3.15 .venv
+          uv pip install --python .venv/bin/python --group test
+      - name: Run Action tests
+        run: .venv/bin/pytest -q -n auto
+  type:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: Install current type tools
+        run: |
+          uv venv --python 3.15 .venv
+          uv pip install --python .venv/bin/python --group test
+      - name: Check Python types
+        run: .venv/bin/tox run -e type
   changelog:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
@@ -67,6 +111,7 @@ jobs:
           enable-cache: false
       - uses: $/install-locked-tools
         with:
+          groups: release-news
           venv: ${{ runner.temp }}/release-tools
       - name: Add locked tools to PATH
         run: echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
@@ -101,6 +146,7 @@ jobs:
       - uses: $/refresh-release-lock
         with:
           python-version: "3.15"
+          check-group: release-check
           build-constraints: release-build-constraints.txt
           build-requirements: |-
             Cython>=3.0
@@ -109,7 +155,7 @@ jobs:
   gate:
     name: ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Required checks pass (non-PR)' }}
     if: always()
-    needs: [check, changelog, hook-cooldown, release-tools-preview]
+    needs: [check, test, type, changelog, hook-cooldown, release-tools-preview]
     runs-on: ubuntu-26.04
     steps:
       - env:

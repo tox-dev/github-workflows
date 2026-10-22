@@ -3,13 +3,17 @@ from __future__ import annotations
 import os
 import ssl
 import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Final
 
 import pytest
 import trustme
 import yaml
 from pytest_httpserver import HTTPServer
+
+_GITHUB_BASH: Final[tuple[str, ...]] = ("bash", "--noprofile", "--norc", "-e", "-o", "pipefail")
 
 
 @pytest.fixture
@@ -113,7 +117,7 @@ def action(
 ) -> subprocess.CompletedProcess[str]:
     action_config = yaml.safe_load((Path(__file__).resolve().parents[1] / name / "action.yml").read_text())
     environment = (
-        os.environ
+        _safe_environment()
         | {
             "VERSION": version,
             "BUMP": "auto",
@@ -149,10 +153,11 @@ def action(
         | extra_env
     )
     environment["REPOSITORY"] = extra_env.get("REPOSITORY", environment["GITHUB_REPOSITORY"])
+    environment["PATH"] = f"{Path(sys.executable).parent}:{environment['PATH']}"
     stdout = []
     stderr = []
     steps = action_config["runs"]["steps"]
-    command = ["bash"]
+    command = list(_GITHUB_BASH)
     for index, step in enumerate(steps):
         if step.get("uses") == "$/install-locked-tools":
             groups = environment.get("VALIDATION_GROUP", "release")
@@ -167,7 +172,7 @@ def action(
                 "validate-python-distribution": "package-validators",
             }[name]
             for install_index in range(3):
-                command = ["bash", str(action_scripts / f"install-locked-tools-{install_index}.sh")]
+                command = [*_GITHUB_BASH, str(action_scripts / f"install-locked-tools-{install_index}.sh")]
                 result = subprocess.run(
                     command,
                     cwd=repository,
@@ -192,25 +197,17 @@ def action(
         if "run" not in step:
             continue
         script = action_scripts / f"{name}-{index}.sh"
-        if step.get("if") == "inputs.local-tool-source == 'true'" and environment.get("LOCAL_TOOL_SOURCE") != "true":
+        if (condition := step.get("if")) is not None and not _condition(condition, environment):
             continue
-        if (
-            name == "label-bot-news"
-            and environment.get("BOT_AUTHOR") != "true"
-            and step.get("if") == "inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'"
-        ):
-            continue
-        if step.get("if") == "inputs.checks == 'true'" and environment["CHECKS"] == "false":
-            continue
-        if step.get("if") == "inputs.format == 'rst'" and environment["FORMAT"] != "rst":
-            continue
-        if step.get("if") == "endsWith(inputs.changelog, '.rst')" and not environment["CHANGELOG"].endswith(".rst"):
-            continue
-        command = ["bash", str(script)]
+        command = [*_GITHUB_BASH, str(script)]
         result = subprocess.run(
             command,
             cwd=repository,
-            env=environment,
+            env=environment
+            | {
+                variable: _step_value(value, variable, environment, action_config)
+                for variable, value in step.get("env", {}).items()
+            },
             text=True,
             capture_output=True,
             check=False,
@@ -227,7 +224,76 @@ def action(
 
 
 def run(directory: Path, *command: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=directory, text=True, capture_output=True, check=True)
+    environment = _safe_environment()
+    return subprocess.run(
+        command,
+        cwd=directory,
+        env=environment | {"PATH": f"{Path(sys.executable).parent}:{environment['PATH']}"},
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+
+def _condition(expression: str, environment: dict[str, str]) -> bool:
+    conditions = {
+        "inputs.local-tool-source == 'true'": environment.get("LOCAL_TOOL_SOURCE") == "true",
+        "inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'": environment.get("BOT_AUTHOR")
+        == "true",
+        "inputs.checks == 'true'": environment["CHECKS"] == "true",
+        "inputs.format == 'rst'": environment["FORMAT"] == "rst",
+        "endsWith(inputs.changelog, '.rst')": environment["CHANGELOG"].endswith(".rst"),
+        "inputs.keep-uv-lock == 'true'": environment.get("KEEP_UV_LOCK") == "true",
+        "inputs.build-constraints != ''": bool(environment.get("BUILD_CONSTRAINTS")),
+        "inputs.mode == 'stage'": environment.get("MODE") == "stage",
+        "inputs.mode == 'verify'": environment.get("MODE") == "verify",
+        "steps.identity.outputs.bot == 'true'": environment.get("BOT_AUTHOR") == "true",
+        "steps.identity.outputs.bot == 'true' && steps.identity.outputs.cooled != 'true'": environment.get("BOT_AUTHOR")
+        == "true"
+        and environment.get("COOLED") != "true",
+    }
+    if expression not in conditions:
+        msg = f"unsupported GitHub step condition: {expression}"
+        raise ValueError(msg)
+    return conditions[expression]
+
+
+def _safe_environment() -> dict[str, str]:
+    return {
+        name: os.environ[name]
+        for name in ("HOME", "LANG", "PATH", "UV_CACHE_DIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE")
+        if name in os.environ
+    }
+
+
+def _step_value(value: str, variable: str, environment: dict[str, str], action_config: dict[str, object]) -> str:
+    if not value.startswith("${{ ") or not value.endswith(" }}"):
+        return value
+    for expression in value[4:-3].split(" || "):
+        if expression.startswith("inputs."):
+            defaults = action_config["inputs"]
+            assert isinstance(defaults, dict)
+            selected = defaults[expression[7:]]
+            assert isinstance(selected, dict)
+            resolved = environment.get(variable, str(selected.get("default", "")))
+        elif expression == "github.repository":
+            resolved = environment["GITHUB_REPOSITORY"]
+        elif expression == "github.base_ref":
+            resolved = environment.get("BASE_REF", "")
+        elif expression == "github.token":
+            resolved = environment.get("GH_TOKEN", environment.get("GH_ENTERPRISE_TOKEN", ""))
+        elif expression == "contains(github.event.pull_request.labels.*.name, 'skip news')":
+            resolved = environment.get("SKIP_NEWS", "false")
+        elif expression == "github.event.pull_request.user.type == 'Bot'":
+            resolved = environment.get("BOT_AUTHOR", "false")
+        elif expression.startswith("steps."):
+            resolved = environment.get(variable, "")
+        else:
+            msg = f"unsupported GitHub step environment: {expression}"
+            raise ValueError(msg)
+        if resolved:
+            return resolved
+    return ""
 
 
 __all__ = [

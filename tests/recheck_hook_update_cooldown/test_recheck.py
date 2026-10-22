@@ -29,6 +29,7 @@ def test_recheck_schedule_has_only_required_permissions() -> None:
         pytest.param(8, 8, "failure", "Hook update cooldown", 1, id="named-job"),
         pytest.param(6, 6, "failure", "hook-cooldown", 1, id="recent-pull"),
         pytest.param(8, 0, "failure", "hook-cooldown", 1, id="failed-rerun"),
+        pytest.param(31, 31, "failure", "hook-cooldown", 0, id="expired-run"),
         pytest.param(8, 8, "success", "hook-cooldown", 0, id="successful-job"),
     ],
 )
@@ -77,19 +78,20 @@ def test_recheck_reruns_failed_job(
             ]
         }
     )
-    server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/42/jobs", method="GET").respond_with_json(
-        {
-            "jobs": [
-                {"id": 98, "name": "Other failed job", "conclusion": "failure", "completed_at": observed_at},
-                {
-                    "id": 99,
-                    "name": job_name,
-                    "conclusion": job_conclusion,
-                    "completed_at": (datetime.now(UTC) - timedelta(days=job_age)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                },
-            ]
-        }
-    )
+    if observed_age < 30:
+        server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/42/jobs", method="GET").respond_with_json(
+            {
+                "jobs": [
+                    {"id": 98, "name": "Other failed job", "conclusion": "failure", "completed_at": observed_at},
+                    {
+                        "id": 99,
+                        "name": job_name,
+                        "conclusion": job_conclusion,
+                        "completed_at": (datetime.now(UTC) - timedelta(days=job_age)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    },
+                ]
+            }
+        )
     if reruns:
         server.expect_request("/api/v3/repos/tox-dev/fixture/actions/jobs/99/rerun", method="POST").respond_with_data(
             status=201

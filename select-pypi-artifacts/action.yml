@@ -38,8 +38,8 @@ runs:
       run: |
         set -euo pipefail
         [[ -d "$DIST" && -f "$MANIFEST" && ! -e "$OUTPUT_DIR" ]] || exit 1
-        dist_path=$(realpath "$DIST")
-        output_path=$(realpath -m "$OUTPUT_DIR")
+        dist_path=$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$DIST")
+        output_path=$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$OUTPUT_DIR")
         case "$output_path" in
         "$dist_path" | "$dist_path"/*)
           echo '::error::output directory overlaps the validated distribution' >&2

@@ -7,10 +7,12 @@ repository keeps its dispatch form, publisher, GitHub environment, and required 
 ## Install locked tools
 
 `install-locked-tools` creates a virtual environment and installs selected groups from the caller's `pylock.toml`. It
-derives build dependency hashes from that lock's `build` group. The shared lock and constraints file are used only to
-start the exporter. A source-only dependency fails when its build requirement is absent or has a different hash. The
-Action requires a wheel for `release-creator`, so its source distribution cannot introduce an undeclared build backend.
-It does not change tracked files or write to GitHub.
+derives build dependency hashes from that lock's `build` group when present. A tool-only lock without that group uses
+the shared backend constraints needed for `release-creator`. A source-only dependency fails when its build requirement
+is absent or has a different hash. The Action requires a wheel for `release-creator`, so its source distribution cannot
+introduce an undeclared build backend. Its exporter installs only three hash-checked wheels: release-creator, packaging,
+and tomli-w. It rejects missing groups, reuses its exporter when called twice in one job, and does not change tracked
+files or write to GitHub.
 
 - `venv` (required): directory for the virtual environment.
 - `lock`: caller's full project lock; default `pylock.toml`.
@@ -327,13 +329,13 @@ build:
 `changelog` is the rendered changelog path. `artifact-base-url` ends just before the version; the workflow appends
 `1.2.3/` for tag `1.2.3`. Set it to the package's actual PyPI project path. `artifact-label` changes the link text from
 `PyPI release`; `issue-role` selects whether reStructuredText `:issue:` references link to issues or pull requests.
-`lock` defaults to `pylock.toml` and must have a `release` group with `release-creator`, Towncrier, and `prek`.
-`python-version` defaults to `3.15`; `source` defaults to the repository root for `uv build`. `artifact-prefix` defaults
-to empty; set it when a tag builds more than one distribution path so the jobs use distinct artifact names. Set
-`local-tool-source: true` for release-creator's own release: the keyless jobs install the tagged checkout from its
-locked release, fix, build, and runtime groups instead of using a published release-creator wheel. `validation-group`
-defaults to `pkg-meta`; set it to `release` when that group contains locked Twine and check-wheel-contents, as in pipx.
-An absent group can make `uv pip sync` succeed without installing either tool.
+`lock` defaults to `pylock.toml`. Set `check-group` to a group with `prek`, and `notes-group` to one with
+`release-creator`; both default to `release` for existing callers. `python-version` defaults to `3.15`; `source`
+defaults to the repository root for `uv build`. `artifact-prefix` defaults to empty; set it when a tag builds more than
+one distribution path so the jobs use distinct artifact names. Set `local-tool-source: true` for release-creator's own
+release: the keyless jobs install the tagged checkout from its locked release, fix, build, and runtime groups instead of
+using a published release-creator wheel. `validation-group` defaults to `pkg-meta`; set it to `release` when that group
+contains locked Twine and check-wheel-contents, as in pipx. The installer rejects an absent group before syncing.
 
 The workflow uploads `python-package-distributions` with the wheel and sdist, and `release-validation-notes` with the
 body rendered from the tagged source. Callers download the distribution with pinned `download-artifact`
@@ -341,6 +343,9 @@ body rendered from the tagged source. Callers download the distribution with pin
 whose default fails on an artifact digest mismatch. Its notes lack GitHub contributor metadata. The tag-only GitHub
 Release job must fetch generated notes with Contents write, rerender with `render-release-notes`, and create the Release
 after the ecosystem upload. PyPI OIDC stays in the caller's separate `release` environment job.
+
+The keyless `stage-pypi` job needs the build artifact only. Let it run alongside the GitHub notes jobs; the publisher
+waits for both staging and the final notes before creating the GitHub Release.
 
 ## Prepare and tag with one reusable workflow
 
@@ -370,16 +375,19 @@ jobs:
 
 The caller supplies the `release-auth` environment secret by name; the App client ID comes from that environment's
 `RELEASE_APP_CLIENT_ID` variable. The workflow requests Contents write only for the current repository. The caller
-grants its GitHub token Contents and Pull requests read. The keyless jobs install the `release` group from the
-checked-in `pylock.toml`; use `lock` and `python-version` when those paths or versions differ. No job output crosses
-back to the caller. A successful run pushes a tag, which the caller's tag workflow handles.
+grants its GitHub token Contents and Pull requests read. The assembly job installs `prepare-group`, which needs
+release-creator, Towncrier, and prek. The validation job installs `validate-group`, which needs release-creator and
+prek. Both default to `release` for existing callers. Set `lock` and `python-version` when those paths or versions
+differ. No job output crosses back to the caller. A successful run pushes a tag, which the caller's tag workflow
+handles.
 
 `bump`, `tag-prefix`, `changelog-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, `numbered-prs`, and
 `annotated` have the same meanings as the `prepare-towncrier` inputs below. `release-auth-deployment` defaults to
 `true`; set it to `false` if the current App-key job uses `release-auth` without creating a GitHub Deployment.
 `local-tool-source: true` installs release-creator from the source checkout with locked third-party dependencies in both
 keyless jobs; use it for release-creator itself. The caller can place repository-specific checks in a preceding job and
-make this job depend on it. The tag-triggered ecosystem publisher stays in the caller repository.
+make this job depend on it. One dispatch prepares one tag; run separate dispatches for separate packages. The
+tag-triggered ecosystem publisher stays in the caller repository.
 
 ## Prepare Towncrier release
 
@@ -512,6 +520,7 @@ branch and tag ruleset bypass. A stale branch, invalid tag, or ruleset rejection
 - `python-version`: Managed Python used for the build; default `3.15`.
 - `lock`: Full project lock containing the build backend; default `pylock.toml`.
 - `source`: Source directory passed to `uv build`; default `.`.
+- `planner-group`: Group containing `release-creator`; default `release` for existing callers.
 - `local-tool-source`: `false` (default). Set `true` only when the tagged source is release-creator itself; the keyless
   planner installs it from that checkout after syncing locked backend and runtime dependencies.
 - `out-dir`: Directory for the wheel and sdist; default `dist`. Validate files in this directory before upload.
@@ -669,11 +678,12 @@ assets, or publishing; a mismatch still fails when that window ends.
 
 `publish-post-release-pr` consumes a candidate commit prepared without an App token. The preparation job records the
 base commit, desired branch, and a tab-separated file of changed paths and Git blob SHA1 values, then creates a Git
-bundle containing `refs/heads/release-candidate`. Upload the bundle, path file, and body as one artifact. Pass the
-upload step's artifact ID to the writer's download step, so a rerun cannot select an older artifact with the same name.
-The writer runs without checkout under the caller's `release-auth` environment and needs Contents, Pull requests, and
-Issues write access for its App token. Put `publish-post-release-pr` last in the writer job because its Git credential
-helper remains available to later steps.
+bundle containing `refs/heads/release-candidate` and its full history. A thin bundle fails verification in the writer's
+empty bare repository. Upload the bundle, path file, and body as one artifact. Pass the upload step's artifact ID to the
+writer's download step, so a rerun cannot select an older artifact with the same name. The writer runs without checkout
+under the caller's `release-auth` environment and needs Contents, Pull requests, and Issues write access for its App
+token. Put `publish-post-release-pr` last in the writer job because its Git credential helper remains available to later
+steps.
 
 ```yaml
   - uses: actions/download-artifact@DOWNLOAD_SHA

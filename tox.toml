@@ -8,9 +8,7 @@ skip_install = true
 allowlist_externals = ["uv"]
 commands_pre = [
   [
-    "uv", "pip", "sync", "--preview-features", "pylock", "--preview-features", "build-dependency-hashes",
-    "--python", "{envpython}", "--group", "test", "--build-constraints", "release-build-constraints.txt",
-    "--require-build-hashes", "pylock.toml",
+    "uv", "pip", "install", "--python", "{envpython}", "--group", "test",
   ],
 ]
 commands = [["ty", "check", "--python-platform", "all", "--error", "all", "--output-format", "concise", "tests"]]

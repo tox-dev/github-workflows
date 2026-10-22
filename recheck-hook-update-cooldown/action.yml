@@ -46,6 +46,9 @@ runs:
           if [[ -z "$run" ]]; then
             continue
           fi
+          if ! jq -e '(.created_at | fromdateiso8601) >= now - 30 * 86400' <<<"$run" >/dev/null; then
+            continue
+          fi
           job=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/runs/$(jq -r .id <<<"$run")/jobs" \
             -f filter=latest -f per_page=100 |
             jq -sc --arg name "$JOB_NAME" \

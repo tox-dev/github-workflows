@@ -262,14 +262,14 @@ def test_prepare_rejects_unlinked_fragment_name(
 
 def test_prepare_rejects_untracked_output(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / ".pre-commit-config.yaml").write_text(
-        "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
-        "        name: release-check\n        entry: bash -c 'touch extra-output'\n"
+        "repos:\n  - repo: local\n    hooks:\n      - id: mdformat\n"
+        "        name: mdformat\n        entry: bash -c 'touch extra-output'\n"
         "        language: system\n        pass_filenames: false\n",
     )
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Write untracked output")
     run(repository, "git", "push", "origin", "main")
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", FORMAT="markdown")
     assert result.returncode != 0
     assert "created untracked files" in result.stderr
 
@@ -285,23 +285,13 @@ def test_prepare_rejects_empty_release(repository: Path, tmp_path: Path, action_
 
 
 def test_prepare_rejects_empty_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / "CHANGELOG.md").write_text(
-        "# Changelog\n\n<!-- towncrier release notes start -->\n\n"
-        '<a name="release-0-2-0"></a>\n\n## 0.2.0 (2026-10-19)\n\n### Added\n\n- Add a feature.\n',
-    )
-    run(repository, "git", "add", "CHANGELOG.md")
-    run(repository, "git", "commit", "-m", "Record existing notes")
-    run(repository, "git", "push", "origin", "main")
-    tools = tmp_path / "bin"
-    tools.mkdir()
-    (tools / "towncrier").symlink_to("/usr/bin/true")
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "prepare-towncrier",
-        version="0.2.0",
-        PATH=f"{tools}:{os.environ['PATH']}",
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", str(action_scripts / "prepare-towncrier-8.sh")],
+        cwd=repository,
+        env=os.environ | {"PATCH": str(tmp_path / "release.patch")},
+        text=True,
+        capture_output=True,
+        check=False,
     )
     assert result.returncode != 0
     assert "produced no patch" in result.stderr
@@ -407,7 +397,7 @@ def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, ac
     assert "Changes\n=======" in (repository / "CHANGELOG.rst").read_text()
 
 
-@pytest.mark.parametrize("script", ["prepare-towncrier-8.sh", "validate-release-patch-5.sh"])
+@pytest.mark.parametrize("script", ["prepare-towncrier-7.sh", "validate-release-patch-5.sh"])
 def test_prepare_rejects_rst_conflict_marker(repository: Path, action_scripts: Path, script: str) -> None:
     (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n")
     run(repository, "git", "add", "CHANGELOG.rst")

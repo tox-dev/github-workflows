@@ -48,7 +48,7 @@ def test_required_gate_checks_cooldown_result(event_name: str, cooldown_result: 
             "result": cooldown_result
             if name == "hook-cooldown"
             else "skipped"
-            if event_name == "push" and name != "check"
+            if event_name == "push" and name in {"changelog", "hook-cooldown", "release-tools-preview"}
             else "success"
         }
         for name in workflow["jobs"]["gate"]["needs"]
