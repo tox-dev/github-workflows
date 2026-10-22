@@ -115,6 +115,65 @@ def test_upgrade_refreshes_backend_constraints(lock_repository: Path, tmp_path: 
     assert "setuptools==" in constraints
 
 
+def test_upgrade_does_not_force_shared_build_requirements(
+    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path
+) -> None:
+    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path, PYTHON_VERSION="3.15")
+    assert installed.returncode == 0, installed.stderr
+    result = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-3.sh",
+        tmp_path,
+        LOCK="pylock.toml",
+        PYTHON_VERSION="3.15",
+        BUILD_REQUIREMENTS="",
+    )
+    assert result.returncode == 0, result.stderr
+    packages = {item["name"] for item in tomllib.loads((lock_repository / "pylock.toml").read_text())["packages"]}
+    assert "cython" not in packages
+    assert "setuptools" not in packages
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["pyproject.toml", "../build-constraints.txt", "/tmp/build-constraints.txt", ".git/build-constraints.txt"],
+    ids=["project-file", "parent", "absolute", "git-internals"],
+)
+def test_upgrade_rejects_unsafe_constraints_path(
+    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path, path: str
+) -> None:
+    result = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-5.sh",
+        tmp_path,
+        BUILD_CONSTRAINTS=path,
+        LOCK="pylock.toml",
+        PYTHON_VERSION="3.15",
+    )
+    assert result.returncode != 0
+    assert "backend constraints" in result.stderr
+
+
+def test_upgrade_includes_new_constraints_file_in_patch(
+    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path
+) -> None:
+    (lock_repository / "pylock.toml").write_text('lock-version = "1.0"\n')
+    run(lock_repository, "git", "add", ".")
+    run(lock_repository, "git", "commit", "-m", "Add lock")
+    (lock_repository / "release-build-constraints.txt").write_text("new\n")
+    result = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-9.sh",
+        tmp_path,
+        BUILD_CONSTRAINTS="release-build-constraints.txt",
+        LOCK="pylock.toml",
+        KEEP_UV_LOCK="false",
+        GITHUB_OUTPUT=str(tmp_path / "output"),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "new file mode 100644" in (tmp_path / "lock.patch").read_text()
+
+
 def test_upgrade_sets_seven_day_cutoff(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
     result = execute(
         lock_repository,
@@ -510,6 +569,8 @@ def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) 
             "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "refresh-release-lock"),
             "EXCLUDE_NEWER_PACKAGES": "",
             "BUILD_CONSTRAINTS": "",
+            "BUILD_REQUIREMENTS": "Cython>=3.0\nsetuptools>=80",
+            "HOOK_CONFIG": ".pre-commit-config.yaml",
             "ACTIVE_PACKAGE_CUTOFFS": str(active_cutoffs),
         }
         | environment,

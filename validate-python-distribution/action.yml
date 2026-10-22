@@ -17,17 +17,12 @@ runs:
   using: composite
   steps:
     - name: Install locked package validators
-      shell: bash
-      env:
-        LOCK: ${{ inputs.lock }}
-        PYTHON_VERSION: ${{ inputs.python-version }}
-        VALIDATION_GROUP: ${{ inputs.validation-group }}
-      run: |
-        set -euo pipefail
-        uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/package-validators"
-        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
-          --python "$RUNNER_TEMP/package-validators/bin/python" --group "$VALIDATION_GROUP" \
-          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes "$LOCK"
+      uses: $/install-locked-tools
+      with:
+        lock: ${{ inputs.lock }}
+        groups: ${{ inputs.validation-group }}
+        python-version: ${{ inputs.python-version }}
+        venv: ${{ runner.temp }}/package-validators
     - name: Check distribution metadata
       shell: bash
       env:

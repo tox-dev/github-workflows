@@ -46,7 +46,10 @@ def test_hook_refresh_resolves_exact_pin(hook_repository: Path, tmp_path: Path, 
     )
     assert checked.returncode == 0, checked.stderr
     config = yaml.safe_load((hook_repository / ".pre-commit-config.yaml").read_text())
-    assert config["repos"][0]["hooks"][0]["additional_dependencies"] == ["mdformat-gfm==1.0.0"]
+    dependencies = config["repos"][0]["hooks"][0]["additional_dependencies"]
+    assert dependencies[0] == "mdformat-gfm==1.0.0"
+    assert any(item.startswith("markdown-it-py==") for item in dependencies)
+    assert all("==" in item for item in dependencies)
 
 
 def test_hook_refresh_freezes_only_cooled_revisions(

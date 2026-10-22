@@ -111,6 +111,7 @@ def action(
     version: str,
     **extra_env: str,
 ) -> subprocess.CompletedProcess[str]:
+    action_config = yaml.safe_load((Path(__file__).resolve().parents[1] / name / "action.yml").read_text())
     environment = (
         os.environ
         | {
@@ -120,7 +121,7 @@ def action(
             "CHANGELOG_PREFIX": "",
             "CHANGELOG": "CHANGELOG.md",
             "FRAGMENTS": "changelog.d",
-            "FORMAT": "none",
+            "FORMAT": action_config["inputs"].get("format", {}).get("default", "none"),
             "LINK_FRAGMENTS": "false",
             "NUMBERED_PRS": "false",
             "PATCH": str(tmp_path / "release.patch"),
@@ -150,24 +151,60 @@ def action(
     environment["REPOSITORY"] = extra_env.get("REPOSITORY", environment["GITHUB_REPOSITORY"])
     stdout = []
     stderr = []
-    scripts = sorted(action_scripts.glob(f"{name}-*.sh"), key=lambda path: int(path.stem.rsplit("-", 1)[1]))
-    assert scripts, name
-    steps = yaml.safe_load((Path(__file__).resolve().parents[1] / name / "action.yml").read_text())["runs"]["steps"]
-    command = ["bash", str(scripts[0])]
-    for index, script in enumerate(scripts):
+    steps = action_config["runs"]["steps"]
+    command = ["bash"]
+    for index, step in enumerate(steps):
+        if step.get("uses") == "$/install-locked-tools":
+            groups = environment.get("VALIDATION_GROUP", "release")
+            if (
+                name in {"build-python-distribution", "reconcile-pypi-artifacts"}
+                and environment.get("LOCAL_TOOL_SOURCE") == "true"
+            ):
+                groups = "release build project-runtime"
+            destination = {
+                "build-python-distribution": "build-planner",
+                "reconcile-pypi-artifacts": "pypi-reconcile",
+                "validate-python-distribution": "package-validators",
+            }[name]
+            for install_index in range(3):
+                command = ["bash", str(action_scripts / f"install-locked-tools-{install_index}.sh")]
+                result = subprocess.run(
+                    command,
+                    cwd=repository,
+                    env=environment
+                    | {
+                        "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[1] / "install-locked-tools"),
+                        "DEPENDENCY_GROUPS": groups,
+                        "VENV": str(tmp_path / destination),
+                        "PYTHON_VERSION": "3.15"
+                        if name == "build-python-distribution"
+                        else environment["PYTHON_VERSION"],
+                    },
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                stdout.append(result.stdout)
+                stderr.append(result.stderr)
+                if result.returncode:
+                    return subprocess.CompletedProcess(command, result.returncode, "".join(stdout), "".join(stderr))
+            continue
+        if "run" not in step:
+            continue
+        script = action_scripts / f"{name}-{index}.sh"
+        if step.get("if") == "inputs.local-tool-source == 'true'" and environment.get("LOCAL_TOOL_SOURCE") != "true":
+            continue
         if (
             name == "label-bot-news"
             and environment.get("BOT_AUTHOR") != "true"
-            and steps[index].get("if") == "inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'"
+            and step.get("if") == "inputs.bot-author == 'true' || github.event.pull_request.user.type == 'Bot'"
         ):
             continue
-        if steps[index].get("if") == "inputs.checks == 'true'" and environment["CHECKS"] == "false":
+        if step.get("if") == "inputs.checks == 'true'" and environment["CHECKS"] == "false":
             continue
-        if steps[index].get("if") == "inputs.format == 'rst'" and environment["FORMAT"] != "rst":
+        if step.get("if") == "inputs.format == 'rst'" and environment["FORMAT"] != "rst":
             continue
-        if steps[index].get("if") == "endsWith(inputs.changelog, '.rst')" and not environment["CHANGELOG"].endswith(
-            ".rst"
-        ):
+        if step.get("if") == "endsWith(inputs.changelog, '.rst')" and not environment["CHANGELOG"].endswith(".rst"):
             continue
         command = ["bash", str(script)]
         result = subprocess.run(

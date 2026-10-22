@@ -20,7 +20,7 @@ runs:
         PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/hook-tools"
-        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
           --python "$RUNNER_TEMP/hook-tools/bin/python" --group release \
           --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes \
           "$GITHUB_ACTION_PATH/../pylock.toml"

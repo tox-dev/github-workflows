@@ -16,6 +16,23 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install shared lock exporter
+      shell: bash
+      run: |
+        set -euo pipefail
+        uv venv --python 3.15 "$RUNNER_TEMP/lock-exporter"
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
+          --python "$RUNNER_TEMP/lock-exporter/bin/python" --group release \
+          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" \
+          --require-build-hashes "$GITHUB_ACTION_PATH/../pylock.toml"
+    - name: Derive caller backend constraints
+      shell: bash
+      env:
+        LOCK: ${{ inputs.lock }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: |
+        "$RUNNER_TEMP/lock-exporter/bin/release-creator" build-constraints --lock "$LOCK" --group build \
+          --python-version "$PYTHON_VERSION" --output "$RUNNER_TEMP/caller-build-constraints.txt"
     - name: Install locked groups
       shell: bash
       env:
@@ -26,13 +43,15 @@ runs:
       run: |
         set -euo pipefail
         uv venv --python "$PYTHON_VERSION" "$VENV"
-        read -ra selected <<<"$DEPENDENCY_GROUPS"
         groups=()
-        for group in "${selected[@]}"; do
-          groups+=(--group "$group")
-        done
+        while IFS= read -r line; do
+          read -ra selected <<<"$line"
+          for group in "${selected[@]}"; do
+            groups+=(--group "$group")
+          done
+        done <<<"$DEPENDENCY_GROUPS"
         test "${#groups[@]}" -gt 0
-        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
           --python "$VENV" "${groups[@]}" \
-          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" \
+          --build-constraints "$RUNNER_TEMP/caller-build-constraints.txt" \
           --require-build-hashes "$LOCK"

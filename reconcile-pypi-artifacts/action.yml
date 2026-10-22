@@ -56,24 +56,16 @@ runs:
           ;;
         esac
     - name: Install locked release tool
+      uses: $/install-locked-tools
+      with:
+        lock: ${{ inputs.lock }}
+        groups: ${{ inputs.local-tool-source == 'true' && 'release build project-runtime' || 'release' }}
+        python-version: ${{ inputs.python-version }}
+        venv: ${{ runner.temp }}/pypi-reconcile
+    - name: Install tagged release tool
+      if: inputs.local-tool-source == 'true'
       shell: bash
-      env:
-        LOCK: ${{ inputs.lock }}
-        PYTHON_VERSION: ${{ inputs.python-version }}
-        LOCAL_TOOL_SOURCE: ${{ inputs.local-tool-source }}
-      run: |
-        set -euo pipefail
-        uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/pypi-reconcile"
-        if [[ "$LOCAL_TOOL_SOURCE" == true ]]; then
-          uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
-            --python "$RUNNER_TEMP/pypi-reconcile/bin/python" --group release --group build --group project-runtime \
-            --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes "$LOCK"
-          uv pip install --python "$RUNNER_TEMP/pypi-reconcile/bin/python" --no-deps --no-build-isolation .
-        else
-          uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
-            --python "$RUNNER_TEMP/pypi-reconcile/bin/python" --group release \
-            --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes "$LOCK"
-        fi
+      run: uv pip install --python "$RUNNER_TEMP/pypi-reconcile/bin/python" --no-deps --no-build-isolation .
     - id: stage
       name: Stage files missing from PyPI
       if: inputs.mode == 'stage'

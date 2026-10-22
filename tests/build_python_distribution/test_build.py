@@ -81,6 +81,27 @@ def test_build_python_distribution_rejects_dirty_source(
     assert "tagged source is dirty" in result.stderr
 
 
+def test_build_python_distribution_rejects_existing_artifact(
+    build_repository: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    output = tmp_path / "dist"
+    output.mkdir()
+    (output / "old.whl").write_bytes(b"old")
+    result = action(
+        build_repository,
+        tmp_path,
+        action_scripts,
+        "build-python-distribution",
+        version="0.2.0",
+        PYTHON_VERSION="3.15",
+        SOURCE=".",
+        OUT_DIR=str(output),
+        RUNNER_TEMP=str(tmp_path),
+    )
+    assert result.returncode != 0
+    assert "distribution output directory is not empty" in result.stderr
+
+
 def test_build_python_distribution_uses_interpreter_patch_for_constraints(
     build_repository: Path, tmp_path: Path, action_scripts: Path
 ) -> None:
