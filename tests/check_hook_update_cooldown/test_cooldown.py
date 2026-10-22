@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -188,8 +189,10 @@ def run_cooldown(
 ) -> subprocess.CompletedProcess[str]:
     path = tmp_path / "event.json"
     path.write_text(json.dumps({"number": 7, "pull_request": {"head": {"sha": event_head}}}))
+    subprocess.run(
+        ["uv", "venv", "--python", sys.executable, str(tmp_path / "hook-tools")], check=True, capture_output=True
+    )
     tools = tmp_path / "hook-tools" / "bin"
-    tools.mkdir(parents=True)
     for name in ("prek", "yq"):
         executable = shutil.which(name)
         assert executable is not None

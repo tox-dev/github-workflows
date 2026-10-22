@@ -65,7 +65,7 @@ runs:
     - name: Install tagged release tool
       if: inputs.local-tool-source == 'true'
       shell: bash
-      run: uv pip install --python "$RUNNER_TEMP/pypi-reconcile/bin/python" --no-deps --no-build-isolation .
+      run: uv pip install --python "$RUNNER_TEMP/pypi-reconcile" --no-deps --no-build-isolation .
     - id: stage
       name: Stage files missing from PyPI
       if: inputs.mode == 'stage'
@@ -76,7 +76,7 @@ runs:
         DIST: ${{ inputs.dist }}
         MISSING_DIR: ${{ inputs.missing-dir }}
       run: |
-        "$RUNNER_TEMP/pypi-reconcile/bin/release-creator" artifacts --project "$PROJECT" \
+        uv run --no-project --python "$RUNNER_TEMP/pypi-reconcile" release-creator artifacts --project "$PROJECT" \
           --version "$VERSION" --dist "$DIST" --mode stage --missing-dir "$MISSING_DIR" \
           --github-output "$GITHUB_OUTPUT"
     - id: manifest
@@ -105,5 +105,5 @@ runs:
         DIST: ${{ inputs.dist }}
         WAIT_SECONDS: ${{ inputs.wait-seconds }}
       run: |
-        "$RUNNER_TEMP/pypi-reconcile/bin/release-creator" artifacts --project "$PROJECT" \
+        uv run --no-project --python "$RUNNER_TEMP/pypi-reconcile" release-creator artifacts --project "$PROJECT" \
           --version "$VERSION" --dist "$DIST" --mode verify --wait-seconds "$WAIT_SECONDS"

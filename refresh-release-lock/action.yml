@@ -38,7 +38,7 @@ runs:
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/lock-exporter"
         uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
-          --python "$RUNNER_TEMP/lock-exporter/bin/python" --group release \
+          --python "$RUNNER_TEMP/lock-exporter" --group release \
           --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes \
           "$GITHUB_ACTION_PATH/../pylock.toml"
     - id: cutoff
@@ -107,7 +107,7 @@ runs:
             requirements+=(--build-requirement "$requirement")
           fi
         done <<<"$BUILD_REQUIREMENTS"
-        "$RUNNER_TEMP/lock-exporter/bin/release-creator" locks --output "$LOCK" \
+        uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator locks --output "$LOCK" \
           --tool-python ">=$PYTHON_VERSION" "${requirements[@]}" "${exceptions[@]}"
     - name: Refresh uv lock
       if: inputs.keep-uv-lock == 'true'
@@ -163,7 +163,7 @@ runs:
             exit 1
           fi
         done
-        "$RUNNER_TEMP/lock-exporter/bin/release-creator" build-constraints --lock "$LOCK" --group build \
+        uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator build-constraints --lock "$LOCK" --group build \
           --python-version "$PYTHON_VERSION" --output "$BUILD_CONSTRAINTS"
     - name: Install refreshed release tools
       shell: bash
@@ -177,17 +177,16 @@ runs:
         constraints=$BUILD_CONSTRAINTS
         if [[ -z "$constraints" ]]; then
           constraints="$RUNNER_TEMP/refreshed-build-constraints.txt"
-          "$RUNNER_TEMP/lock-exporter/bin/release-creator" build-constraints --lock "$LOCK" --group build \
+          uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator build-constraints --lock "$LOCK" --group build \
             --python-version "$PYTHON_VERSION" --output "$constraints"
         fi
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/release-tools"
         uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
-          --python "$RUNNER_TEMP/release-tools/bin/python" --group release \
+          --python "$RUNNER_TEMP/release-tools" --group release \
           --build-constraints "$constraints" --require-build-hashes "$LOCK"
     - name: Run repository checks
       shell: bash
-      run: >-
-        "$RUNNER_TEMP/release-tools/bin/prek" run --all-files
+      run: uv run --no-project --python "$RUNNER_TEMP/release-tools" prek run --all-files
     - name: Check refreshed lock paths
       shell: bash
       env:

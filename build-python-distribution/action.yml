@@ -55,15 +55,15 @@ runs:
         LOCK: ${{ inputs.lock }}
         SOURCE: ${{ inputs.source }}
       run: |
-        uv pip install --python "$RUNNER_TEMP/build-planner/bin/python" --no-deps --no-build-isolation "$SOURCE"
+        uv pip install --python "$RUNNER_TEMP/build-planner" --no-deps --no-build-isolation "$SOURCE"
     - name: Write backend constraints
       shell: bash
       env:
         LOCK: ${{ inputs.lock }}
       run: |
-        "$RUNNER_TEMP/build-planner/bin/release-creator" build-constraints --lock "$LOCK" \
+        uv run --no-project --python "$RUNNER_TEMP/build-planner" release-creator build-constraints --lock "$LOCK" \
           --python-version "$(
-            "$RUNNER_TEMP/build-python/bin/python" -c 'import platform; print(platform.python_version())'
+            uv run --no-project --python "$RUNNER_TEMP/build-python" python -c 'import platform; print(platform.python_version())'
           )" \
           --output "$RUNNER_TEMP/build-constraints.txt"
     - name: Build wheel and sdist
@@ -73,5 +73,5 @@ runs:
         OUT_DIR: ${{ inputs.out-dir }}
       run: |
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
-        uv build --python "$RUNNER_TEMP/build-python/bin/python" --python-preference only-managed --sdist --wheel \
+        uv build --python "$(uv python find "$RUNNER_TEMP/build-python")" --python-preference only-managed --sdist --wheel \
           --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir "$OUT_DIR"
