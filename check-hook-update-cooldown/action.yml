@@ -119,7 +119,7 @@ runs:
       run: |
         set -euo pipefail
         for config in base proposed eligible; do
-          "$RUNNER_TEMP/hook-tools/bin/yq" -c \
+          uv run --no-project --python "$RUNNER_TEMP/hook-tools" yq -c \
             '[.repos[] | select(.repo != "local" and .repo != "meta") | {repo, rev}]' \
             "$RUNNER_TEMP/$config-hooks.yaml" >"$RUNNER_TEMP/$config-hooks.json"
         done
@@ -172,7 +172,7 @@ runs:
         while IFS= read -r head; do
           gh api "repos/$REPOSITORY/contents/.pre-commit-config.yaml?ref=$head" --jq .content |
             base64 --decode >"$RUNNER_TEMP/older-hooks.yaml"
-          "$RUNNER_TEMP/hook-tools/bin/yq" -c '
+          uv run --no-project --python "$RUNNER_TEMP/hook-tools" yq -c '
             [.repos[] | select(.repo != "local" and .repo != "meta") | {repo, rev}]
           ' "$RUNNER_TEMP/older-hooks.yaml" |
             jq -c 'to_entries[] | {index: .key, repo: .value.repo, rev: .value.rev}' \
@@ -227,7 +227,7 @@ runs:
               --config "$RUNNER_TEMP/candidate-hooks.yaml" --repo "$repository" \
               --repo-include-tag "$repository=$tag" --cooldown-days "$MINIMUM_DAYS" \
               "${options[@]}" --no-progress
-            selected=$(HOOK_REPOSITORY="$repository" "$RUNNER_TEMP/hook-tools/bin/yq" -r \
+            selected=$(HOOK_REPOSITORY="$repository" uv run --no-project --python "$RUNNER_TEMP/hook-tools" yq -r \
               '.repos[] | select(.repo == env.HOOK_REPOSITORY) | .rev' "$RUNNER_TEMP/candidate-hooks.yaml")
             if [[ "$selected" == "$revision" ]]; then
               accepted=true

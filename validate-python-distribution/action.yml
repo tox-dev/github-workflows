@@ -27,9 +27,9 @@ runs:
       shell: bash
       env:
         OUT_DIR: ${{ inputs.out-dir }}
-      run: '"$RUNNER_TEMP/package-validators/bin/twine" check "$OUT_DIR"/*'
+      run: uv run --no-project --python "$RUNNER_TEMP/package-validators" twine check "$OUT_DIR"/*
     - name: Check wheel contents
       shell: bash
       env:
         OUT_DIR: ${{ inputs.out-dir }}
-      run: '"$RUNNER_TEMP/package-validators/bin/check-wheel-contents" --no-config "$OUT_DIR"'
+      run: uv run --no-project --python "$RUNNER_TEMP/package-validators" check-wheel-contents --no-config "$OUT_DIR"
