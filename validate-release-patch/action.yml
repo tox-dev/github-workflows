@@ -117,6 +117,7 @@ runs:
         for category in config['type']:
             print(category['directory'])
         PY
+        git diff --cached --name-status --no-renames -z >"$RUNNER_TEMP/release-paths"
         while IFS= read -r -d '' status && IFS= read -r -d '' path; do
           if [[ "$path" == "$CHANGELOG" ]]; then
             continue
@@ -148,7 +149,7 @@ runs:
             ;;
           '' | *[!0-9]*) reject_fragment ;;
           esac
-        done < <(git diff --cached --name-status --no-renames -z)
+        done <"$RUNNER_TEMP/release-paths"
 
         if git diff --cached --quiet -- "$CHANGELOG"; then
           echo "::error::release patch does not change $CHANGELOG" >&2
@@ -160,6 +161,7 @@ runs:
         FRAGMENTS: ${{ inputs.fragments }}
       run: |
         set -euo pipefail
+        git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/release-modes"
         while IFS= read -r -d '' metadata && IFS= read -r -d '' path; do
           read -ra fields <<<"$metadata"
           case "${fields[4]}" in
@@ -192,7 +194,7 @@ runs:
             echo "::error::unexpected release file mode in $path: ${fields[1]}" >&2
             exit 1
           fi
-        done < <(git diff --cached --raw --no-renames -z)
+        done <"$RUNNER_TEMP/release-modes"
     - name: Check RST conflict markers
       if: endsWith(inputs.changelog, '.rst')
       shell: bash
@@ -200,6 +202,7 @@ runs:
         CHANGELOG: ${{ inputs.changelog }}
       run: |
         set -euo pipefail
+        git diff --cached --unified=0 -- "$CHANGELOG" >"$RUNNER_TEMP/release-rst-diff"
         while IFS= read -r line; do
           case "$line" in
           +'<<<<<<<'* | +'|||||||'* | +'>>>>>>>'*)
@@ -207,7 +210,7 @@ runs:
             exit 1
             ;;
           esac
-        done < <(git diff --cached --unified=0 -- "$CHANGELOG")
+        done <"$RUNNER_TEMP/release-rst-diff"
         printf '%s conflict-marker-size=10\n' "$CHANGELOG" >>"$(git rev-parse --git-path info/attributes)"
     - name: Check rendered release section
       if: inputs.checks == 'true'

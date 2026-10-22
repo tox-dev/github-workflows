@@ -302,7 +302,7 @@ def test_prepare_rejects_empty_release(repository: Path, tmp_path: Path, action_
 
 def test_prepare_rejects_empty_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     result = subprocess.run(
-        ["bash", "-e", "-o", "pipefail", str(action_scripts / "prepare-towncrier-8.sh")],
+        ["bash", "-e", "-o", "pipefail", str(action_scripts / "prepare-towncrier-7.sh")],
         cwd=repository,
         env=os.environ | {"PATCH": str(tmp_path / "release.patch")},
         text=True,
@@ -411,36 +411,6 @@ def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, ac
     )
     assert result.returncode == 0, result.stderr
     assert "Changes\n=======" in (repository / "CHANGELOG.rst").read_text()
-
-
-@pytest.mark.parametrize(
-    "script",
-    [
-        pytest.param("prepare-towncrier-7.sh", id="prepare"),
-        pytest.param("validate-release-patch-5.sh", id="validate"),
-    ],
-)
-@pytest.mark.parametrize("tracked", [pytest.param(True, id="tracked"), pytest.param(False, id="first-release")])
-def test_prepare_rejects_rst_conflict_marker(
-    repository: Path, action_scripts: Path, script: str, tracked: bool
-) -> None:
-    if tracked:
-        (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n")
-        run(repository, "git", "add", "CHANGELOG.rst")
-        run(repository, "git", "commit", "-m", "Track RST changelog")
-    (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n\n<<<<<<< HEAD\n")
-    run(repository, "git", "add", *(["-N"] if script.startswith("prepare") and not tracked else []), "CHANGELOG.rst")
-    result = subprocess.run(
-        ["bash", str(action_scripts / script)],
-        cwd=repository,
-        env={name: os.environ[name] for name in ("HOME", "LANG", "PATH") if name in os.environ}
-        | {"CHANGELOG": "CHANGELOG.rst"},
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode != 0
-    assert "conflict markers" in result.stderr
 
 
 def _author_lookup(github_api: tuple[HTTPServer, dict[str, str]], number: int) -> dict[str, str]:

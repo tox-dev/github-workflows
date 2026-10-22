@@ -151,25 +151,6 @@ runs:
           echo '::error::release preparation created untracked files' >&2
           exit 1
         fi
-    - name: Check RST conflict markers
-      if: inputs.format == 'rst'
-      shell: bash
-      env:
-        CHANGELOG: ${{ inputs.changelog }}
-      run: |
-        set -euo pipefail
-        diff_file=$(mktemp)
-        trap 'rm -f "$diff_file"' EXIT
-        git diff HEAD --unified=0 -- "$CHANGELOG" >"$diff_file"
-        while IFS= read -r line; do
-          case "$line" in
-          +'<<<<<<<'* | +'|||||||'* | +'>>>>>>>'*)
-            echo '::error::release changelog contains conflict markers' >&2
-            exit 1
-            ;;
-          esac
-        done <"$diff_file"
-        printf '%s conflict-marker-size=10\n' "$CHANGELOG" >>"$(git rev-parse --git-path info/attributes)"
     - name: Write release patch
       shell: bash
       env:

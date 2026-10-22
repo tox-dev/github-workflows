@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from hashlib import sha256
 from textwrap import dedent
 lazy from pathlib import Path
@@ -98,6 +100,28 @@ def test_validate_rejects_rst_conflict_marker(
     )
     assert result.returncode != 0
     assert "release changelog contains conflict markers" in result.stderr
+
+
+@pytest.mark.parametrize("tracked", [pytest.param(True, id="tracked"), pytest.param(False, id="first-release")])
+def test_validate_rejects_staged_rst_conflict_marker(
+    repository: Path, tmp_path: Path, action_scripts: Path, tracked: bool
+) -> None:
+    if tracked:
+        (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n")
+        run(repository, "git", "add", "CHANGELOG.rst")
+        run(repository, "git", "commit", "-m", "Track RST changelog")
+    (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n\n<<<<<<< HEAD\n")
+    run(repository, "git", "add", "CHANGELOG.rst")
+    result = subprocess.run(
+        ["bash", str(action_scripts / "validate-release-patch-5.sh")],
+        cwd=repository,
+        env=os.environ | {"CHANGELOG": "CHANGELOG.rst", "RUNNER_TEMP": str(tmp_path)},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "conflict markers" in result.stderr
 
 
 def test_validate_rejects_unchanged_changelog(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
