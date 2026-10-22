@@ -21,7 +21,9 @@ runs:
       run: |
         set -euo pipefail
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
-        python3.15 - "$GITHUB_ACTION_PATH/../pylock.toml" "$RUNNER_TEMP/lock-exporter-requirements.txt" <<'PY'
+        uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/lock-exporter"
+        uv run --no-project --python "$RUNNER_TEMP/lock-exporter" python - "$GITHUB_ACTION_PATH/../pylock.toml" \
+          "$RUNNER_TEMP/lock-exporter-requirements.txt" <<'PY'
         import sys
         import tomllib
 
@@ -40,7 +42,6 @@ runs:
         with open(sys.argv[2], "w", encoding="utf-8") as output:
             output.writelines(requirements)
         PY
-        uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/lock-exporter"
         uv pip sync --python "$RUNNER_TEMP/lock-exporter" --only-binary :all: --require-hashes \
           "$RUNNER_TEMP/lock-exporter-requirements.txt"
     - name: Derive caller backend constraints
@@ -50,7 +51,7 @@ runs:
         PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
         set -euo pipefail
-        if python3.15 - "$LOCK" <<'PY'
+        if uv run --no-project --python "$RUNNER_TEMP/lock-exporter" python - "$LOCK" <<'PY'
         import sys
         import tomllib
 
@@ -86,7 +87,7 @@ runs:
           done
         done <<<"$DEPENDENCY_GROUPS"
         test "${#groups[@]}" -gt 0
-        python3.15 - "$LOCK" "${selected_groups[@]}" <<'PY'
+        uv run --no-project --python "$VENV" python - "$LOCK" "${selected_groups[@]}" <<'PY'
         import sys
         import tomllib
 

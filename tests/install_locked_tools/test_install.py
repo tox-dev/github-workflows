@@ -152,6 +152,27 @@ def test_install_locked_tools_reuses_exporter(tmp_path: Path, action_scripts: Pa
     assert (tmp_path / "validators/bin/release-creator").is_file()
 
 
+def test_install_locked_tools_uses_managed_python(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    for name in ("bash", "uv"):
+        executable = shutil.which(name)
+        assert executable is not None
+        (tools / name).symlink_to(executable)
+    result = install(
+        source,
+        action_scripts,
+        tmp_path,
+        lock=source / "pylock.toml",
+        groups="release-check",
+        venv=tmp_path / "tools",
+        extra_env={"PATH": str(tools)},
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "tools/bin/prek").is_file()
+
+
 def test_install_locked_tools_exporter_does_not_build_pyyaml(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     result = install(
