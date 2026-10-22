@@ -298,13 +298,12 @@ prepare-towncrier ── version + patch ──► upload artifact
 ```
 
 The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-level workflow, in a separate job with
-`id-token: write`:
-[PyPI does not support trusted publishing inside reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/#reusable-workflows-on-github).
-Run `prek` in a separate read-only job before building the tagged source. Repositories with the standard `uv` wheel and
-sdist build can use `build-python-distribution` in the tag publisher. The
-[self-release workflow](.github/workflows/release.yaml) shows the GitHub Release path; callers keep their ecosystem
-uploads. The read-only build workflow checks the tagged source and renders the Release body. The tag caller alone has a
-Contents write job that creates the GitHub Release.
+`id-token: write` because
+[PyPI disallows reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/). Run `prek` in a separate
+read-only job before building the tagged source. Repositories with the standard `uv` wheel and sdist build can use
+`build-python-distribution` in the tag publisher. The [self-release workflow](.github/workflows/release.yaml) shows the
+GitHub Release path; callers keep their ecosystem uploads. The read-only build workflow checks the tagged source and
+renders the Release body. The tag caller alone has a Contents write job that creates the GitHub Release.
 
 ## Validate a Python release
 
