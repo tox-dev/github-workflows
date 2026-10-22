@@ -56,7 +56,12 @@ runs:
           .head.sha == $head and
           (.user.login | type == "string")
         ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null
-        if [[ $(jq -r .user.login "$RUNNER_TEMP/hook-update-pr.json") == 'pre-commit-ci[bot]' ]]; then
+        if [[ $(jq -r .user.type "$RUNNER_TEMP/hook-update-pr.json") == Bot ]]; then
+          gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' \
+            >"$RUNNER_TEMP/hook-update-files"
+        fi
+        if [[ -f "$RUNNER_TEMP/hook-update-files" ]] &&
+          grep -Fxq .pre-commit-config.yaml "$RUNNER_TEMP/hook-update-files"; then
           gh api --paginate -X GET "repos/$REPOSITORY/actions/runs" -f event=pull_request \
             -f head_sha="$HEAD_SHA" -f per_page=100 >"$RUNNER_TEMP/hook-update-runs.jsonl"
           if jq -se --arg repository "$REPOSITORY" \
@@ -180,11 +185,13 @@ runs:
             cat "$RUNNER_TEMP/older-hooks-error" >&2
             exit 1
           fi
-          uv run --no-project --python "$RUNNER_TEMP/hook-tools" yq -c '
+          if ! uv run --no-project --python "$RUNNER_TEMP/hook-tools" yq -c '
             [.repos[] | select(.repo != "local" and .repo != "meta") | {repo, rev}]
-          ' "$RUNNER_TEMP/older-hooks.yaml" |
-            jq -c 'to_entries[] | {index: .key, repo: .value.repo, rev: .value.rev}' \
-              >>"$RUNNER_TEMP/observed-revisions.jsonl"
+          ' "$RUNNER_TEMP/older-hooks.yaml" >"$RUNNER_TEMP/older-revisions.json"; then
+            echo "::warning::skip malformed hook config at $head" >&2
+            continue
+          fi
+          jq -c '.[]' "$RUNNER_TEMP/older-revisions.json" >>"$RUNNER_TEMP/observed-revisions.jsonl"
         done <"$RUNNER_TEMP/older-heads"
     - name: Verify the first GitHub observation of each revision
       if: steps.identity.outputs.bot == 'true' && steps.identity.outputs.cooled != 'true'
@@ -194,12 +201,12 @@ runs:
           --slurpfile proposed "$RUNNER_TEMP/proposed-hooks.json" '
           [$proposed[0] | to_entries[] |
             select(.value.rev != $base[0][.key].rev) |
-            {index: .key, repo: .value.repo, rev: .value.rev}]
+            {repo: .value.repo, rev: .value.rev}]
         ' >"$RUNNER_TEMP/proposed-revisions.json"
         if ! jq -se --slurpfile proposed "$RUNNER_TEMP/proposed-revisions.json" '
           . as $observed |
           all($proposed[0][]; . as $revision |
-            any($observed[]; .index == $revision.index and .repo == $revision.repo and .rev == $revision.rev))
+            any($observed[]; .repo == $revision.repo and .rev == $revision.rev))
         ' "$RUNNER_TEMP/observed-revisions.jsonl" >/dev/null; then
           echo '::error::hook revision has not been observed on this pull request for seven days' >&2
           exit 1

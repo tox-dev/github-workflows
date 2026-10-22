@@ -34,6 +34,8 @@ def test_action_uses_scoped_job_token() -> None:
         pytest.param("pre-commit-ci[bot]", "sha-v0.5", True, True, id="older-frozen-revision"),
         pytest.param("pre-commit-ci[bot]", "v1", True, True, id="frozen-base"),
         pytest.param("pre-commit-ci[bot]", "v2", False, False, id="young-revision-on-old-pr"),
+        pytest.param("release-app[bot]", "v1", False, True, id="app-cooled-revision"),
+        pytest.param("release-app[bot]", "v2", False, False, id="app-young-revision"),
     ],
 )
 def test_cooldown_checks_hook_revision(
@@ -48,7 +50,7 @@ def test_cooldown_checks_hook_revision(
     server, environment = github_api
     repository = hook_repository(tmp_path)
     expect_pull(server, author=author)
-    if author == "pre-commit-ci[bot]":
+    if author.endswith("[bot]"):
         base_revision = (
             subprocess.run(
                 ["git", "-C", str(repository), "rev-parse", "v0^{}"],
@@ -74,13 +76,27 @@ def test_cooldown_checks_hook_revision(
         "/api/v3/repos/tox-dev/fixture/pulls/7",
         *(
             [
+                "/api/v3/repos/tox-dev/fixture/pulls/7/files",
                 "/api/v3/repos/tox-dev/fixture/actions/runs",
                 "/api/v3/repos/tox-dev/fixture/contents/.pre-commit-config.yaml",
                 "/api/v3/repos/tox-dev/fixture/contents/.pre-commit-config.yaml",
             ]
-            if author == "pre-commit-ci[bot]"
+            if author.endswith("[bot]")
             else []
         ),
+    ]
+
+
+def test_cooldown_skips_bot_without_hook_changes(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    expect_pull(server, author="dependabot[bot]", hook_update=False)
+    result = run_cooldown(action_scripts, tmp_path, environment)
+    assert result.returncode == 0, result.stderr
+    assert [request.path for request, _ in server.log] == [
+        "/api/v3/repos/tox-dev/fixture/pulls/7",
+        "/api/v3/repos/tox-dev/fixture/pulls/7/files",
     ]
 
 
@@ -147,6 +163,48 @@ def test_cooldown_skips_unavailable_old_head(
         query_string=f"ref={'c' * 40}",
     ).respond_with_json({"message": "Not Found"}, status=404)
     expect_config(server, "d" * 40, repository, "v1")
+    result = run_cooldown(action_scripts, tmp_path, environment)
+    assert result.returncode == 0, result.stderr
+
+
+def test_cooldown_skips_malformed_old_head(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(server, author="pre-commit-ci[bot]", observed_days=0)
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1")
+    expect_historical_runs(server, older_head=("c" * 40, "d" * 40))
+    server.expect_request(
+        "/api/v3/repos/tox-dev/fixture/contents/.pre-commit-config.yaml",
+        method="GET",
+        query_string=f"ref={'c' * 40}",
+    ).respond_with_json({"content": base64.b64encode(b"repos: [").decode()})
+    expect_config(server, "d" * 40, repository, "v1")
+    result = run_cooldown(action_scripts, tmp_path, environment)
+    assert result.returncode == 0, result.stderr
+
+
+def test_cooldown_matches_revision_after_repository_list_change(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(server, author="pre-commit-ci[bot]", observed_days=0)
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1")
+    expect_historical_runs(server, older_head="c" * 40)
+    historical = (
+        "repos:\n"
+        "  - repo: https://example.invalid/another-hook\n    rev: v2\n    hooks: []\n"
+        f"  - repo: {repository.as_uri()}\n    rev: v1\n    hooks:\n      - id: sample\n"
+    )
+    server.expect_request(
+        "/api/v3/repos/tox-dev/fixture/contents/.pre-commit-config.yaml",
+        method="GET",
+        query_string=f"ref={'c' * 40}",
+    ).respond_with_json({"content": base64.b64encode(historical.encode()).decode()})
     result = run_cooldown(action_scripts, tmp_path, environment)
     assert result.returncode == 0, result.stderr
 
@@ -267,18 +325,28 @@ def run_cooldown(
 
 
 def expect_pull(
-    server: HTTPServer, *, author: str, head: str = "a" * 40, observed_days: int = 10, updated_days: int = 0
+    server: HTTPServer,
+    *,
+    author: str,
+    head: str = "a" * 40,
+    observed_days: int = 10,
+    updated_days: int = 0,
+    hook_update: bool = True,
 ) -> None:
     server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7", method="GET").respond_with_json(
         {
             "state": "open",
             "base": {"repo": {"full_name": "tox-dev/fixture"}, "sha": "b" * 40},
             "head": {"sha": head, "ref": "bot-update"},
-            "user": {"login": author},
+            "user": {"login": author, "type": "Bot" if author.endswith("[bot]") else "User"},
             "updated_at": (datetime.now(UTC) - timedelta(days=updated_days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
     )
-    if author == "pre-commit-ci[bot]":
+    if author.endswith("[bot]"):
+        server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7/files", method="GET").respond_with_json(
+            [{"filename": ".pre-commit-config.yaml" if hook_update else "pyproject.toml"}]
+        )
+    if author.endswith("[bot]") and hook_update:
         server.expect_request(
             "/api/v3/repos/tox-dev/fixture/actions/runs",
             method="GET",
