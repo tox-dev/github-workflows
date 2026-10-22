@@ -80,6 +80,8 @@ runs:
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
         build_python=$(uv python find "$RUNNER_TEMP/build-python")
         test -n "$build_python"
+        export SOURCE_DATE_EPOCH
+        SOURCE_DATE_EPOCH=$(git -C "$SOURCE" log -1 --format=%ct)
         uv build --python "$build_python" \
           --python-preference only-managed --sdist --wheel \
           --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir "$OUT_DIR"
