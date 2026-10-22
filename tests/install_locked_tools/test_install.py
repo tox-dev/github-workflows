@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 @pytest.mark.parametrize(
@@ -123,6 +124,7 @@ def test_install_locked_tools_rejects_empty_groups(tmp_path: Path, action_script
         venv=tmp_path / "tools",
     )
     assert result.returncode != 0
+    assert "at least one dependency group is required" in result.stderr
 
 
 def test_install_locked_tools_rejects_missing_group(tmp_path: Path, action_scripts: Path) -> None:
@@ -241,19 +243,25 @@ def test_install_locked_tools_ignores_resolution_cutoff_for_hashed_lock(tmp_path
 def test_shared_lock_respects_seven_day_cutoff() -> None:
     source = Path(__file__).resolve().parents[2]
     cutoff = datetime.now(UTC) - timedelta(days=7)
+    workflow = yaml.safe_load((source / ".github/workflows/update-tools.yaml").read_text())
+    floors = {
+        name: datetime.fromisoformat(value)
+        for name, value in (
+            line.split("=", 1) for line in workflow["jobs"]["update"]["with"]["exclude-newer-packages"].splitlines()
+        )
+    }
     packages = tomllib.loads((source / "pylock.toml").read_text())["packages"]
     younger = {
         package["name"]
         for package in packages
-        if package["name"] != "release-creator"
-        and (
+        if (
             times := [
                 artifact["upload-time"]
                 for artifact in [package.get("sdist", {}), *package.get("wheels", [])]
                 if "upload-time" in artifact
             ]
         )
-        and min(times) > cutoff
+        and max(times) > max(cutoff, floors.get(package["name"], cutoff))
     }
     assert younger == set()
 

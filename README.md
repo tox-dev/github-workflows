@@ -154,8 +154,7 @@ owns the schedule, so repositories can use different upgrade days without copyin
 `pull-request-title`, and `pull-request-body` let a caller retain its existing dependency PR wording.
 
 Set `keep-uv-lock: true` only when the repository commits `uv.lock` for its own build. The lock job then refreshes both
-`uv.lock` and the selectable `pylock.toml` and includes both in one patch. The default rejects `uv.lock` changes. This
-is the path for toml-fmt's workspace lock.
+`uv.lock` and the selectable `pylock.toml` and includes both in one patch. The default rejects `uv.lock` changes.
 
 The `build-constraints` input is for a repository that checks in a generated build constraints file beside its full
 lock. It makes the lock job regenerate that file from the lock's `build` group and include both paths in the dependency
@@ -247,10 +246,11 @@ job.
 
 Schedule `recheck-hook-update-cooldown` once a day in a separate workflow with `actions: write`, `contents: read`, and
 `pull-requests: read`. It reruns the current head's failed `hook-cooldown` job each day; that job checks the proposed
-revision's first verified observation. A failed rerun is tried again on the next schedule. The workflow does not check
-out PR code or use the release App key. The [caller in this repository](.github/workflows/recheck-hook-cooldown.yaml)
-shows the trigger and permissions. Set `workflow` when the PR check workflow is not named `check.yaml`. Set `job-name`
-when the required job is not named `hook-cooldown`.
+revision's first verified observation. GitHub accepts reruns for 30 days. A failed rerun is tried again on the next
+schedule while it remains eligible. The workflow does not check out PR code or use the release App key. The
+[caller in this repository](.github/workflows/recheck-hook-cooldown.yaml) shows the trigger and permissions. Set
+`workflow` when the PR check workflow is not named `check.yaml`. Set `job-name` when the required job is not named
+`hook-cooldown`.
 
 Run the hook preview in its own job so its path check sees only the hook configuration change:
 
@@ -307,10 +307,11 @@ prepare-towncrier ── version + patch ──► upload artifact
 The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-level workflow, in a separate job with
 `id-token: write` because
 [PyPI disallows reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/). Run `prek` in a separate
-read-only job before building the tagged source. Repositories with the standard `uv` wheel and sdist build can use
-`build-python-distribution` in the tag publisher. The [self-release workflow](.github/workflows/release.yaml) shows the
-GitHub Release path; callers keep their ecosystem uploads. The read-only build workflow checks the tagged source and
-renders the Release body. The tag caller alone has a Contents write job that creates the GitHub Release.
+read-only job alongside the tagged-source build, and make publishing depend on both. Repositories with the standard `uv`
+wheel and sdist build can use `build-python-distribution` in the tag publisher. The
+[self-release workflow](.github/workflows/release.yaml) shows the GitHub Release path; callers keep their ecosystem
+uploads. The read-only build workflow checks the tagged source and renders the Release body. The tag caller alone has a
+Contents write job that creates the GitHub Release.
 
 ## Validate a Python release
 
@@ -515,8 +516,9 @@ branch and tag ruleset bypass. A stale branch, invalid tag, or ruleset rejection
 
 ## Build Python distribution
 
-`build-python-distribution` builds a wheel and sdist with `uv`. Call it after a separate read-only `prek` job,
-`actions/checkout`, and `astral-sh/setup-uv`. The caller verifies the tag and changelog section before this Action.
+`build-python-distribution` builds a wheel and sdist with `uv`. The build job checks out the tagged source and sets up
+`uv` first. Run `prek` in a separate read-only job alongside the build, and require both before publishing. The caller
+verifies the tag and changelog section before this Action.
 
 ```yaml
   - uses: tox-dev/github-workflows/build-python-distribution@SHA
@@ -682,7 +684,7 @@ until the second call succeeds.
 missing assets, and publishes only after the complete asset set matches. A matching published Release causes no write. A
 different body, title, tag commit, prerelease flag, or asset set fails without changing the existing Release. A failed
 upload leaves the draft for a later retry. An asset in GitHub's incomplete `starter` state requires manual cleanup
-before retrying. The Action retries GitHub's release listing for up to ten seconds after creating the draft, uploading
+before retrying. The Action retries reading the release by ID for up to ten seconds after creating the draft, uploading
 assets, or publishing; a mismatch still fails when that window ends.
 
 ## Reconcile a post-release pull request

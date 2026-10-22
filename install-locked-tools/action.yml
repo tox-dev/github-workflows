@@ -99,7 +99,10 @@ runs:
             selected_groups+=("$group")
           done
         done <<<"$DEPENDENCY_GROUPS"
-        test "${#groups[@]}" -gt 0
+        if ((${#groups[@]} == 0)); then
+          echo '::error::at least one dependency group is required' >&2
+          exit 1
+        fi
         uv run --no-project --python "$VENV" python - "$LOCK" "${selected_groups[@]}" <<'PY'
         import sys
         import tomllib

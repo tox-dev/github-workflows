@@ -293,6 +293,8 @@ def _step_value(
             resolved = environment["GITHUB_REPOSITORY"]
         elif expression == "github.base_ref":
             resolved = environment.get("BASE_REF", "")
+        elif expression == "github.event.pull_request.number":
+            resolved = environment.get("GITHUB_EVENT_PULL_REQUEST_NUMBER", "")
         elif expression == "github.token":
             resolved = environment.get("GH_TOKEN", environment.get("GH_ENTERPRISE_TOKEN", ""))
         elif expression == "contains(github.event.pull_request.labels.*.name, 'skip news')":

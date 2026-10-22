@@ -123,7 +123,7 @@ def test_label_bot_news_updates_label(
         "label-bot-news",
         version="0.2.0",
         REPOSITORY="tox-dev/fixture",
-        PR_NUMBER="1",
+        GITHUB_EVENT_PULL_REQUEST_NUMBER="1",
         BOT_AUTHOR="true",
         FRAGMENTS=fragment_dirs,
         EXTENSION=extension,
