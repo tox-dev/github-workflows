@@ -150,6 +150,19 @@ def test_rejects_missing_java(action_scripts: Path, tmp_path: Path) -> None:
     assert run_step(action_scripts, 3, tmp_path, JAVA_HOME_17_X64=str(tmp_path / "missing")).returncode != 0
 
 
+@pytest.mark.parametrize("existing", [pytest.param("file", id="file"), pytest.param("symlink", id="symlink")])
+def test_rejects_existing_signed_archive(
+    action_scripts: Path, unsigned_archive: Path, tmp_path: Path, existing: str
+) -> None:
+    signed = tmp_path / "Plugin 2-1.0-signed.zip"
+    if existing == "symlink":
+        signed.symlink_to(unsigned_archive)
+    else:
+        signed.write_bytes(b"existing")
+    result = run_step(action_scripts, 4, tmp_path, SIGNED=str(signed), RUNNER_TEMP=str(tmp_path))
+    assert "signed archive already exists" in result.stderr
+
+
 @pytest.fixture
 def unsigned_archive(tmp_path: Path) -> Path:
     archive = tmp_path / "Plugin 2-1.0.zip"

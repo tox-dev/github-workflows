@@ -78,7 +78,9 @@ def test_multipart_upload_uses_exact_archive_and_channel(
     signed_archive = signed_archive.rename(tmp_path / archive_name)
     runner_temp = tmp_path / temporary_name
     runner_temp.mkdir()
-    httpserver.expect_request("/api/updates/upload", method="POST").respond_with_data("{}", status=status)
+    httpserver.expect_request("/api/updates/upload", method="POST").respond_with_data(
+        "upload denied" if status == 403 else "{}", status=status
+    )
     script = tmp_path / "upload.sh"
     script.write_text(
         (action_scripts / "publish-jetbrains-marketplace-1.sh")
@@ -96,6 +98,8 @@ def test_multipart_upload_uses_exact_archive_and_channel(
         RUNNER_TEMP=str(runner_temp),
     )
     assert (result.returncode == 0) is (status == 200)
+    if status == 403:
+        assert "upload denied" in result.stderr
     request = httpserver.log[0][0]
     assert request.headers["Authorization"] == "Bearer fixture-token"
     assert request.form["pluginId"] == "29973"

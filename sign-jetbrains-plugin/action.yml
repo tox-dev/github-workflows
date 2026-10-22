@@ -36,7 +36,7 @@ runs:
         set -euo pipefail
         [[ -f "$ARCHIVE" && ! -L "$ARCHIVE" ]] || exit 1
         case "$ARCHIVE" in *.zip) ;; *) exit 1 ;; esac
-        echo "$EXPECTED_SHA  $ARCHIVE" | sha256sum --check
+        test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         unzip -tq "$ARCHIVE" >/dev/null
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
         echo "archive=${ARCHIVE%.zip}-signed.zip" >>"$GITHUB_OUTPUT"
@@ -67,6 +67,10 @@ runs:
       run: |
         set -euo pipefail
         umask 077
+        if [[ -e "$SIGNED" || -L "$SIGNED" ]]; then
+          echo '::error::signed archive already exists' >&2
+          exit 1
+        fi
         trap 'rm -f "$RUNNER_TEMP"/signing-{key,key-decrypted,chain}.pem' EXIT
         if [[ "$CERTIFICATE_CHAIN" == *'-----BEGIN CERTIFICATE-----'* ]]; then
           printf '%s' "$CERTIFICATE_CHAIN" >"$RUNNER_TEMP/signing-chain.pem"
@@ -78,10 +82,16 @@ runs:
         else
           printf '%s' "$PRIVATE_KEY" | base64 --decode >"$RUNNER_TEMP/signing-key.pem"
         fi
+        while IFS= read -r line; do
+          [[ -z "$line" ]] || echo "::add-mask::$line"
+        done <"$RUNNER_TEMP/signing-key.pem"
         signing_key="$RUNNER_TEMP/signing-key.pem"
         if [[ -n "$PRIVATE_KEY_PASSWORD" ]]; then
           openssl pkey -in "$signing_key" -out "$RUNNER_TEMP/signing-key-decrypted.pem" \
             -passin env:PRIVATE_KEY_PASSWORD
+          while IFS= read -r line; do
+            [[ -z "$line" ]] || echo "::add-mask::$line"
+          done <"$RUNNER_TEMP/signing-key-decrypted.pem"
           signing_key="$RUNNER_TEMP/signing-key-decrypted.pem"
         fi
         "$JAVA_HOME_17_X64/bin/java" -jar "$RUNNER_TEMP/marketplace-signer-cli.jar" sign \
