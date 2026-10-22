@@ -1,7 +1,7 @@
 # Contributing
 
 Changes to a shared Action can affect every caller pinned to its next release. Describe the behavior you are changing
-and exercise it through the PR release rehearsal on a GitHub runner.
+and test its inputs and outputs before opening a pull request.
 
 ## Set up
 
@@ -24,13 +24,12 @@ pytest -q
 `prek` formats YAML with `yamlfmt` and runs zizmor. Run it again after accepting formatter changes. CI extracts inline
 shell from the workflows and Actions, then runs ShellCheck and `shfmt` on each block. The tests extract the exact `run:`
 blocks from each composite Action and execute them in temporary Git repositories. CI uses `kcov` to require 100% line
-coverage of those blocks. The PR rehearsal also executes the composite Actions on a GitHub runner to check their wiring.
+coverage of those blocks.
 
 ## Change an Action
 
-Keep its `action.yml` inputs and step behavior in sync with the [README](README.md). The PR `release-dry-run` job
-invokes the release Actions, checks rejected inputs, and uploads the patch and rendered GitHub notes. Inspect its steps
-and artifacts when changing input mapping or release output. Add a runner failure case when changing input validation.
+Keep its `action.yml` inputs and step behavior in sync with the [README](README.md). Test rejected inputs and inspect
+the patch and rendered notes when changing release output. Add a failure case when changing input validation.
 
 The release preparation and Python build steps must work without a write token. Keep custom build and publisher steps in
 the caller. Do not add a secret to an Action input when a short-lived, repository-scoped token is sufficient.

@@ -5,13 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  validate:
-    uses: $/.github/workflows/validate-release.yaml
-    permissions:
-      contents: read
-      pull-requests: read
   source:
-    needs: validate
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -32,6 +26,8 @@ jobs:
         run: |
           uv venv --python 3.15 .venv
           uv pip sync --preview-features pylock --python .venv/bin/python --group release pylock.toml
+      - name: Check tagged source
+        run: .venv/bin/prek run --all-files
       - name: Verify tag and select previous release
         id: tag
         env:

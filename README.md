@@ -87,16 +87,11 @@ jobs:
 ```
 
 `resolve-pr-from-run` needs the source run ID and PR workflow path. Its optional `repository` input defaults to the
-caller repository and is useful for a read-only external rehearsal. It outputs `number` and `bot-author`; `number` is
-empty when the run's head is no longer the open PR head. It reads GitHub metadata and writes no repository files.
-`label-bot-news` takes that verified number and bot flag. For `.changeset/<name>.md`, pass `fragments: .changeset` and
-`fragment-style: changeset`; the default `towncrier` style expects `<name>.<category>.md` or RST. It only changes the
-`skip news` label when the bot's fragment state and label disagree. A label change retriggers PR CI; the next label run
-sees the settled state and makes no further write.
-
-`validate-bot-credits` is an internal rehearsal Action with no inputs or outputs. Both release validation workflows use
-it to fetch a known bot PR, link a synthetic fragment, and confirm that its notes keep the PR link without crediting the
-bot. It reads public GitHub metadata and writes only temporary fixture files.
+caller repository. It outputs `number` and `bot-author`; `number` is empty when the run's head is no longer the open PR
+head. It reads GitHub metadata and writes no repository files. `label-bot-news` takes that verified number and bot flag.
+For `.changeset/<name>.md`, pass `fragments: .changeset` and `fragment-style: changeset`; the default `towncrier` style
+expects `<name>.<category>.md` or RST. It only changes the `skip news` label when the bot's fragment state and label
+disagree. A label change retriggers PR CI; the next label run sees the settled state and makes no further write.
 
 ## Refresh release tools and hooks
 
@@ -264,20 +259,17 @@ The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-
 `id-token: write`:
 [PyPI does not support trusted publishing inside reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/#reusable-workflows-on-github).
 Run `prek` in a separate read-only job before building the tagged source. Repositories with the standard `uv` wheel and
-sdist build can use `build-python-distribution` in both the tag publisher and the PR rehearsal. The
+sdist build can use `build-python-distribution` in the tag publisher. The
 [self-release workflow](.github/workflows/release.yaml) shows the GitHub Release path; callers keep their ecosystem
-uploads. The [read-only validation workflow](.github/workflows/validate-release.yaml) is called from both this
-repository's PR check and tag release. It builds a local candidate for PRs, checks the tagged source, and renders the
-Release body. The tag caller alone has a Contents write job that creates the GitHub Release.
+uploads. The read-only build workflow checks the tagged source and renders the Release body. The tag caller alone has a
+Contents write job that creates the GitHub Release.
 
 ## Validate a Python release
 
 `validate-python-release.yaml` runs read-only source checks, notes rendering, a hash-constrained wheel and sdist build,
-and distribution checks. On tag events, it checks that the fully qualified tag ref resolves to the checked-out commit
-before building. On pull requests, it checks the exact PR head, squashes it onto the event base, adds a local validation
-fragment, and uses `prepare-towncrier` to assemble and locally tag a release candidate. The same render, build, and
-distribution checks then run on that candidate. The workflow uses `$/` for its own Actions, so a caller pinned to a
-workflow commit runs those Actions from the same commit.
+and distribution checks on a release tag. It checks that the fully qualified tag ref resolves to the checked-out commit
+before building. The workflow uses `$/` for its own Actions, so a caller pinned to a workflow commit runs those Actions
+from the same commit.
 
 Call the pinned workflow from the tag publisher's build job:
 
@@ -287,16 +279,12 @@ build:
     tox-dev/github-workflows/.github/workflows/validate-python-release.yaml@SHA
   permissions:
     contents: read
-    pull-requests: read
   with:
     changelog: CHANGELOG.md
-    fragments: changelog.d
-    format: markdown
     artifact-base-url: https://pypi.org/project/example/
 ```
 
-`changelog` is the rendered changelog path. `fragments` and `format` select the local PR candidate's Towncrier assembly;
-the tag path reads the existing changelog. `artifact-base-url` ends just before the version; the workflow appends
+`changelog` is the rendered changelog path. `artifact-base-url` ends just before the version; the workflow appends
 `1.2.3/` for tag `1.2.3`. Set it to the package's actual PyPI project path. `artifact-label` changes the link text from
 `PyPI release`; `issue-role` selects whether reStructuredText `:issue:` references link to issues or pull requests.
 `lock` defaults to `pylock.toml` and must have a `release` group with `release-creator`, Towncrier, and `prek`.
@@ -348,7 +336,6 @@ back to the caller. A successful run pushes a tag, which the caller's tag workfl
 `bump`, `tag-prefix`, `changelog-prefix`, `changelog`, `fragments`, `format`, `link-fragments`, `numbered-prs`, and
 `annotated` have the same meanings as the `prepare-towncrier` inputs below. `release-auth-deployment` defaults to
 `true`; set it to `false` if the current App-key job uses `release-auth` without creating a GitHub Deployment.
-`dry-run: true` runs the first two jobs at a same-repository PR head and skips the App-key job.
 `local-tool-source: true` installs release-creator from the tagged checkout with locked third-party dependencies in both
 keyless jobs; use it for release-creator itself. The caller can place repository-specific checks in a preceding job and
 make this job depend on it. The tag-triggered ecosystem publisher stays in the caller repository.
@@ -391,8 +378,7 @@ rendering, formatting, or checks fail, or if preparation creates untracked files
   numeric fragment stem is the original pull request number; the linked PR and its authors come from that number.
 - `patch` **(required)**: Writable path to the Git patch, usually under `runner.temp`. Upload this exact file as an
   artifact for the validation job.
-- `repository`: GitHub owner/repository used for fragment author links; defaults to the workflow caller. The external
-  rehearsal sets this to the consumer repository.
+- `repository`: GitHub owner/repository used for fragment author links; defaults to the workflow caller.
 
 **Output:** `version` is the selected tag string. Use `steps.prepare.outputs.version` as a job output and pass it to
 both later Actions. **Working-tree effect:** Towncrier changes the changelog and consumes fragments; the patch records
@@ -426,8 +412,7 @@ release tools.
 - `remote`: Git remote fetched for the freshness check; default `origin`.
 - `expected-sha`: Commit that preparation checked out. By default the Action uses `GITHUB_SHA`; set this when
   preparation used another commit.
-- `repository`: GitHub owner/repository used to check the changelog's links; defaults to the workflow caller. The
-  external rehearsal sets this to the consumer repository.
+- `repository`: GitHub owner/repository used to check the changelog's links; defaults to the workflow caller.
 - `expected-patch-sha`: SHA-256 digest of the patch from a separate keyless validation job. The Action rejects a
   different downloaded patch before applying it.
 - `checks`: `true` (default) runs `release-creator` and `prek`; `false` only applies and checks the validated patch.
@@ -473,9 +458,7 @@ branch and tag ruleset bypass. A stale branch, invalid tag, or ruleset rejection
 ## Build Python distribution
 
 `build-python-distribution` builds a wheel and sdist with `uv`. Call it after a separate read-only `prek` job,
-`actions/checkout`, and `astral-sh/setup-uv`. The caller verifies the tag and changelog section before this Action. Use
-the same Action and inputs after the local tag in the PR rehearsal; this executes the build steps used by the tag
-publisher without publishing the artifacts.
+`actions/checkout`, and `astral-sh/setup-uv`. The caller verifies the tag and changelog section before this Action.
 
 ```yaml
   - uses: tox-dev/github-workflows/build-python-distribution@SHA
@@ -501,7 +484,7 @@ before the Action starts. The build backend comes from the lock's `build` select
 
 `validate-python-distribution` runs Twine and check-wheel-contents on the files the build job will upload. It installs
 both tools from the caller's full project lock. Run it after `build-python-distribution` and before `upload-artifact`,
-using the same output directory. The standard Python release rehearsal calls it on its candidate files too.
+using the same output directory.
 
 ```yaml
   - uses: tox-dev/github-workflows/validate-python-distribution@SHA
@@ -523,8 +506,8 @@ using the same output directory. The standard Python release rehearsal calls it 
 ## Render GitHub Release notes
 
 `render-release-notes` checks the tag and its changelog section, finds the previous tag, and renders an unwrapped GitHub
-Release body with `release-creator`. Call it on the local tag in a PR rehearsal and again on the actual tag. The
-publisher still fetches GitHub's generated notes and creates the Release; this Action only writes a local Markdown file.
+Release body with `release-creator`. Call it on the actual tag. The publisher still fetches GitHub's generated notes and
+creates the Release; this Action only writes a local Markdown file.
 
 ```yaml
   - uses: tox-dev/github-workflows/render-release-notes@SHA
@@ -537,8 +520,7 @@ publisher still fetches GitHub's generated notes and creates the Release; this A
       output: ${{ runner.temp }}/release-notes.md
 ```
 
-- `tag` **(required)**: Release version, such as `1.2.3`. The checkout must contain its changelog section. A local PR
-  rehearsal creates this tag without pushing it to GitHub.
+- `tag` **(required)**: Release version, such as `1.2.3`. The checkout must contain its changelog section.
 - `changelog` **(required)**: Tracked Markdown or reStructuredText changelog in the format that `release-creator notes`
   parses, with exactly one section for the tag.
 - `repository` **(required)**: GitHub `owner/repository` used in PR and comparison links.
@@ -548,9 +530,9 @@ publisher still fetches GitHub's generated notes and creates the Release; this A
 - `artifact-label`: Link text for `artifact-url`; default `PyPI release`. Use `Zipapp` or another product name for a
   different artifact.
 - `issue-role`: For reStructuredText, whether `:issue:` links target GitHub issues (default) or pull requests.
-- `generated-notes`: Path to GitHub's generated-notes body. The tag publisher fetches it after PyPI publication; a PR
-  rehearsal supplies a small fixture with its actual PR author and URL. This preserves New Contributors and fills any
-  missing `by @handle` credit. Omit it when the release has no GitHub-generated contributor metadata.
+- `generated-notes`: Path to GitHub's generated-notes body. The tag publisher fetches it after PyPI publication. It
+  preserves New Contributors and fills any missing `by @handle` credit. Omit it when the release has no GitHub-generated
+  contributor metadata.
 - `output` **(required)**: Writable path for the GitHub Release body. Pass it to `gh release create --notes-file` only
   after the ecosystem publisher succeeds.
 
@@ -745,13 +727,11 @@ not check whether this version was published already; use the keyless release-cr
 before the upload, and `--mode verify` afterward. A retry must compare the published ZIP's member digests before
 skipping an upload because Marketplace can repackage the outer ZIP.
 
-## Check a caller before switching
+## Test a caller
 
-The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. The
-[`release-dry-run` job](.github/workflows/check.yaml) invokes the composite Actions on a GitHub runner against a local
-bare remote. It cannot prove that another repository's Towncrier template, release hooks, package build, or publisher
-works. Run that caller's prepare and validation path at its PR head without pushing a GitHub ref or publishing an
-artifact. Inspect the version, patch, changelog, notes, and built package before changing its live release workflow.
+The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's
+Towncrier template, release hooks, package build, and publisher against representative source data before changing its
+live release workflow. Inspect the version, patch, changelog, notes, and built package.
 
 This repository releases its own Actions with the same prepare and tag path. See [Contributing](CONTRIBUTING.md) for
 local checks and news fragments, and [Changelog](CHANGELOG.md) for released changes.

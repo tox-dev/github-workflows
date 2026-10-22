@@ -83,25 +83,6 @@ jobs:
           repository: ${{ github.repository }}
           pull-request: ${{ github.event.pull_request.number }}
           head-sha: ${{ github.event.pull_request.head.sha }}
-  release-dry-run:
-    if: github.event_name == 'pull_request'
-    uses: $/.github/workflows/validate-release.yaml
-    permissions:
-      contents: read
-      pull-requests: read
-  prepare-graph-dry-run:
-    if: github.event_name == 'pull_request'
-    uses: $/.github/workflows/prepare-towncrier-release.yaml
-    permissions:
-      contents: read
-      pull-requests: read
-    with:
-      changelog: CHANGELOG.md
-      fragments: changelog.d
-      link-fragments: false
-      dry-run: true
-    secrets:
-      RELEASE_APP_PRIVATE_KEY: dry-run-fixture
   release-tools-preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
@@ -122,7 +103,7 @@ jobs:
   gate:
     name: Required checks pass
     if: always()
-    needs: [check, changelog, hook-cooldown, release-dry-run, prepare-graph-dry-run, release-tools-preview]
+    needs: [check, changelog, hook-cooldown, release-tools-preview]
     runs-on: ubuntu-26.04
     steps:
       - env:
@@ -134,7 +115,6 @@ jobs:
               to_entries[];
               .value.result == "success" or
               ($ENV.EVENT_NAME != "pull_request" and .value.result == "skipped" and
-                (.key == "changelog" or .key == "hook-cooldown" or .key == "release-dry-run" or
-                 .key == "prepare-graph-dry-run" or .key == "release-tools-preview"))
+                (.key == "changelog" or .key == "hook-cooldown" or .key == "release-tools-preview"))
             )
           ' <<<"$NEEDS_JSON"

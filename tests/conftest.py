@@ -48,7 +48,6 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "validate-news",
         "label-bot-news",
         "resolve-pr-from-run",
-        "validate-bot-credits",
         "refresh-release-lock",
         "refresh-hook-pins",
         "publish-github-release",

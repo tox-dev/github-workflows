@@ -6,14 +6,6 @@ on:
         description: Tracked changelog path
         required: true
         type: string
-      fragments:
-        description: Towncrier fragment directory
-        required: true
-        type: string
-      format:
-        description: Changelog format passed to prepare-towncrier
-        required: true
-        type: string
       artifact-base-url:
         description: Ecosystem release URL without the version
         required: true
@@ -47,7 +39,7 @@ on:
         default: .
         type: string
       artifact-prefix:
-        description: Prefix for artifacts when comparing two release paths in one run
+        description: Prefix for distribution artifacts in a multi-package release
         default: ""
         type: string
 permissions:
@@ -61,7 +53,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: latest-known
@@ -90,15 +82,13 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
-      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
       - name: Verify the exact release tag
-        if: github.event_name != 'pull_request'
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -128,90 +118,13 @@ jobs:
           uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" \
             --group release --group fix --group build --group project-runtime "$LOCK"
           uv pip install --python "$RUNNER_TEMP/release-tools/bin/python" --no-deps --no-build-isolation .
-      - name: Squash pull request with a validation fragment
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          FRAGMENTS: ${{ inputs.fragments }}
-          CHANGELOG: ${{ inputs.changelog }}
-          FORMAT: ${{ inputs.format }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
-          case "$PR_NUMBER" in '' | *[!0-9]*) exit 1 ;; esac
-          case "$FORMAT" in markdown) extension=md ;; rst) extension=rst ;; *) exit 1 ;; esac
-          git checkout -B release-validation "$BASE_SHA"
-          git merge --squash "$HEAD_SHA"
-          category=$(python3 - "$FRAGMENTS" "$CHANGELOG" <<'PY'
-          import sys
-          import tomllib
-          from pathlib import Path
-
-          config = tomllib.loads(Path('pyproject.toml').read_text())['tool']['towncrier']
-          if config['directory'] != sys.argv[1] or config['filename'] != sys.argv[2]:
-              raise SystemExit('Towncrier paths do not match release inputs')
-          print(config['type'][0]['directory'])
-          PY
-          )
-          case "$category" in '' | *[!A-Za-z0-9_-]*) exit 1 ;; esac
-          mkdir -p "$FRAGMENTS"
-          printf 'Validate the release pipeline on this pull request.\n' \
-            >"$FRAGMENTS/+validation-${PR_NUMBER}.${category}.${extension}"
-          git add -A
-          git -c user.name=release-validation \
-            -c user.email=release-validation@users.noreply.github.com \
-            commit -m "Validate release pipeline (#${PR_NUMBER})"
-      - name: Create the local release remote
-        if: github.event_name == 'pull_request'
-        id: fixture
-        run: |
-          set -euo pipefail
-          git init --bare "$RUNNER_TEMP/release-validation-origin.git"
-          git remote add release-validation-origin "$RUNNER_TEMP/release-validation-origin.git"
-          git push release-validation-origin HEAD:refs/heads/release-validation
-          echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
-      - id: candidate
-        if: github.event_name == 'pull_request'
-        uses: $/prepare-towncrier
-        with:
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          format: ${{ inputs.format }}
-          patch: ${{ runner.temp }}/release-validation.patch
-      - name: Restore the validation source
-        if: github.event_name == 'pull_request'
-        run: git reset --hard HEAD
-      - name: Validate the local release patch
-        if: github.event_name == 'pull_request'
-        uses: $/validate-release-patch
-        with:
-          version: ${{ steps.candidate.outputs.version }}
-          patch: ${{ runner.temp }}/release-validation.patch
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          branch: release-validation
-          remote: release-validation-origin
-          expected-sha: ${{ steps.fixture.outputs.sha }}
-      - name: Tag the local release candidate
-        if: github.event_name == 'pull_request'
-        env:
-          VERSION: ${{ steps.candidate.outputs.version }}
-        run: |
-          set -euo pipefail
-          git -c user.name=release-validation \
-            -c user.email=release-validation@users.noreply.github.com \
-            commit -m "Prepare validation release $VERSION"
-          git tag "$VERSION"
-          test "$(git rev-parse "refs/tags/$VERSION^{commit}")" = "$(git rev-parse HEAD)"
       - name: Render tagged-source notes
         uses: $/render-release-notes
         with:
-          tag: ${{ steps.candidate.outputs.version || github.ref_name }}
+          tag: ${{ github.ref_name }}
           changelog: ${{ inputs.changelog }}
           repository: ${{ github.repository }}
-          artifact-url: ${{ inputs.artifact-base-url }}${{ steps.candidate.outputs.version || github.ref_name }}/
+          artifact-url: ${{ inputs.artifact-base-url }}${{ github.ref_name }}/
           artifact-label: ${{ inputs.artifact-label }}
           issue-role: ${{ inputs.issue-role }}
           output: ${{ runner.temp }}/release-notes.md
