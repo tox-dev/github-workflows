@@ -163,7 +163,8 @@ runs:
             exit 1
           fi
         done
-        uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator build-constraints --lock "$LOCK" --group build \
+        uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator \
+          build-constraints --lock "$LOCK" --group build \
           --python-version "$PYTHON_VERSION" --output "$BUILD_CONSTRAINTS"
     - name: Install refreshed release tools
       shell: bash
@@ -177,7 +178,8 @@ runs:
         constraints=$BUILD_CONSTRAINTS
         if [[ -z "$constraints" ]]; then
           constraints="$RUNNER_TEMP/refreshed-build-constraints.txt"
-          uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator build-constraints --lock "$LOCK" --group build \
+          uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator \
+            build-constraints --lock "$LOCK" --group build \
             --python-version "$PYTHON_VERSION" --output "$constraints"
         fi
         uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/release-tools"

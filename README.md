@@ -336,8 +336,8 @@ defaults to `pkg-meta`; set it to `release` when that group contains locked Twin
 An absent group can make `uv pip sync` succeed without installing either tool.
 
 The workflow uploads `python-package-distributions` with the wheel and sdist, and `release-validation-notes` with the
-body rendered from the tagged source. Callers download the distribution with the pinned
-[`download-artifact` v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
+body rendered from the tagged source. Callers download the distribution with pinned `download-artifact`
+[v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
 whose default fails on an artifact digest mismatch. Its notes lack GitHub contributor metadata. The tag-only GitHub
 Release job must fetch generated notes with Contents write, rerender with `render-release-notes`, and create the Release
 after the ecosystem upload. PyPI OIDC stays in the caller's separate `release` environment job.

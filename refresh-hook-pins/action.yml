@@ -33,8 +33,9 @@ runs:
       shell: bash
       env:
         CONFIG: ${{ inputs.config }}
-      run: >-
-        uv run --no-project --python "$RUNNER_TEMP/hook-tools" prek update --config "$CONFIG" --freeze --cooldown-days 7 --no-progress
+      run: |
+        uv run --no-project --python "$RUNNER_TEMP/hook-tools" prek update --config "$CONFIG" \
+          --freeze --cooldown-days 7 --no-progress
     - name: Refresh exact hook dependencies
       shell: bash
       env:

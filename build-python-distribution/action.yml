@@ -63,7 +63,8 @@ runs:
       run: |
         uv run --no-project --python "$RUNNER_TEMP/build-planner" release-creator build-constraints --lock "$LOCK" \
           --python-version "$(
-            uv run --no-project --python "$RUNNER_TEMP/build-python" python -c 'import platform; print(platform.python_version())'
+            uv run --no-project --python "$RUNNER_TEMP/build-python" \
+              python -c 'import platform; print(platform.python_version())'
           )" \
           --output "$RUNNER_TEMP/build-constraints.txt"
     - name: Build wheel and sdist
@@ -73,5 +74,6 @@ runs:
         OUT_DIR: ${{ inputs.out-dir }}
       run: |
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
-        uv build --python "$(uv python find "$RUNNER_TEMP/build-python")" --python-preference only-managed --sdist --wheel \
+        uv build --python "$(uv python find "$RUNNER_TEMP/build-python")" \
+          --python-preference only-managed --sdist --wheel \
           --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir "$OUT_DIR"

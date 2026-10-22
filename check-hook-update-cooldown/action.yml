@@ -59,7 +59,8 @@ runs:
         if [[ $(jq -r .user.login "$RUNNER_TEMP/hook-update-pr.json") == 'pre-commit-ci[bot]' ]]; then
           gh api --paginate -X GET "repos/$REPOSITORY/actions/runs" -f event=pull_request \
             -f head_sha="$HEAD_SHA" -f per_page=100 >"$RUNNER_TEMP/hook-update-runs.jsonl"
-          if jq -se --arg repository "$REPOSITORY" --arg branch "$(jq -r .head.ref "$RUNNER_TEMP/hook-update-pr.json")" \
+          if jq -se --arg repository "$REPOSITORY" \
+            --arg branch "$(jq -r .head.ref "$RUNNER_TEMP/hook-update-pr.json")" \
             --arg head "$HEAD_SHA" --argjson number "$PR_NUMBER" --argjson days "$MINIMUM_DAYS" '
             [.[].workflow_runs[] | select(
               .event == "pull_request" and .head_repository.full_name == $repository and
