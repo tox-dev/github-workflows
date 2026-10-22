@@ -45,7 +45,8 @@ runs:
         upload_file=$(mktemp "$RUNNER_TEMP/marketplace-upload.XXXXXX.zip")
         cp -- "$ARCHIVE" "$upload_file"
         test "$(sha256sum "$upload_file" | cut -d' ' -f1)" = "$EXPECTED_SHA"
+        cd "$RUNNER_TEMP"
         curl --fail-with-body --max-time 120 --silent --show-error --output "$RUNNER_TEMP/marketplace-response.json" \
           --config <(printf 'header = "Authorization: Bearer %s"\n' "$PUBLISH_TOKEN") \
-          --form "pluginId=$PLUGIN_ID" --form "file=@$upload_file;filename=plugin.zip" --form "channel=$CHANNEL" \
+          --form "pluginId=$PLUGIN_ID" --form "file=@${upload_file##*/};filename=plugin.zip" --form "channel=$CHANNEL" \
           https://plugins.jetbrains.com/api/updates/upload
