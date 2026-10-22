@@ -215,10 +215,12 @@ autoupdate pull requests outside this seven-day path; apply a separate age check
 aggregate's `needs`. Pass the event PR number and head SHA. The Action verifies both against the live PR, reads the base
 and head hook configurations, and uses locked `prek` to select revisions eligible after seven days. It rejects a
 proposed revision that is newer than that selection. Each changed revision must have appeared in a GitHub PR workflow
-run at least seven days earlier. The Action reads the hook config at that run's SHA, so a force push does not reset an
-unchanged revision's age or grant a new revision the old one's age. Human PRs pass without installing the hook tools.
-Keep `opened`, `synchronize`, and `reopened` among the caller's PR event types. The Action maps the job's `github.token`
-to `GH_TOKEN` itself; the caller does not pass a token.
+run at least seven days earlier.
+
+The Action reads the hook config at that run's SHA, so a force push does not reset an unchanged revision's age or grant
+a new revision the old one's age. Human PRs pass without installing the hook tools. Keep `opened`, `synchronize`, and
+`reopened` among the caller's PR event types. The Action maps the job's `github.token` to `GH_TOKEN` itself; the caller
+does not pass a token.
 
 ```yaml
 hook-cooldown:
@@ -332,6 +334,7 @@ build:
 `changelog` is the rendered changelog path. `artifact-base-url` ends just before the version; the workflow appends
 `1.2.3/` for tag `1.2.3`. Set it to the package's actual PyPI project path. `artifact-label` changes the link text from
 `PyPI release`; `issue-role` selects whether reStructuredText `:issue:` references link to issues or pull requests.
+
 `lock` defaults to `pylock.toml`. Set `check-group` to a group with `prek`, and `notes-group` to one with
 `release-creator`; both default to `release` for existing callers. `python-version` defaults to `3.15`; `source`
 defaults to the repository root for `uv build`. `artifact-prefix` defaults to empty; set it when a tag builds more than
