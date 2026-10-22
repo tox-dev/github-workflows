@@ -27,12 +27,12 @@ def test_recheck_schedule_has_only_required_permissions() -> None:
     [
         pytest.param(8, 8, "failure", "hook-cooldown", 1, id="matured-failure"),
         pytest.param(8, 8, "failure", "Hook update cooldown", 1, id="named-job"),
-        pytest.param(6, 6, "failure", "hook-cooldown", 0, id="recent-pull"),
-        pytest.param(8, 0, "failure", "hook-cooldown", 0, id="already-rechecked"),
+        pytest.param(6, 6, "failure", "hook-cooldown", 1, id="recent-pull"),
+        pytest.param(8, 0, "failure", "hook-cooldown", 1, id="failed-rerun"),
         pytest.param(8, 8, "success", "hook-cooldown", 0, id="successful-job"),
     ],
 )
-def test_recheck_reruns_only_matured_failed_job(
+def test_recheck_reruns_failed_job(
     github_api: tuple[HTTPServer, dict[str, str]],
     action_scripts: Path,
     tmp_path: Path,
@@ -77,20 +77,19 @@ def test_recheck_reruns_only_matured_failed_job(
             ]
         }
     )
-    if observed_age >= 7:
-        server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/42/jobs", method="GET").respond_with_json(
-            {
-                "jobs": [
-                    {"id": 98, "name": "Other failed job", "conclusion": "failure", "completed_at": observed_at},
-                    {
-                        "id": 99,
-                        "name": job_name,
-                        "conclusion": job_conclusion,
-                        "completed_at": (datetime.now(UTC) - timedelta(days=job_age)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    },
-                ]
-            }
-        )
+    server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/42/jobs", method="GET").respond_with_json(
+        {
+            "jobs": [
+                {"id": 98, "name": "Other failed job", "conclusion": "failure", "completed_at": observed_at},
+                {
+                    "id": 99,
+                    "name": job_name,
+                    "conclusion": job_conclusion,
+                    "completed_at": (datetime.now(UTC) - timedelta(days=job_age)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                },
+            ]
+        }
+    )
     if reruns:
         server.expect_request("/api/v3/repos/tox-dev/fixture/actions/jobs/99/rerun", method="POST").respond_with_data(
             status=201
@@ -109,7 +108,7 @@ def test_recheck_reruns_only_matured_failed_job(
     )
     action_path = Path(__file__).resolve().parents[2] / "recheck-hook-update-cooldown/action.yml"
     steps = yaml.safe_load(action_path.read_text())["runs"]["steps"]
-    assert [step["name"] for step in steps] == ["Find cooled hook pull requests", "Rerun the failed hook checks"]
+    assert [step["name"] for step in steps] == ["Find hook update pull requests", "Rerun the failed hook checks"]
     for index, _ in enumerate(steps):
         result = subprocess.run(
             ["bash", str(action_scripts / f"recheck-hook-update-cooldown-{index}.sh")],

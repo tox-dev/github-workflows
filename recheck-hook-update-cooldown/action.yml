@@ -1,19 +1,16 @@
 name: Recheck cooled hook updates
-description: Rerun a failed hook cooldown job seven days after GitHub first ran its exact PR head
+description: Recheck failed pre-commit.ci cooldown jobs each day
 inputs:
   workflow:
     description: Workflow file containing the required hook-cooldown job
     default: check.yaml
-  minimum-days:
-    description: Minimum age of the first PR workflow run for the current head
-    default: "7"
   job-name:
     description: Name of the required cooldown job to rerun
     default: hook-cooldown
 runs:
   using: composite
   steps:
-    - name: Find cooled hook pull requests
+    - name: Find hook update pull requests
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -24,13 +21,12 @@ runs:
             .[] | select(.user.login == "pre-commit-ci[bot]" and
               .head.repo.full_name == $repository and .base.repo.full_name == $repository) |
             {number, head: .head.sha, branch: .head.ref}
-          ' >"$RUNNER_TEMP/cooled-hook-pulls.jsonl"
+          ' >"$RUNNER_TEMP/hook-pulls.jsonl"
     - name: Rerun the failed hook checks
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         WORKFLOW: ${{ inputs.workflow }}
-        MINIMUM_DAYS: ${{ inputs.minimum-days }}
         JOB_NAME: ${{ inputs.job-name }}
       run: |
         set -euo pipefail
@@ -46,12 +42,6 @@ runs:
                 .head_branch == $branch and .head_sha == $head and
                 any(.pull_requests[]; .number == $number)
               )]')
-          observed=$(jq -r '[.[].created_at] | min // empty' <<<"$runs")
-          if [[ -z "$observed" ]] || ! jq -n -e --arg date "$observed" --argjson days "$MINIMUM_DAYS" '
-            ($date | fromdateiso8601) <= now - ($days * 86400)
-          ' >/dev/null; then
-            continue
-          fi
           run=$(jq -c '[.[] | select(.status == "completed")] | sort_by(.created_at) | last // empty' <<<"$runs")
           if [[ -z "$run" ]]; then
             continue
@@ -60,10 +50,7 @@ runs:
             -f filter=latest -f per_page=100 |
             jq -sc --arg name "$JOB_NAME" \
               '[.[].jobs[] | select(.name == $name and .conclusion == "failure")] | first // empty')
-          if [[ -n "$job" ]] && jq -e --argjson days "$MINIMUM_DAYS" --arg date "$observed" '
-            (.completed_at | fromdateiso8601) <
-              (($date | fromdateiso8601) + ($days * 86400))
-          ' <<<"$job" >/dev/null; then
+          if [[ -n "$job" ]]; then
             gh api -X POST "repos/$GITHUB_REPOSITORY/actions/jobs/$(jq -r .id <<<"$job")/rerun" >/dev/null
           fi
-        done <"$RUNNER_TEMP/cooled-hook-pulls.jsonl"
+        done <"$RUNNER_TEMP/hook-pulls.jsonl"

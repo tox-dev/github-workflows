@@ -7,7 +7,6 @@ import shutil
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 import yaml
@@ -17,6 +16,8 @@ from pytest_httpserver import HTTPServer
 def test_action_uses_scoped_job_token() -> None:
     action = yaml.safe_load((Path(__file__).resolve().parents[2] / "check-hook-update-cooldown/action.yml").read_text())
     assert [step["env"]["GH_TOKEN"] for step in action["runs"]["steps"] if "GH_TOKEN" in step.get("env", {})] == [
+        "${{ github.token }}",
+        "${{ github.token }}",
         "${{ github.token }}",
         "${{ github.token }}",
     ]
@@ -97,10 +98,65 @@ def test_cooldown_rejects_backdated_tag_on_recent_pull_request(
 ) -> None:
     server, environment = github_api
     expect_pull(server, author="pre-commit-ci[bot]", observed_days=0, updated_days=10)
+    repository = hook_repository(tmp_path)
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v2")
+    expect_historical_runs(server, older_head=None)
     result = run_cooldown(action_scripts, tmp_path, environment)
     assert result.returncode != 0
-    assert "pull request head is still in its cooldown period" in result.stderr
-    assert len(server.log) == 2
+    assert "hook revision has not been observed" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("historical_revision", "accepted"),
+    [pytest.param("v1", True, id="same-revision"), pytest.param("v0", False, id="new-revision")],
+)
+def test_cooldown_survives_force_push_without_accepting_new_revision(
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    historical_revision: str,
+    accepted: bool,
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(server, author="pre-commit-ci[bot]", observed_days=0)
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1")
+    expect_historical_runs(server, older_head="c" * 40)
+    expect_config(server, "c" * 40, repository, historical_revision)
+    result = run_cooldown(action_scripts, tmp_path, environment)
+    assert (result.returncode == 0) is accepted, result.stderr
+    if not accepted:
+        assert "hook revision has not been observed" in result.stderr
+
+
+def test_cooldown_ignores_another_pull_request_history(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(server, author="pre-commit-ci[bot]", observed_days=0)
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1")
+    expect_historical_runs(server, older_head="c" * 40, pull_request=8)
+    result = run_cooldown(action_scripts, tmp_path, environment)
+    assert result.returncode != 0
+    assert "hook revision has not been observed" in result.stderr
+
+
+def test_cooldown_checks_each_duplicate_repository(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(server, author="pre-commit-ci[bot]")
+    expect_config(server, "b" * 40, repository, ("v0", "v0"))
+    expect_config(server, "a" * 40, repository, ("v2", "v0"))
+    result = run_cooldown(action_scripts, tmp_path, environment)
+    assert result.returncode != 0
+    assert "hook repository entries changed" not in result.stderr
+    assert "hook revision is not eligible" in result.stderr
 
 
 @pytest.mark.parametrize("event_name", ["workflow_dispatch", "pull_request"], ids=["wrong-event", "wrong-event-head"])
@@ -163,6 +219,8 @@ def run_cooldown(
             continue
         if step.get("if") and not (tmp_path / "outputs").exists():
             continue
+        if "cooled != 'true'" in step.get("if", "") and "cooled=true" in (tmp_path / "outputs").read_text():
+            continue
         result = subprocess.run(
             ["bash", str(action_scripts / f"check-hook-update-cooldown-{index}.sh")],
             cwd=tmp_path,
@@ -189,7 +247,11 @@ def expect_pull(
         }
     )
     if author == "pre-commit-ci[bot]":
-        server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs", method="GET").respond_with_json(
+        server.expect_request(
+            "/api/v3/repos/tox-dev/fixture/actions/runs",
+            method="GET",
+            query_string=f"event=pull_request&head_sha={head}&per_page=100",
+        ).respond_with_json(
             {
                 "workflow_runs": [
                     {
@@ -207,22 +269,44 @@ def expect_pull(
         )
 
 
-def expect_config(server: HTTPServer, sha: str, repository: Path, revision: str) -> None:
+def expect_config(server: HTTPServer, sha: str, repository: Path, revision: str | tuple[str, ...]) -> None:
+    revisions = (revision,) if isinstance(revision, str) else revision
     server.expect_request(
         "/api/v3/repos/tox-dev/fixture/contents/.pre-commit-config.yaml", method="GET", query_string=f"ref={sha}"
     ).respond_with_json(
         {
             "content": base64.b64encode(
-                dedent(
-                    f"""\
-                    repos:
-                      - repo: {repository.as_uri()}
-                        rev: {revision}
-                        hooks:
-                          - id: sample
-                    """
+                (
+                    "repos:\n"
+                    + "".join(
+                        f"  - repo: {repository.as_uri()}\n    rev: {item}\n    hooks:\n      - id: sample\n"
+                        for item in revisions
+                    )
                 ).encode()
             ).decode()
+        }
+    )
+
+
+def expect_historical_runs(server: HTTPServer, *, older_head: str | None, pull_request: int = 7) -> None:
+    server.expect_request(
+        "/api/v3/repos/tox-dev/fixture/actions/runs",
+        method="GET",
+        query_string="branch=bot-update&event=pull_request&per_page=100",
+    ).respond_with_json(
+        {
+            "workflow_runs": []
+            if older_head is None
+            else [
+                {
+                    "event": "pull_request",
+                    "head_repository": {"full_name": "tox-dev/fixture"},
+                    "head_branch": "bot-update",
+                    "head_sha": older_head,
+                    "pull_requests": [{"number": pull_request}],
+                    "created_at": (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            ]
         }
     )
 

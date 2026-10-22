@@ -59,7 +59,7 @@ runs:
         if [[ $(jq -r .user.login "$RUNNER_TEMP/hook-update-pr.json") == 'pre-commit-ci[bot]' ]]; then
           gh api --paginate -X GET "repos/$REPOSITORY/actions/runs" -f event=pull_request \
             -f head_sha="$HEAD_SHA" -f per_page=100 >"$RUNNER_TEMP/hook-update-runs.jsonl"
-          if ! jq -se --arg repository "$REPOSITORY" --arg branch "$(jq -r .head.ref "$RUNNER_TEMP/hook-update-pr.json")" \
+          if jq -se --arg repository "$REPOSITORY" --arg branch "$(jq -r .head.ref "$RUNNER_TEMP/hook-update-pr.json")" \
             --arg head "$HEAD_SHA" --argjson number "$PR_NUMBER" --argjson days "$MINIMUM_DAYS" '
             [.[].workflow_runs[] | select(
               .event == "pull_request" and .head_repository.full_name == $repository and
@@ -68,8 +68,7 @@ runs:
             ) | .created_at | fromdateiso8601] as $observed |
             ($observed | length) > 0 and ($observed | min) <= now - ($days * 86400)
           ' "$RUNNER_TEMP/hook-update-runs.jsonl" >/dev/null; then
-            echo '::error::pull request head is still in its cooldown period' >&2
-            exit 1
+            echo 'cooled=true' >>"$GITHUB_OUTPUT"
           fi
           echo 'bot=true' >>"$GITHUB_OUTPUT"
         fi
@@ -84,7 +83,7 @@ runs:
       shell: bash
       run: |
         uv venv --python 3.15 "$RUNNER_TEMP/hook-tools"
-        uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
           --python "$RUNNER_TEMP/hook-tools/bin/python" --group release \
           --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes \
           "$GITHUB_ACTION_PATH/../pylock.toml"
@@ -127,18 +126,75 @@ runs:
           --slurpfile base "$RUNNER_TEMP/base-hooks.json" \
           --slurpfile proposed "$RUNNER_TEMP/proposed-hooks.json" \
           --slurpfile eligible "$RUNNER_TEMP/eligible-hooks.json" '
-          ($base[0] | map({key: .repo, value: .rev}) | from_entries) as $old |
-          ($eligible[0] | map({key: .repo, value: .rev}) | from_entries) as $allowed |
-          ($proposed[0] | map({key: .repo, value: .rev}) | from_entries) as $new |
-          if ($old | keys) != ($new | keys) then error("hook repositories changed")
-          else [$new | to_entries[] |
-            select(.value != $old[.key] and .value != $allowed[.key]) |
-            [.key, .value]] end
-        ' >"$RUNNER_TEMP/older-hook-revisions.json" || {
-          echo '::error::Hook PR proposes a revision newer than the cooldown permits' >&2
-          exit 1
-        }
+          $base[0] as $old |
+          $eligible[0] as $allowed |
+          $proposed[0] as $new |
+          if ($old | map(.repo)) != ($new | map(.repo)) or
+            ($old | map(.repo)) != ($allowed | map(.repo))
+          then error("hook repository entries changed")
+          else [range(0; $new | length) as $index |
+            $new[$index] |
+            select(.rev != $old[$index].rev and .rev != $allowed[$index].rev) |
+            [.repo, .rev]] end
+        ' >"$RUNNER_TEMP/older-hook-revisions.json"
         jq -r '.[] | @tsv' "$RUNNER_TEMP/older-hook-revisions.json" >"$RUNNER_TEMP/older-hook-revisions"
+    - name: Find prior pull request heads
+      if: steps.identity.outputs.bot == 'true' && steps.identity.outputs.cooled != 'true'
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+        PR_NUMBER: ${{ inputs.pull-request }}
+        MINIMUM_DAYS: ${{ inputs.minimum-days }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        branch=$(jq -r .head.ref "$RUNNER_TEMP/hook-update-pr.json")
+        gh api --paginate -X GET "repos/$REPOSITORY/actions/runs" -f event=pull_request \
+          -f branch="$branch" -f per_page=100 >"$RUNNER_TEMP/hook-branch-runs.jsonl"
+        jq -sr --arg repository "$REPOSITORY" --arg branch "$branch" \
+          --argjson number "$PR_NUMBER" --argjson days "$MINIMUM_DAYS" '
+          [.[].workflow_runs[] | select(
+            .event == "pull_request" and .head_repository.full_name == $repository and
+            .head_branch == $branch and any(.pull_requests[]; .number == $number) and
+            (.created_at | fromdateiso8601) <= now - ($days * 86400)
+          ) | .head_sha] | unique[]
+        ' "$RUNNER_TEMP/hook-branch-runs.jsonl" >"$RUNNER_TEMP/older-heads"
+    - name: Read prior hook revisions
+      if: steps.identity.outputs.bot == 'true' && steps.identity.outputs.cooled != 'true'
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        : >"$RUNNER_TEMP/observed-revisions.jsonl"
+        while IFS= read -r head; do
+          gh api "repos/$REPOSITORY/contents/.pre-commit-config.yaml?ref=$head" --jq .content |
+            base64 --decode >"$RUNNER_TEMP/older-hooks.yaml"
+          "$RUNNER_TEMP/hook-tools/bin/yq" -c '
+            [.repos[] | select(.repo != "local" and .repo != "meta") | {repo, rev}]
+          ' "$RUNNER_TEMP/older-hooks.yaml" |
+            jq -c 'to_entries[] | {index: .key, repo: .value.repo, rev: .value.rev}' \
+              >>"$RUNNER_TEMP/observed-revisions.jsonl"
+        done <"$RUNNER_TEMP/older-heads"
+    - name: Verify the first GitHub observation of each revision
+      if: steps.identity.outputs.bot == 'true' && steps.identity.outputs.cooled != 'true'
+      shell: bash
+      run: |
+        jq -n --slurpfile base "$RUNNER_TEMP/base-hooks.json" \
+          --slurpfile proposed "$RUNNER_TEMP/proposed-hooks.json" '
+          [$proposed[0] | to_entries[] |
+            select(.value.rev != $base[0][.key].rev) |
+            {index: .key, repo: .value.repo, rev: .value.rev}]
+        ' >"$RUNNER_TEMP/proposed-revisions.json"
+        if ! jq -se --slurpfile proposed "$RUNNER_TEMP/proposed-revisions.json" '
+          . as $observed |
+          all($proposed[0][]; . as $revision |
+            any($observed[]; .index == $revision.index and .repo == $revision.repo and .rev == $revision.rev))
+        ' "$RUNNER_TEMP/observed-revisions.jsonl" >/dev/null; then
+          echo '::error::hook revision has not been observed on this pull request for seven days' >&2
+          exit 1
+        fi
     - name: Verify older pinned revisions
       if: steps.identity.outputs.bot == 'true'
       shell: bash
