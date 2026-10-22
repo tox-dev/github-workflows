@@ -688,3 +688,91 @@ def test_failed_asset_upload_leaves_draft_unpublished(
     )
     assert result.returncode != 0
     assert [request.method for request, _ in server.log] == ["GET", "GET", "GET", "POST"]
+
+
+@pytest.mark.parametrize(
+    "failed_read",
+    [
+        pytest.param("upload", id="before-upload"),
+        pytest.param("complete", id="after-upload"),
+        pytest.param("published", id="after-publish"),
+    ],
+)
+def test_release_read_recovers_without_duplicate_writes(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    failed_read: str,
+) -> None:
+    server, environment = github_api
+    notes = tmp_path / "notes.md"
+    notes.write_text("Release notes.\n")
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "fixture.zip").write_bytes(b"release archive")
+    commit = run(repository, "git", "rev-parse", "0.1.0").stdout.strip()
+    prefix = "/api/v3/repos/tox-dev/fixture"
+    asset = {"name": "fixture.zip", "digest": f"sha256:{sha256(b'release archive').hexdigest()}", "state": "uploaded"}
+    draft = {
+        "id": 42,
+        "tag_name": "0.1.0",
+        "name": "0.1.0",
+        "body": notes.read_text(),
+        "draft": True,
+        "prerelease": False,
+        "assets": [],
+        "upload_url": f"https://localhost:{server.port}{prefix}/releases/42/assets{{?name,label}}",
+    }
+    server.expect_ordered_request(f"{prefix}/git/ref/tags/0.1.0", method="GET").respond_with_json(
+        {"object": {"type": "commit", "sha": commit}}
+    )
+    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
+        [draft]
+    )
+    for stage, release in (
+        ("upload", draft),
+        ("complete", draft | {"assets": [asset]}),
+        ("published", draft | {"draft": False, "assets": [asset]}),
+    ):
+        if stage == failed_read:
+            server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(
+                {"message": "upstream failure"}, status=502
+            )
+        server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(release)
+        if stage == "upload":
+            server.expect_ordered_request(
+                f"{prefix}/releases/42/assets", query_string="name=fixture.zip", method="POST", data=b"release archive"
+            ).respond_with_json(asset, status=201)
+        elif stage == "complete":
+            server.expect_ordered_request(f"{prefix}/releases/42", method="PATCH").respond_with_json(
+                draft | {"draft": False, "assets": [asset]}
+            )
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "publish-github-release",
+        version="0.1.0",
+        GH_REPO="tox-dev/fixture",
+        TAG="0.1.0",
+        COMMIT=commit,
+        TITLE="0.1.0",
+        NOTES_FILE=str(notes),
+        ASSETS_DIRECTORY=str(assets),
+        PRERELEASE="false",
+        **environment,
+    )
+    assert result.returncode == 0, result.stderr
+    assert [request.method for request, _ in server.log] == [
+        "GET",
+        "GET",
+        "GET",
+        *(["GET"] if failed_read == "upload" else []),
+        "POST",
+        "GET",
+        *(["GET"] if failed_read == "complete" else []),
+        "PATCH",
+        "GET",
+        *(["GET"] if failed_read == "published" else []),
+    ]

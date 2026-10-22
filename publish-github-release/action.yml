@@ -148,7 +148,14 @@ runs:
           shopt -s nullglob
           release_id=$(<"$RUNNER_TEMP/release-id")
           for attempt in {1..6}; do
-            gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-current.json"
+            if ! gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-current.json"; then
+              if ((attempt == 6)); then
+                echo '::error::draft release could not be read' >&2
+                exit 1
+              fi
+              sleep 2
+              continue
+            fi
             if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
               --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
                 length == 1 and .[0].name == $title and .[0].body == $body and
@@ -194,7 +201,14 @@ runs:
         set -euo pipefail
         release_id=$(<"$RUNNER_TEMP/release-id")
         for attempt in {1..6}; do
-          gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-complete.json"
+          if ! gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-complete.json"; then
+            if ((attempt == 6)); then
+              echo '::error::release could not be read after upload' >&2
+              exit 1
+            fi
+            sleep 2
+            continue
+          fi
           if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
             --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
               length == 1 and .[0].name == $title and .[0].body == $body and
@@ -232,7 +246,14 @@ runs:
         set -euo pipefail
         release_id=$(<"$RUNNER_TEMP/release-id")
         for attempt in {1..6}; do
-          gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-published.json"
+          if ! gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-published.json"; then
+            if ((attempt == 6)); then
+              echo '::error::published release could not be read' >&2
+              exit 1
+            fi
+            sleep 2
+            continue
+          fi
           if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
             --arg mode "$MODE" \
             --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
