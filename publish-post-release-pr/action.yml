@@ -184,7 +184,9 @@ runs:
         jq -e --arg repository "$REPOSITORY" --arg title "$TITLE" --arg base "$BASE" \
           --arg branch "$BRANCH" --rawfile body "$BODY_FILE" '
           [.[] | select(.head.repo.full_name == $repository and .head.ref == $branch)] as $existing |
-          if any($existing[]; .state == "open" and
+          if any($existing[]; .state == "closed" and .merged_at == null) then
+            error("post-release pull request was closed without merging; reopen it to retry")
+          elif any($existing[]; .state == "open" and
             (.title != $title or .body != $body or .base.ref != $base)) then
             error("open pull request metadata changed")
           else [$existing[] | select(

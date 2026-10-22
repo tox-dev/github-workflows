@@ -694,10 +694,11 @@ helper remains available to later steps.
 The Action derives the bot identity from the writer's App slug and verifies the commit author, single-parent commit,
 changed path set against the writer's `allowed-paths`, regular file modes, and blob identities before any write. A
 matching open branch and PR need no second push. If a matching branch has no PR, it creates one. A merged PR with a
-deleted branch succeeds only when the current base still has the expected file bytes. A different branch, PR title,
-body, base, path set, or merged file state fails without a force-push. When the prepared change has already merged and
-produced no new commit, pass empty `bundle` and `candidate-commit` values with the same path manifest; the Action still
-checks the merged PR and current base. Its `pull-request` output is the verified PR number.
+deleted branch succeeds only when the current base still has the expected file bytes. A closed, unmerged PR fails before
+the Action creates a replacement branch or PR; reopen the PR before retrying. A different branch, PR title, body, base,
+path set, or merged file state fails without a force-push. When the prepared change has already merged and produced no
+new commit, pass empty `bundle` and `candidate-commit` values with the same path manifest; the Action still checks the
+merged PR and current base. Its `pull-request` output is the verified PR number.
 
 ## Sign a JetBrains plugin
 

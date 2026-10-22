@@ -145,20 +145,8 @@ def test_merged_branch_deleted_and_later_main_change_fails(
     assert [request.method for request, _ in server.log] == ["GET"] * 4
 
 
-@pytest.mark.parametrize(
-    ("state", "title", "accepted"),
-    [
-        pytest.param("closed", "Bump version to 2.4.8-dev", True, id="closed-unmerged"),
-        pytest.param("open", "Different title", False, id="open-metadata-changed"),
-    ],
-)
-def test_existing_pull_request_metadata(
-    tmp_path: Path,
-    action_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-    state: str,
-    title: str,
-    accepted: bool,
+def test_open_pull_request_metadata_change_fails(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     server, environment = github_api
     body = tmp_path / "body.md"
@@ -167,9 +155,9 @@ def test_existing_pull_request_metadata(
         [
             {
                 "number": 7,
-                "state": state,
+                "state": "open",
                 "merged_at": None,
-                "title": title,
+                "title": "Different title",
                 "body": body.read_text(),
                 "base": {"ref": "main"},
                 "head": {"repo": {"full_name": "tox-dev/fixture"}, "ref": "post-release-v2.4.7"},
@@ -193,11 +181,59 @@ def test_existing_pull_request_metadata(
         capture_output=True,
         check=False,
     )
-    assert (result.returncode == 0) is accepted, result.stderr
-    if accepted:
-        assert (tmp_path / "post-release-prs.json").read_text().strip() == "[]"
-    else:
-        assert "open pull request metadata changed" in result.stderr
+    assert result.returncode != 0
+    assert "open pull request metadata changed" in result.stderr
+
+
+def test_closed_unmerged_pr_blocks_retry_before_write(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    expect_bot(server)
+    bundle, base, commit, blob = candidate(tmp_path)
+    body = tmp_path / "body.md"
+    body.write_text("Set the next development version.\n")
+    paths = tmp_path / "paths.tsv"
+    paths.write_text(f"gradle.properties\t{blob}\n")
+    server.expect_request("/api/v3/repos/tox-dev/fixture/pulls", method="GET").respond_with_json(
+        [
+            {
+                "number": 7,
+                "state": "closed",
+                "merged_at": None,
+                "title": "Bump version to 2.4.8-dev",
+                "body": body.read_text(),
+                "base": {"ref": "main"},
+                "head": {"repo": {"full_name": "tox-dev/fixture"}, "ref": "post-release-v2.4.7"},
+            }
+        ]
+    )
+    result = run_publish(
+        action_scripts,
+        cwd=tmp_path,
+        env=os.environ
+        | environment
+        | {
+            "REPOSITORY": "tox-dev/fixture",
+            "APP_SLUG": "fixture-app",
+            "BASE": "main",
+            "BASE_COMMIT": base,
+            "BRANCH": "post-release-v2.4.7",
+            "TITLE": "Bump version to 2.4.8-dev",
+            "BODY_FILE": str(body),
+            "PATHS_FILE": str(paths),
+            "ALLOWED_PATHS": "gradle.properties",
+            "BUNDLE": str(bundle),
+            "CANDIDATE_COMMIT": commit,
+            "LABEL": "skip news",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(tmp_path / "output"),
+        },
+    )
+    assert result.returncode != 0
+    assert "post-release pull request was closed without merging; reopen it to retry" in result.stderr
+    assert [request.method for request, _ in server.log] == ["GET", "GET"]
+    assert not (tmp_path / "output").exists()
 
 
 def run_git(directory: Path, *args: str) -> str:
