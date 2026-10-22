@@ -5,7 +5,33 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
+
+
+@pytest.mark.parametrize("workflow_name", ["prepare-release", "prepare-towncrier-release"])
+def test_prepare_jobs_transfer_the_uploaded_patch(workflow_name: str) -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / f".github/workflows/{workflow_name}.yaml").read_text()
+    )
+    jobs = workflow["jobs"]
+    assert jobs["assemble"]["outputs"]["artifact-id"] == "${{ steps.patch.outputs.artifact-id }}"
+    assert (
+        next(step for step in jobs["assemble"]["steps"] if step.get("id") == "patch")["with"]["name"] == "release-patch"
+    )
+    for job_name in ("validate", "push"):
+        assert (
+            next(step for step in jobs[job_name]["steps"] if "download-artifact" in step.get("uses", ""))["with"][
+                "artifact-ids"
+            ]
+            == "${{ needs.assemble.outputs.artifact-id }}"
+        )
+
+
+def test_changelog_checkout_fetches_the_base_branch() -> None:
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/check.yaml").read_text())
+    checkout = next(step for step in workflow["jobs"]["changelog"]["steps"] if "checkout" in step.get("uses", ""))
+    assert checkout["with"]["fetch-depth"] == 0
 
 
 def test_release_writer_has_only_notes_and_reconciler() -> None:
