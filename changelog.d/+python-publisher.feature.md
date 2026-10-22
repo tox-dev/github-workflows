@@ -1,2 +1,1 @@
-Share the read-only Towncrier, package build, and notes validation between a Python project's pull request check and tag
-publisher.
+Offer a read-only tagged-source workflow for notes, wheel and sdist builds, and distribution checks before publishing.
