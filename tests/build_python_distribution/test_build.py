@@ -65,6 +65,29 @@ def test_build_python_distribution_creates_wheel_and_sdist(
     assert (tmp_path / "build-constraints.txt").read_text().count("hatchling==") == 1
 
 
+def test_build_python_distribution_repeats_exact_bytes(
+    build_repository: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    outputs: list[dict[str, bytes]] = []
+    for name in ("first", "second"):
+        temporary = tmp_path / name
+        temporary.mkdir()
+        result = action(
+            build_repository,
+            temporary,
+            action_scripts,
+            "build-python-distribution",
+            version="0.2.0",
+            PYTHON_VERSION="3.15",
+            SOURCE=".",
+            OUT_DIR=str(temporary / "dist"),
+            RUNNER_TEMP=str(temporary),
+        )
+        assert result.returncode == 0, result.stderr
+        outputs.append({path.name: path.read_bytes() for path in (temporary / "dist").iterdir()})
+    assert outputs[0] == outputs[1]
+
+
 def test_build_python_distribution_rejects_dirty_source(
     build_repository: Path, tmp_path: Path, action_scripts: Path
 ) -> None:
