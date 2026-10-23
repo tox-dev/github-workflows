@@ -188,30 +188,31 @@ head. GitHub accepts reruns for 30 days. A failed rerun is retried on the next s
 ## Start with a caller
 
 The [release preparation workflow](.github/workflows/prepare-release.yaml) in this repository calls the reusable
-Towncrier workflow. Its `assemble` job creates a patch and validates it in a fresh worktree without the App key. Its
-`push` job downloads that artifact by ID and checks its paths and modes before minting a repository-scoped App token.
-Set the tag style in the caller and the changelog path and fragment directory in committed Towncrier configuration. Pin
-the reusable workflow to a release commit SHA; `SHA` in these examples means that commit.
+Towncrier workflow. Its `assemble` job uploads a patch; a separate keyless `validate` job downloads and checks that
+artifact. The `push` job downloads the same artifact by ID and checks its paths and modes before minting a
+repository-scoped App token. Set the tag style in the caller and the changelog path and fragment directory in committed
+Towncrier configuration. Pin the reusable workflow to a release commit SHA; `SHA` in these examples means that commit.
 
-Assembly needs release history to select a tag. The writer can check out the source commit with `fetch-depth: 1`. Both
+Assembly needs release history to select a tag. The writer can check out the source commit with `fetch-depth: 1`. All
 jobs use `persist-credentials: false`. Assembly installs the caller's locked release tools and needs `contents: read`
-and `pull-requests: read` to resolve PR authors. It starts `prek install-hooks` while creating the validation worktree
-and building the changelog, then waits for the hooks before formatting and validating the patch. The writer uses the
-`release-auth` environment with `RELEASE_APP_PRIVATE_KEY` and `RELEASE_APP_CLIENT_ID`. Restrict that environment to
-`main`. Install the App on this repository only, with Contents write and Metadata read, and grant the necessary branch
-and tag ruleset bypass.
+and `pull-requests: read` to resolve PR authors. It starts `prek install-hooks` while building the changelog, then waits
+for the hooks before formatting and uploading the patch. The validation job runs `prek` on that uploaded patch. The
+writer uses the `release-auth` environment with `RELEASE_APP_PRIVATE_KEY` and `RELEASE_APP_CLIENT_ID`. Restrict that
+environment to `main`. Install the App on this repository only, with Contents write and Metadata read, and grant the
+necessary branch and tag ruleset bypass.
 
 ```text
 main + fragments
        │
        ▼
-prepare-towncrier ──► validate in fresh worktree ──► upload patch by ID
-                                                       │
-                                                       ▼
-                                     verify patch ──► mint App token
-                                                       │
-                                                       ▼
-                                              commit-and-tag ──► main + tag
+prepare-towncrier ──► upload patch ──► validate artifact
+                            │                   │
+                            └─────────┬─────────┘
+                                      ▼
+                          verify paths and modes
+                                      │
+                                      ▼
+                           mint App token ──► commit-and-tag ──► main + tag
 ```
 
 The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-level workflow, in a separate job with
@@ -283,10 +284,10 @@ build package versions; otherwise the Action fails instead of writing an ambiguo
 
 ## Prepare and tag with one reusable workflow
 
-`prepare-towncrier-release.yaml` runs two jobs. `assemble` selects a tag and writes a Towncrier patch without the App
-key, applies it in a fresh worktree, and runs `prek`. `push` downloads the patch by artifact ID and checks its paths and
-file modes, reads the caller's `release-auth` environment, and uses a repository-scoped App token to push the release
-commit and tag together. Only a dispatch from `main` can reach the writer.
+`prepare-towncrier-release.yaml` runs three jobs. `assemble` selects a tag and uploads a Towncrier patch without the App
+key. `validate` applies the uploaded artifact in a separate job and runs `prek`. `push` downloads that artifact by ID,
+checks its paths and file modes, reads the caller's `release-auth` environment, and uses a repository-scoped App token
+to push the release commit and tag together. Only a dispatch from `main` can reach the writer.
 
 ```yaml
 jobs:

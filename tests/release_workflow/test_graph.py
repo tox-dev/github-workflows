@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -22,40 +23,43 @@ def test_prepare_jobs_transfer_the_uploaded_patch() -> None:
         (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
     )
     jobs = workflow["jobs"]
-    assert list(jobs) == ["assemble", "push"]
+    assert list(jobs) == ["assemble", "validate", "push"]
     assert jobs["assemble"]["outputs"]["artifact-id"] == "${{ steps.patch.outputs.artifact-id }}"
     assert (
         next(step for step in jobs["assemble"]["steps"] if step.get("id") == "patch")["with"]["name"] == "release-patch"
     )
-    assert (
-        next(step for step in jobs["push"]["steps"] if "download-artifact" in step.get("uses", ""))["with"][
-            "artifact-ids"
-        ]
-        == "${{ needs.assemble.outputs.artifact-id }}"
-    )
+    for job in ("validate", "push"):
+        assert (
+            next(step for step in jobs[job]["steps"] if "download-artifact" in step.get("uses", ""))["with"][
+                "artifact-ids"
+            ]
+            == "${{ needs.assemble.outputs.artifact-id }}"
+        )
 
 
-def test_prepare_validates_patch_in_fresh_worktree() -> None:
+def test_prepare_validates_uploaded_patch_before_writer() -> None:
     workflow = yaml.safe_load(
         (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
     )
-    steps = workflow["jobs"]["assemble"]["steps"]
-    worktree = next(step for step in steps if step.get("name") == "Create a fresh validation worktree")
-    validation = next(step for step in steps if step.get("uses") == "$/validate-release-patch")
-    assert "git worktree add --detach" in worktree["run"]
-    assert validation["with"]["working-directory"] == "${{ runner.temp }}/release-validation"
+    jobs = workflow["jobs"]
+    assert jobs["validate"]["permissions"] == {"contents": "read"}
+    assert jobs["validate"]["needs"] == "assemble"
+    assert jobs["push"]["needs"] == ["assemble", "validate"]
+    assert not any(step.get("uses") == "$/validate-release-patch" for step in jobs["assemble"]["steps"])
+    validation = next(step for step in jobs["validate"]["steps"] if step.get("uses") == "$/validate-release-patch")
+    assert validation["with"]["patch"] == "${{ runner.temp }}/release-patch/release.patch"
     assert (
-        steps.index(worktree)
-        < steps.index(validation)
-        < next(index for index, step in enumerate(steps) if step.get("id") == "patch")
+        next(step for step in jobs["push"]["steps"] if step.get("uses") == "$/validate-release-patch")["with"]["checks"]
+        == "false"
     )
 
 
-def test_prepare_builds_local_tool_once_with_locked_backends() -> None:
+@pytest.mark.parametrize("job", ["assemble", "validate"])
+def test_prepare_builds_local_tool_with_locked_backends(job: str) -> None:
     workflow = yaml.safe_load(
         (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
     )
-    steps = workflow["jobs"]["assemble"]["steps"]
+    steps = workflow["jobs"][job]["steps"]
     builds = [step for step in steps if step.get("name") == "Build local release tool wheel"]
     assert len(builds) == 1
     assert builds[0]["env"]["BUILD_CONSTRAINTS"] == "${{ steps.tools.outputs.build-constraints }}"
