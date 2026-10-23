@@ -136,6 +136,7 @@ runs:
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
         source "$GITHUB_ACTION_PATH/retry.sh"
         if [[ "$MODE" != publish && -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob
@@ -208,6 +209,7 @@ runs:
         PRERELEASE: ${{ inputs.prerelease }}
       run: |
         set -euo pipefail
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
         source "$GITHUB_ACTION_PATH/retry.sh"
         release_id=$(<"$RUNNER_TEMP/release-id")
         read_complete() {
@@ -244,6 +246,7 @@ runs:
         ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
       run: |
         set -euo pipefail
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
         source "$GITHUB_ACTION_PATH/retry.sh"
         shopt -s nullglob
         for asset in "$ASSETS_DIRECTORY"/*; do
