@@ -283,6 +283,8 @@ def action(
     tmp_path: Path,
     action_scripts: Path,
     name: str,
+    captured_outputs: dict[str, str] | None = None,
+    /,
     *,
     version: str,
     **extra_env: str,
@@ -328,7 +330,9 @@ def action(
     )
     if "PATH" not in extra_env:
         environment["PATH"] = _tools_path(environment)
-    result, _ = _run_action(repository, action_scripts, name, environment, inputs)
+    result, outputs = _run_action(repository, action_scripts, name, environment, inputs)
+    if captured_outputs is not None:
+        captured_outputs.update(outputs)
     return result
 
 

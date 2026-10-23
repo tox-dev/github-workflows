@@ -13,6 +13,15 @@ inputs:
   local-tool-source:
     description: The caller builds release-creator from its own checkout after installing locked third-party tools
     default: "false"
+  constraints-lock:
+    description: Lock used to export build constraints; defaults to the selected install lock
+    default: ""
+  target-platform:
+    description: Nab platform ID for the exported build constraints
+    default: ""
+  targets:
+    description: Space-separated full-version:implementation pairs for the exported build constraints
+    default: ""
 outputs:
   build-constraints:
     description: Hashed build requirements selected from the lock
@@ -90,8 +99,12 @@ runs:
       shell: bash
       env:
         BUILD_LOCK: ${{ steps.selection.outputs.lock }}
+        CONSTRAINTS_LOCK: ${{ inputs.constraints-lock }}
+        TARGET_PLATFORM: ${{ inputs.target-platform }}
+        TARGETS: ${{ inputs.targets }}
       run: |
         set -euo pipefail
+        if [[ -n "$CONSTRAINTS_LOCK" ]]; then BUILD_LOCK=$CONSTRAINTS_LOCK; fi
         args=()
         if [[ "$BUILD_LOCK" == pylock.toml ]]; then
           args+=(--shared-policy "$GITHUB_ACTION_PATH/../pyproject.toml")
@@ -99,9 +112,12 @@ runs:
         else
           locks=("$BUILD_LOCK")
         fi
+        if [[ -n "$TARGET_PLATFORM" || -n "$TARGETS" ]]; then
+          args+=(--target-platform "$TARGET_PLATFORM" --targets "$TARGETS")
+        fi
         digest=$(
           sha256sum "${locks[@]}"
-          printf '%s\n' "${args[@]}"
+          printf '%s\n' "$TARGET_PLATFORM" "$TARGETS" "${args[@]}"
         )
         digest=$(sha256sum <<<"$digest")
         output="$RUNNER_TEMP/build-constraints-${digest%% *}.txt"

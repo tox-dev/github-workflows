@@ -13,14 +13,15 @@ from conftest import action
 def test_export_build_constraints_uses_checked_in_locks(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     (tmp_path / "pylock.toml").write_bytes((source / "pylock.toml").read_bytes())
-    result = action(tmp_path, tmp_path, action_scripts, "install-locked-tools", version="")
+    outputs: dict[str, str] = {}
+    result = action(tmp_path, tmp_path, action_scripts, "export-build-constraints", outputs, version="")
     assert result.returncode == 0, result.stderr
-    output = next(tmp_path.glob("build-constraints-*.txt"))
+    output = Path(outputs["path"])
     constraints = output.read_text()
     assert "cython==" in constraints
     assert "setuptools==" in constraints
     assert "pytest==" not in constraints
-    assert f"path={output}\n" in (tmp_path / "output").read_text()
+    assert output == next(tmp_path.glob("build-constraints-*.txt"))
 
 
 @pytest.mark.parametrize(
@@ -128,11 +129,13 @@ def test_export_build_constraints_selects_explicit_targets(tmp_path: Path, platf
 def test_export_build_constraints_action_selects_secondary_lock(tmp_path: Path, action_scripts: Path) -> None:
     write_matrix_lock(tmp_path / "pylock.build.toml")
 
+    outputs: dict[str, str] = {}
     result = action(
         tmp_path,
         tmp_path,
         action_scripts,
         "export-build-constraints",
+        outputs,
         version="",
         LOCK="pylock.build.toml",
         TARGET_PLATFORM="macos_arm64",
@@ -140,12 +143,11 @@ def test_export_build_constraints_action_selects_secondary_lock(tmp_path: Path, 
     )
 
     assert result.returncode == 0, result.stderr
-    output = Path((tmp_path / "output").read_text().splitlines()[-1].removeprefix("path="))
+    output = Path(outputs["path"])
     assert output.read_text() == f"example==1.0 --hash=sha256:{'0' * 64}\n"
 
 
-def test_export_build_constraints_rejects_different_target_versions(tmp_path: Path) -> None:
-    source = Path(__file__).resolve().parents[2]
+def test_export_build_constraints_rejects_different_target_versions(tmp_path: Path, action_scripts: Path) -> None:
     lock = tmp_path / "pylock.build.toml"
     write_matrix_lock(lock)
     lock.write_text(
@@ -164,20 +166,15 @@ def test_export_build_constraints_rejects_different_target_versions(tmp_path: Pa
             """,
         ),
     )
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(source / "tools/build_constraints.py"),
-            "--target-platform",
-            "macos_arm64",
-            "--targets",
-            "3.15.0:cpython 3.11.0:pypy",
-            str(tmp_path / "constraints.txt"),
-            str(lock),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "export-build-constraints",
+        version="",
+        LOCK="pylock.build.toml",
+        TARGET_PLATFORM="macos_arm64",
+        TARGETS="3.15.0:cpython 3.11.0:pypy",
     )
     assert result.returncode != 0
     assert "versions differ across requested targets" in result.stderr
