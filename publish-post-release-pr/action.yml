@@ -1,15 +1,9 @@
 name: Publish a prepared pull request
 description: Reconcile a prepared branch and pull request without checking out project code
 inputs:
-  repository:
-    description: Repository containing the base and pull request
-    required: true
   app-slug:
     description: Slug of the GitHub App whose bot authors the prepared commit
     required: true
-  base:
-    description: Protected base branch
-    default: main
   base-commit:
     description: Base commit used by the keyless preparation job
     required: true
@@ -37,22 +31,14 @@ inputs:
   commit-message:
     description: Exact subject of the prepared candidate commit
     required: true
-  label:
-    description: Label to add to the pull request
-    default: skip news
-outputs:
-  pull-request:
-    description: Reconciled pull request number
-    value: ${{ steps.publish.outputs.pull-request }}
 runs:
   using: composite
   steps:
     - name: Validate the prepared pull request inputs
       shell: bash
       env:
-        REPOSITORY: ${{ inputs.repository }}
         APP_SLUG: ${{ inputs.app-slug }}
-        BASE: ${{ inputs.base }}
+        BASE: main
         BASE_COMMIT: ${{ inputs.base-commit }}
         BRANCH: ${{ inputs.branch }}
         TITLE: ${{ inputs.title }}
@@ -61,18 +47,8 @@ runs:
         BUNDLE: ${{ inputs.bundle }}
         CANDIDATE_COMMIT: ${{ inputs.candidate-commit }}
         COMMIT_MESSAGE: ${{ inputs.commit-message }}
-        LABEL: ${{ inputs.label }}
       run: |
         set -euo pipefail
-        case "$REPOSITORY" in
-        */*) ;;
-        *) exit 1 ;;
-        esac
-        for part in "${REPOSITORY%%/*}" "${REPOSITORY#*/}"; do
-          case "$part" in
-          '' | *[!A-Za-z0-9_.-]*) exit 1 ;;
-          esac
-        done
         case "$APP_SLUG" in
         '' | *[!A-Za-z0-9-]*) exit 1 ;;
         esac
@@ -93,7 +69,6 @@ runs:
         [[ "$COMMIT_MESSAGE" != *$'\n'* ]]
         test -s "$BODY_FILE"
         test -s "$PATHS_FILE"
-        test -n "$LABEL"
         if [[ -n "$BUNDLE" ]]; then
           test -f "$BUNDLE"
           test "${#CANDIDATE_COMMIT}" -eq 40
@@ -182,17 +157,16 @@ runs:
     - name: Inspect the existing pull request
       shell: bash
       env:
-        REPOSITORY: ${{ inputs.repository }}
-        BASE: ${{ inputs.base }}
+        BASE: main
         BRANCH: ${{ inputs.branch }}
         TITLE: ${{ inputs.title }}
         BODY_FILE: ${{ inputs.body-file }}
       run: |
         set -euo pipefail
-        head_owner=${REPOSITORY%%/*}
-        gh api -X GET "repos/$REPOSITORY/pulls" -f state=all -f "head=$head_owner:$BRANCH" -f per_page=100 \
+        head_owner=${GITHUB_REPOSITORY%%/*}
+        gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=all -f "head=$head_owner:$BRANCH" -f per_page=100 \
           >"$RUNNER_TEMP/post-release-all-prs.json"
-        jq -e --arg repository "$REPOSITORY" --arg title "$TITLE" --arg base "$BASE" \
+        jq -e --arg repository "$GITHUB_REPOSITORY" --arg title "$TITLE" --arg base "$BASE" \
           --arg branch "$BRANCH" --rawfile body "$BODY_FILE" '
           [.[] | select(.head.repo.full_name == $repository and .head.ref == $branch)] as $existing |
           if any($existing[]; .state == "closed" and .merged_at == null) then
@@ -208,33 +182,31 @@ runs:
     - name: Verify an already merged pull request
       shell: bash
       env:
-        REPOSITORY: ${{ inputs.repository }}
-        BASE: ${{ inputs.base }}
+        BASE: main
         PATHS_FILE: ${{ inputs.paths-file }}
       run: |
         set -euo pipefail
         if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") == true ]]; then
-          base_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)
+          base_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)
           test "${#base_sha}" -eq 40
           case "$base_sha" in
           *[!0-9a-f]*) exit 1 ;;
           esac
           pr_number=$(jq -r '.[0].number' "$RUNNER_TEMP/post-release-prs.json")
           while IFS=$'\t' read -r path blob; do
-            read -r object actual < <(gh api "repos/$REPOSITORY/contents/$path?ref=$BASE" --jq '[.type, .sha] | @tsv')
+            read -r object actual < <(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$BASE" --jq '[.type, .sha] | @tsv')
             test "$object" = file
             test "$actual" = "$blob"
           done <"$PATHS_FILE"
-          gh api "repos/$REPOSITORY/pulls/$pr_number/files" --paginate --jq '.[].filename' |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number/files" --paginate --jq '.[].filename' |
             LC_ALL=C sort | cmp -s - "$RUNNER_TEMP/expected-paths"
           printf '%s\n' "$pr_number" >"$RUNNER_TEMP/post-release-number"
         fi
     - name: Publish or verify the prepared branch
       shell: bash
       env:
-        REPOSITORY: ${{ inputs.repository }}
         APP_SLUG: ${{ inputs.app-slug }}
-        BASE: ${{ inputs.base }}
+        BASE: main
         BASE_COMMIT: ${{ inputs.base-commit }}
         BRANCH: ${{ inputs.branch }}
         BUNDLE: ${{ inputs.bundle }}
@@ -244,11 +216,11 @@ runs:
         set -euo pipefail
         if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") != true ]]; then
           test -n "$BUNDLE"
-          test "$(gh api "repos/$REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)" = "$BASE_COMMIT"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)" = "$BASE_COMMIT"
           pr_number=$(jq -r '.[0].number // empty' "$RUNNER_TEMP/post-release-prs.json")
-          if branch_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha \
+          if branch_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha \
             2>"$RUNNER_TEMP/branch-error"); then
-            gh api "repos/$REPOSITORY/git/commits/$branch_sha" >"$RUNNER_TEMP/post-release-branch.json"
+            gh api "repos/$GITHUB_REPOSITORY/git/commits/$branch_sha" >"$RUNNER_TEMP/post-release-branch.json"
             read -r parent_count branch_parent branch_tree branch_author branch_email < <(
               jq -r '[(.parents | length), .parents[0].sha, .tree.sha, .author.name, .author.email] | @tsv' \
                 "$RUNNER_TEMP/post-release-branch.json"
@@ -265,12 +237,12 @@ runs:
               "$RUNNER_TEMP/post-release-branch.json" >/dev/null
           elif grep -Fq '(HTTP 404)' "$RUNNER_TEMP/branch-error"; then
             test -z "$pr_number"
-            test "$(gh api "repos/$REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)" = "$BASE_COMMIT"
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)" = "$BASE_COMMIT"
             gh auth setup-git --hostname "${GH_HOST:-github.com}" --force
             git -C "$RUNNER_TEMP/post-release.git" remote add origin \
-              "https://${GH_HOST:-github.com}/$REPOSITORY.git"
+              "https://${GH_HOST:-github.com}/$GITHUB_REPOSITORY.git"
             git -C "$RUNNER_TEMP/post-release.git" push origin "refs/heads/release-candidate:refs/heads/$BRANCH"
-            branch_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)
+            branch_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)
             test "$branch_sha" = "$CANDIDATE_COMMIT"
           else
             cat "$RUNNER_TEMP/branch-error" >&2
@@ -281,8 +253,7 @@ runs:
     - name: Create or verify the pull request
       shell: bash
       env:
-        REPOSITORY: ${{ inputs.repository }}
-        BASE: ${{ inputs.base }}
+        BASE: main
         BRANCH: ${{ inputs.branch }}
         TITLE: ${{ inputs.title }}
         BODY_FILE: ${{ inputs.body-file }}
@@ -291,36 +262,32 @@ runs:
         if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") != true ]]; then
           pr_number=$(jq -r '.[0].number // empty' "$RUNNER_TEMP/post-release-prs.json")
           branch_sha=$(cat "$RUNNER_TEMP/post-release-branch-sha")
-          test "$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)" = "$branch_sha"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)" = "$branch_sha"
           if [[ -n "$pr_number" ]]; then
             test "$(jq -r '.[0].head.sha' "$RUNNER_TEMP/post-release-prs.json")" = "$branch_sha"
           else
-            gh api -X POST "repos/$REPOSITORY/pulls" -f "head=$BRANCH" -f "base=$BASE" \
+            gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" -f "head=$BRANCH" -f "base=$BASE" \
               -f "title=$TITLE" -F "body=@$BODY_FILE" >"$RUNNER_TEMP/post-release-created.json"
             pr_number=$(jq -r .number "$RUNNER_TEMP/post-release-created.json")
             case "$pr_number" in
             '' | 0* | *[!0-9]*) exit 1 ;;
             esac
             test "$(jq -r .head.sha "$RUNNER_TEMP/post-release-created.json")" = "$branch_sha"
-            test "$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)" = "$branch_sha"
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)" = "$branch_sha"
           fi
           printf '%s\n' "$pr_number" >"$RUNNER_TEMP/post-release-number"
         fi
-    - id: publish
-      name: Ensure the maintenance label
+    - name: Ensure the maintenance label
       shell: bash
       env:
-        REPOSITORY: ${{ inputs.repository }}
-        LABEL: ${{ inputs.label }}
       run: |
         set -euo pipefail
         pr_number=$(cat "$RUNNER_TEMP/post-release-number")
-        labels=$(gh api "repos/$REPOSITORY/issues/$pr_number/labels" --jq '.[].name')
-        if ! grep -Fxq "$LABEL" <<<"$labels"; then
+        labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr_number/labels" --jq '.[].name')
+        if ! grep -Fxq 'skip news' <<<"$labels"; then
           if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") == true ]]; then
             echo '::error::merged pull request lost its required label' >&2
             exit 1
           fi
-          gh api -X POST "repos/$REPOSITORY/issues/$pr_number/labels" -f "labels[]=$LABEL" >/dev/null
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr_number/labels" -f 'labels[]=skip news' >/dev/null
         fi
-        printf 'pull-request=%s\n' "$pr_number" >>"$GITHUB_OUTPUT"

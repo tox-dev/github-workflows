@@ -1,0 +1,78 @@
+name: Read Towncrier configuration
+description: Read release paths, format, and fragment categories from the committed Towncrier configuration
+inputs:
+  working-directory:
+    description: Checkout containing the configuration
+    default: .
+outputs:
+  changelog:
+    description: Changelog path relative to the repository
+    value: ${{ steps.config.outputs.changelog }}
+  fragments:
+    description: Fragment directory relative to the repository
+    value: ${{ steps.config.outputs.fragments }}
+  format:
+    description: Changelog formatter, markdown or rst
+    value: ${{ steps.config.outputs.format }}
+  categories-file:
+    description: File containing one allowed fragment category per line
+    value: ${{ steps.config.outputs.categories-file }}
+runs:
+  using: composite
+  steps:
+    - name: Read committed Towncrier configuration
+      id: config
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        config_dir=$(mktemp -d "$RUNNER_TEMP/towncrier-config.XXXXXX")
+        if git cat-file -e HEAD:towncrier.toml 2>/dev/null; then
+          git show HEAD:towncrier.toml >"$config_dir/config.toml"
+        else
+          git show HEAD:pyproject.toml >"$config_dir/config.toml"
+        fi
+        python3 - "$config_dir/config.toml" "$config_dir/categories" "$GITHUB_OUTPUT" <<'PY'
+        import sys
+        import tomllib
+        from pathlib import Path, PurePosixPath
+
+        document = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+        config = document.get("tool", {}).get("towncrier")
+        if not isinstance(config, dict):
+            raise SystemExit("Towncrier configuration is required")
+        types = config.get("type")
+        fragments = config.get("fragment")
+        if types is not None and fragments is not None:
+            raise SystemExit("Towncrier type and fragment tables cannot be combined")
+        for key in ("filename", "directory"):
+            value = config.get(key)
+            if not isinstance(value, str) or not value.isprintable() or not value or value != str(PurePosixPath(value)):
+                raise SystemExit("Towncrier paths must be normalized relative paths")
+            if PurePosixPath(value).is_absolute() or ".." in value.split("/"):
+                raise SystemExit("Towncrier paths must stay within the repository")
+        changelog = config["filename"]
+        if changelog.endswith(".md"):
+            format_name = "markdown"
+        elif changelog.endswith(".rst"):
+            format_name = "rst"
+        else:
+            raise SystemExit("Towncrier changelog must use Markdown or RST")
+        if types is not None:
+            if not isinstance(types, list) or not types or any(not isinstance(item, dict) for item in types):
+                raise SystemExit("Towncrier type categories are required")
+            categories = [category.get("directory") for category in types]
+        elif isinstance(fragments, dict) and fragments and all(isinstance(value, dict) for value in fragments.values()):
+            categories = list(fragments)
+        else:
+            raise SystemExit("Towncrier fragment categories are required")
+        if not all(
+            isinstance(category, str) and category.isprintable() and category and "/" not in category
+            for category in categories
+        ):
+            raise SystemExit("Towncrier fragment categories must be printable names")
+        Path(sys.argv[2]).write_text("".join(f"{category}\n" for category in categories), encoding="utf-8")
+        with Path(sys.argv[3]).open("a", encoding="utf-8") as output:
+            output.write(f"changelog={changelog}\nfragments={config['directory']}\nformat={format_name}\n")
+            output.write(f"categories-file={sys.argv[2]}\n")
+        PY

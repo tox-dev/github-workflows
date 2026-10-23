@@ -14,30 +14,6 @@ on:
         description: Link text for the ecosystem release
         default: PyPI release
         type: string
-      issue-role:
-        description: Target for reStructuredText issue roles
-        default: issue
-        type: string
-      lock:
-        description: Release-tool pylock.toml path
-        default: pylock.toml
-        type: string
-      python-version:
-        description: Python version for release tooling and package build
-        default: "3.15"
-        type: string
-      check-group:
-        description: Dependency group containing prek
-        default: release
-        type: string
-      notes-group:
-        description: Dependency group containing release-creator
-        default: release
-        type: string
-      validation-group:
-        description: Dependency group containing Twine and check-wheel-contents
-        default: pkg-meta
-        type: string
       local-tool-source:
         description: Install release-creator from this checkout for its own release
         default: false
@@ -65,13 +41,11 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: latest-known
-          python-version: ${{ inputs.python-version }}
+          python-version: "3.15"
           enable-cache: false
       - uses: $/install-locked-tools
         with:
-          lock: ${{ inputs.lock }}
-          groups: ${{ inputs.check-group }}${{ inputs.local-tool-source && ' fix' || '' }}
-          python-version: ${{ inputs.python-version }}
+          groups: release-check
           venv: ${{ runner.temp }}/release-tools
       - name: Run tagged source checks
         run: >-
@@ -99,41 +73,29 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: latest-known
-          python-version: ${{ inputs.python-version }}
+          python-version: "3.15"
           enable-cache: false
       - uses: $/install-locked-tools
         with:
-          lock: ${{ inputs.lock }}
-          groups: ${{ inputs.notes-group }}${{ inputs.local-tool-source && ' fix build project-runtime' || '' }}
-          python-version: ${{ inputs.python-version }}
+          groups: release-notes${{ inputs.local-tool-source && ' project-runtime' || '' }}
           venv: ${{ runner.temp }}/release-tools
       - name: Add locked tools to PATH
         run: echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
+      - uses: $/build-python-distribution
+        with:
+          source: ${{ inputs.source }}
       - name: Install the local release tool
         if: inputs.local-tool-source
-        run: uv pip install --python "$RUNNER_TEMP/release-tools/bin/python" --no-deps --no-build-isolation .
+        run: uv pip install --python "$RUNNER_TEMP/release-tools/bin/python" --no-deps dist/*.whl
       - name: Render tagged-source notes
         uses: $/render-release-notes
         with:
           tag: ${{ github.ref_name }}
           changelog: ${{ inputs.changelog }}
-          repository: ${{ github.repository }}
           artifact-url: ${{ inputs.artifact-base-url }}${{ github.ref_name }}/
           artifact-label: ${{ inputs.artifact-label }}
-          issue-role: ${{ inputs.issue-role }}
           output: ${{ runner.temp }}/release-notes.md
-      - uses: $/build-python-distribution
-        with:
-          lock: ${{ inputs.lock }}
-          planner-group: ${{ inputs.notes-group }}
-          python-version: ${{ inputs.python-version }}
-          source: ${{ inputs.source }}
-          local-tool-source: ${{ inputs.local-tool-source }}
       - uses: $/validate-python-distribution
-        with:
-          lock: ${{ inputs.lock }}
-          python-version: ${{ inputs.python-version }}
-          validation-group: ${{ inputs.validation-group }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.artifact-prefix }}python-package-distributions

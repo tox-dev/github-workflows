@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import subprocess
 import tomllib
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -30,16 +29,23 @@ def publish_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def test_upgrade_pull_request_uses_repository_app() -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/upgrade-release-tools.yaml").read_text()
+    workflow = yaml.load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/upgrade-release-tools.yaml").read_text(),
+        Loader=yaml.BaseLoader,
     )
     publish = workflow["jobs"]["publish"]
+    assert workflow["on"]["workflow_call"]["inputs"]["lock-groups"]["required"] == "true"
+    assert workflow["jobs"]["generate-lock"]["steps"][2]["with"]["lock-groups"] == "${{ inputs.lock-groups }}"
     assert publish["environment"] == "release-auth"
     assert publish["permissions"] == {"contents": "read"}
     token = next(step for step in publish["steps"] if step.get("id") == "token")
     assert token["with"]["repositories"] == "${{ steps.repository.outputs.name }}"
     assert token["with"]["permission-contents"] == "write"
     assert token["with"]["permission-pull-requests"] == "write"
+    steps = publish["steps"]
+    assert next(index for index, step in enumerate(steps) if step.get("uses") == "$/verify-nab-cutoff-patch") < next(
+        index for index, step in enumerate(steps) if step.get("id") == "token"
+    )
     for step in publish["steps"]:
         if step.get("name") in {
             "Push dependency branch",
@@ -57,6 +63,10 @@ def lock_repository(tmp_path: Path) -> Path:
     (repository / "pyproject.toml").write_text(
         '[project]\nname = "example"\nversion = "0.1.0"\nrequires-python = ">=3.15"\n'
         "[dependency-groups]\nrelease = []\ntest = []\n"
+        '[tool.nab]\nmode = "universal"\nuploaded-prior-to = "P7D"\n'
+        'decision-order = "stable"\nbase-group = "project-runtime"\ndefault-groups = []\n'
+        '[tool.nab.matrix]\npython = ">=3.15,<3.16"\n'
+        'platforms = ["linux_x86_64", "linux_aarch64", "macos_arm64", "windows_amd64"]\n',
     )
     run(repository, "git", "init", "-b", "main")
     run(repository, "git", "config", "user.name", "Release test")
@@ -66,334 +76,225 @@ def lock_repository(tmp_path: Path) -> Path:
     return repository
 
 
-def test_upgrade_exports_every_group(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
-    installed = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-0.sh",
-        tmp_path,
-        LOCK="pylock.toml",
-        PYTHON_VERSION="3.15",
-    )
+def test_upgrade_locks_only_selected_groups(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+    project = lock_repository / "pyproject.toml"
+    project.write_text(project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]'))
+    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
     assert installed.returncode == 0, installed.stderr
-    result = execute(
+    resolved = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
+        upgrade_scripts / "refresh-release-lock-2.sh",
         tmp_path,
-        LOCK="pylock.toml",
-        PYTHON_VERSION="3.15",
+        LOCK_GROUPS="release-check",
+        MODE="refresh",
     )
-    assert result.returncode == 0, result.stderr
+    assert resolved.returncode == 0, resolved.stderr
     lock = tomllib.loads((lock_repository / "pylock.toml").read_text())
-    assert (lock["requires-python"], lock["dependency-groups"]) == (
-        ">=3.15",
-        ["project-runtime", "release", "test", "build"],
-    )
+    assert lock["dependency-groups"] == ["project-runtime", "release-check"]
+    assert "test" not in {package["name"] for package in lock["packages"]}
 
 
-def test_upgrade_refreshes_backend_constraints(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
-    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path, PYTHON_VERSION="3.15")
+def test_upgrade_check_mode_preserves_lock_bytes(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+    project = lock_repository / "pyproject.toml"
+    project.write_text(project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]'))
+    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
     assert installed.returncode == 0, installed.stderr
-    locked = execute(
+    refreshed = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
+        upgrade_scripts / "refresh-release-lock-2.sh",
         tmp_path,
-        LOCK="pylock.toml",
-        PYTHON_VERSION="3.15",
+        LOCK_GROUPS="release-check",
+        MODE="refresh",
     )
-    assert locked.returncode == 0, locked.stderr
-    generated = execute(
+    assert refreshed.returncode == 0, refreshed.stderr
+    expected = (lock_repository / "pylock.toml").read_bytes()
+    checked = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-5.sh",
+        upgrade_scripts / "refresh-release-lock-2.sh",
         tmp_path,
-        LOCK="pylock.toml",
-        BUILD_CONSTRAINTS="release-build-constraints.txt",
-        PYTHON_VERSION="3.15",
+        LOCK_GROUPS="release-check",
+        MODE="check",
     )
-    assert generated.returncode == 0, generated.stderr
-    constraints = (lock_repository / "release-build-constraints.txt").read_text()
-    assert "cython==" in constraints
-    assert "setuptools==" in constraints
-
-
-def test_upgrade_does_not_force_shared_build_requirements(
-    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path
-) -> None:
-    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path, PYTHON_VERSION="3.15")
-    assert installed.returncode == 0, installed.stderr
-    result = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
-        tmp_path,
-        LOCK="pylock.toml",
-        PYTHON_VERSION="3.15",
-        BUILD_REQUIREMENTS="",
-    )
-    assert result.returncode == 0, result.stderr
-    packages = {item["name"] for item in tomllib.loads((lock_repository / "pylock.toml").read_text())["packages"]}
-    assert "cython" not in packages
-    assert "setuptools" not in packages
+    assert checked.returncode == 0, checked.stderr
+    assert (lock_repository / "pylock.toml").read_bytes() == expected
 
 
 @pytest.mark.parametrize(
-    "path",
-    ["pyproject.toml", "../build-constraints.txt", "/tmp/build-constraints.txt", ".git/build-constraints.txt"],
-    ids=["project-file", "parent", "absolute", "git-internals"],
+    ("groups", "selection"),
+    [
+        pytest.param("", "--build-requirements", id="build-only"),
+        pytest.param("release-check", "--groups", id="selected-group"),
+    ],
 )
-def test_upgrade_rejects_unsafe_constraints_path(
-    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path, path: str
+def test_upgrade_preserves_secondary_lock_matrix(
+    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path, groups: str, selection: str
 ) -> None:
-    result = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-5.sh",
-        tmp_path,
-        BUILD_CONSTRAINTS=path,
-        LOCK="pylock.toml",
-        PYTHON_VERSION="3.15",
-    )
-    assert result.returncode != 0
-    assert "backend constraints" in result.stderr
-
-
-def test_upgrade_includes_new_constraints_file_in_patch(
-    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path
-) -> None:
-    (lock_repository / "pylock.toml").write_text('lock-version = "1.0"\n')
-    run(lock_repository, "git", "add", ".")
-    run(lock_repository, "git", "commit", "-m", "Add lock")
-    (lock_repository / "release-build-constraints.txt").write_text("new\n")
-    result = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-9.sh",
-        tmp_path,
-        BUILD_CONSTRAINTS="release-build-constraints.txt",
-        LOCK="pylock.toml",
-        KEEP_UV_LOCK="false",
-        GITHUB_OUTPUT=str(tmp_path / "output"),
-    )
-    assert result.returncode == 0, result.stderr
-    assert "new file mode 100644" in (tmp_path / "lock.patch").read_text()
-
-
-def test_upgrade_sets_seven_day_cutoff(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
-    result = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-1.sh",
-        tmp_path,
-        GITHUB_OUTPUT=str(tmp_path / "output"),
-    )
-    assert result.returncode == 0, result.stderr
-    cutoff = datetime.fromisoformat((tmp_path / "output").read_text().removeprefix("timestamp=").strip())
-    assert abs(datetime.now(UTC) - cutoff - timedelta(days=7)) < timedelta(minutes=1)
-
-
-def test_upgrade_exempts_only_named_young_package(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
     project = lock_repository / "pyproject.toml"
     project.write_text(
-        project.read_text().replace("release = []", 'release = ["release-creator>=0.4.1,<0.4.2", "certifi"]')
+        project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]')
+        + '[build-system]\nrequires = ["setuptools>=80"]\nbuild-backend = "setuptools.build_meta"\n',
     )
-    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path, PYTHON_VERSION="3.15")
+    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
     assert installed.returncode == 0, installed.stderr
-    blocked = execute(
+    primary = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
+        upgrade_scripts / "refresh-release-lock-2.sh",
         tmp_path,
-        LOCK="pylock.toml",
-        PYTHON_VERSION="3.15",
-        UV_EXCLUDE_NEWER="2026-10-14T00:00:00Z",
-        EXCLUDE_NEWER_PACKAGES="",
+        LOCK_GROUPS="release-check",
+        MODE="refresh",
     )
-    assert blocked.returncode != 0
-    allowed = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
-        tmp_path,
-        LOCK="pylock.toml",
-        PYTHON_VERSION="3.15",
-        UV_EXCLUDE_NEWER="2026-10-14T00:00:00Z",
-        EXCLUDE_NEWER_PACKAGES="release-creator=2026-10-19T20:26:31Z",
+    assert primary.returncode == 0, primary.stderr
+    additional = lock_repository / "pylock.build.toml"
+    command = [
+        "uv",
+        "run",
+        "--no-project",
+        "--python",
+        str(tmp_path / "lock-tools"),
+        "nab",
+        "lock",
+        "pyproject.toml",
+        selection,
+    ]
+    if groups:
+        command.append(groups)
+    command.extend(
+        [
+            "--project-matrix-python",
+            ">=3.15,<3.16",
+            "--project-matrix-platforms",
+            "linux_x86_64",
+            "macos_arm64",
+            "--project-matrix-implementations",
+            "cpython",
+            "--output",
+            str(additional),
+        ],
     )
-    assert allowed.returncode == 0, allowed.stderr
-    packages = {
-        package["name"]: package for package in tomllib.loads((lock_repository / "pylock.toml").read_text())["packages"]
+    initial = subprocess.run(command, cwd=lock_repository, text=True, capture_output=True, check=False)
+    assert initial.returncode == 0, initial.stderr
+    expected = additional.read_bytes()
+    environment = {
+        "LOCK_GROUPS": "release-check",
+        "MODE": "check",
+        "ADDITIONAL_LOCK": additional.name,
+        "ADDITIONAL_GROUPS": groups,
+        "MATRIX_PYTHON": ">=3.15,<3.16",
+        "MATRIX_PLATFORMS": "linux_x86_64 macos_arm64",
+        "MATRIX_IMPLEMENTATIONS": "cpython",
     }
-    assert packages["release-creator"]["version"] == "0.4.1"
-    assert packages["certifi"]["version"] == "2026.7.22"
+    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-2.sh", tmp_path, **environment)
+    assert checked.returncode == 0, checked.stderr
+    assert additional.read_bytes() == expected
 
 
-@pytest.mark.parametrize(
-    "entry",
-    [
-        "release-creator; true=2026-10-19T20:26:31Z",
-        "release-creator",
-        "release-creator=tomorrow",
-        "release-creator=2999-01-01T00:00:00Z",
-    ],
-    ids=["invalid-name", "missing-date", "invalid-date", "future-date"],
-)
-def test_upgrade_rejects_invalid_exception(
-    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path, entry: str
-) -> None:
+def test_upgrade_rejects_secondary_matrix_change(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+    project = lock_repository / "pyproject.toml"
+    project.write_text(project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]'))
+    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
+    assert installed.returncode == 0, installed.stderr
+    initial = execute(
+        lock_repository,
+        upgrade_scripts / "refresh-release-lock-2.sh",
+        tmp_path,
+        LOCK_GROUPS="release-check",
+        MODE="refresh",
+    )
+    assert initial.returncode == 0, initial.stderr
+    (lock_repository / "pylock.build.toml").write_bytes((lock_repository / "pylock.toml").read_bytes())
     result = execute(
         lock_repository,
         upgrade_scripts / "refresh-release-lock-2.sh",
         tmp_path,
-        EXCLUDE_NEWER_PACKAGES=entry,
+        LOCK_GROUPS="release-check",
+        MODE="refresh",
+        ADDITIONAL_LOCK="pylock.build.toml",
+        ADDITIONAL_GROUPS="release-check",
+        MATRIX_PYTHON=">=3.15,<3.16",
+        MATRIX_PLATFORMS="linux_x86_64",
+        MATRIX_IMPLEMENTATIONS="cpython",
     )
     assert result.returncode != 0
-    assert "invalid package cutoff" in result.stderr
+    assert "changed its target environments" in result.stderr
 
 
-def test_upgrade_refreshes_uv_lock_with_same_exception(
-    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path
-) -> None:
+def test_upgrade_expires_old_nab_floor(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
     project = lock_repository / "pyproject.toml"
     project.write_text(
-        project.read_text().replace("release = []", 'release = ["release-creator>=0.4.1,<0.4.2", "certifi"]')
+        project.read_text()
+        + '[[tool.nab.package-rules]]\nmatch = ["nab"]\nuploaded-prior-to = "2026-01-01T00:00:00Z"\n',
     )
-    result = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-4.sh",
-        tmp_path,
-        UV_EXCLUDE_NEWER="2026-10-14T00:00:00Z",
-        EXCLUDE_NEWER_PACKAGES="release-creator=2026-10-19T20:26:31Z",
-    )
-    assert result.returncode == 0, result.stderr
-    packages = {
-        package["name"]: package for package in tomllib.loads((lock_repository / "uv.lock").read_text())["package"]
-    }
-    assert packages["release-creator"]["version"] == "0.4.1"
-    assert packages["certifi"]["version"] == "2026.7.22"
+    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
+    assert installed.returncode == 0, installed.stderr
+    expired = execute(lock_repository, upgrade_scripts / "refresh-release-lock-1.sh", tmp_path)
+    assert expired.returncode == 0, expired.stderr
+    assert "package-rules" not in tomllib.loads(project.read_text())["tool"]["nab"]
 
 
 @pytest.mark.parametrize(
-    ("changed_path", "keep_uv_lock", "build_constraints", "expected"),
-    [
-        (None, False, False, False),
-        ("pylock.toml", False, False, True),
-        ("uv.lock", False, False, False),
-        ("uv.lock", True, False, True),
-        ("release-build-constraints.txt", False, True, True),
-    ],
-    ids=["unchanged", "pylock", "ignored-uv-lock", "retained-uv-lock", "backend-constraints"],
+    "changed_path",
+    [pytest.param("pylock.toml", id="lock"), pytest.param("pyproject.toml", id="expired-floor")],
 )
-def test_upgrade_emits_patch_only_for_change(
-    lock_repository: Path,
-    tmp_path: Path,
-    upgrade_scripts: Path,
-    changed_path: str | None,
-    keep_uv_lock: bool,
-    build_constraints: bool,
-    expected: bool,
+def test_upgrade_emits_patch_for_allowed_change(
+    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path, changed_path: str
 ) -> None:
-    lock = lock_repository / "pylock.toml"
-    lock.write_text('lock-version = "1.0"\n')
-    (lock_repository / "uv.lock").write_text("before\n")
-    (lock_repository / "release-build-constraints.txt").write_text("before\n")
+    (lock_repository / "pylock.toml").write_text('lock-version = "1.0"\n')
     run(lock_repository, "git", "add", ".")
     run(lock_repository, "git", "commit", "-m", "Add lock")
-    if changed_path is not None:
-        (lock_repository / changed_path).write_text("after\n")
+    (lock_repository / changed_path).write_text((lock_repository / changed_path).read_text() + "\n")
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-9.sh",
+        upgrade_scripts / "refresh-release-lock-6.sh",
         tmp_path,
-        LOCK="pylock.toml",
-        KEEP_UV_LOCK=str(keep_uv_lock).lower(),
-        BUILD_CONSTRAINTS="release-build-constraints.txt" if build_constraints else "",
+        MODE="refresh",
         GITHUB_OUTPUT=str(tmp_path / "output"),
     )
-    assert result.returncode == 0
-    assert (tmp_path / "output").read_text() == f"changed={str(expected).lower()}\n"
-    assert (tmp_path / "lock.patch").exists() == expected
-    if expected:
-        assert f"diff --git a/{changed_path} b/{changed_path}" in (tmp_path / "lock.patch").read_text()
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "output").read_text() == "changed=true\n"
+    assert f"diff --git a/{changed_path} b/{changed_path}" in (tmp_path / "lock.patch").read_text()
 
 
-@pytest.mark.parametrize(
-    ("unrelated", "keep_uv_lock", "accepted"),
-    [(None, False, True), ("other.txt", False, False), ("uv.lock", False, False), ("uv.lock", True, True)],
-    ids=["clean", "unrelated-file", "uv-lock-rejected", "uv-lock-retained"],
-)
-def test_upgrade_checks_refreshed_lock(
-    lock_repository: Path,
-    tmp_path: Path,
-    upgrade_scripts: Path,
-    unrelated: str | None,
-    keep_uv_lock: bool,
-    accepted: bool,
-) -> None:
-    project = lock_repository / "pyproject.toml"
-    project.write_text(project.read_text().replace("release = []", 'release = ["prek"]'))
-    (lock_repository / ".pre-commit-config.yaml").write_text(
-        "repos:\n  - repo: local\n    hooks:\n      - id: check\n"
-        "        name: check\n        entry: 'true'\n        language: system\n        pass_filenames: false\n"
-    )
-    (lock_repository / "other.txt").write_text("before\n")
-    run(
-        lock_repository,
-        "release-creator",
-        "locks",
-        "--output",
-        "pylock.toml",
-        "--tool-python",
-        ">=3.15",
-        "--build-requirement",
-        "Cython>=3.0",
-        "--build-requirement",
-        "setuptools>=80",
-    )
+def test_upgrade_check_mode_rejects_lock_drift(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+    (lock_repository / "pylock.toml").write_text('lock-version = "1.0"\n')
     run(lock_repository, "git", "add", ".")
-    run(lock_repository, "git", "commit", "-m", "Add release tools")
-    if unrelated is not None:
-        (lock_repository / unrelated).write_text("after\n")
-    exporter = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-0.sh",
-        tmp_path,
-        PYTHON_VERSION="3.15",
-    )
-    assert exporter.returncode == 0, exporter.stderr
-    source = Path(__file__).resolve().parents[2]
-    refresh = yaml.safe_load((source / "refresh-release-lock/action.yml").read_text())
-    assert refresh["runs"]["steps"][6]["uses"] == "$/install-locked-tools"
-    for index in range(3):
-        installed = execute(
-            lock_repository,
-            upgrade_scripts / f"install-locked-tools-{index}.sh",
-            tmp_path,
-            GITHUB_ACTION_PATH=str(source / "install-locked-tools"),
-            LOCK="pylock.toml",
-            DEPENDENCY_GROUPS="release",
-            VENV=str(tmp_path / "release-tools"),
-            PYTHON_VERSION="3.15",
-        )
-        assert installed.returncode == 0, installed.stderr
-    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-7.sh", tmp_path)
-    assert checked.returncode == 0, checked.stderr
+    run(lock_repository, "git", "commit", "-m", "Add lock")
+    (lock_repository / "pylock.toml").write_text('lock-version = "1.1"\n')
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-8.sh",
+        upgrade_scripts / "refresh-release-lock-6.sh",
         tmp_path,
-        LOCK="pylock.toml",
-        KEEP_UV_LOCK=str(keep_uv_lock).lower(),
+        MODE="check",
+        GITHUB_OUTPUT=str(tmp_path / "output"),
     )
-    assert (result.returncode == 0) == accepted, result.stderr
-    assert ("prek changed file outside the lock file" in result.stderr) == (not accepted)
+    assert result.returncode != 0
 
 
 @pytest.mark.parametrize(
-    ("path", "keep_uv_lock", "accepted"),
+    "path",
+    [pytest.param("other.txt", id="unrelated-file"), pytest.param("uv.lock", id="uv-lock")],
+)
+def test_upgrade_rejects_unrelated_change(
+    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path, path: str
+) -> None:
+    (tmp_path / "project-after-expiry.toml").write_bytes((lock_repository / "pyproject.toml").read_bytes())
+    (lock_repository / path).write_text("changed\n")
+    result = execute(lock_repository, upgrade_scripts / "refresh-release-lock-5.sh", tmp_path)
+    assert result.returncode != 0
+    assert "outside the lock and cutoff policy" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("path", "accepted"),
     [
-        ("pylock.toml", False, True),
-        (".pre-commit-config.yaml", False, True),
-        ("uv.lock", False, False),
-        ("uv.lock", True, True),
-        ("other.txt", True, False),
+        pytest.param("pylock.toml", True, id="lock"),
+        pytest.param("pyproject.toml", True, id="nab-policy"),
+        pytest.param(".pre-commit-config.yaml", True, id="hooks"),
+        pytest.param("uv.lock", False, id="uv-lock"),
+        pytest.param("other.txt", False, id="unrelated-file"),
     ],
-    ids=["pylock", "hooks", "uv-lock-rejected", "uv-lock-retained", "unrelated-file"],
 )
 def test_upgrade_rejects_unrelated_patch(
-    lock_repository: Path, tmp_path: Path, publish_scripts: Path, path: str, keep_uv_lock: bool, accepted: bool
+    lock_repository: Path, tmp_path: Path, publish_scripts: Path, path: str, accepted: bool
 ) -> None:
     (lock_repository / path).write_text("before\n")
     run(lock_repository, "git", "add", ".")
@@ -406,22 +307,47 @@ def test_upgrade_rejects_unrelated_patch(
     (patch_dir / "lock.patch").write_text(patch)
     applied = execute(lock_repository, publish_scripts / "publish-apply-lock-patch.sh", tmp_path)
     assert applied.returncode == 0, applied.stderr
-    result = execute(
-        lock_repository,
-        publish_scripts / "publish-check-dependency-patch-paths.sh",
-        tmp_path,
-        LOCK="pylock.toml",
-        CONFIG=".pre-commit-config.yaml",
-        KEEP_UV_LOCK=str(keep_uv_lock).lower(),
-    )
+    result = execute(lock_repository, publish_scripts / "publish-check-dependency-patch-paths.sh", tmp_path)
     assert (result.returncode == 0) == accepted
     assert ("unexpected dependency path" in result.stderr) == (not accepted)
 
 
+def test_upgrade_allows_only_named_secondary_lock(lock_repository: Path, tmp_path: Path, publish_scripts: Path) -> None:
+    for name in ("pylock.build.toml", "pylock.pgo.toml"):
+        (lock_repository / name).write_text("before\n")
+    run(lock_repository, "git", "add", ".")
+    run(lock_repository, "git", "commit", "-m", "Add secondary locks")
+    (lock_repository / "pylock.build.toml").write_text("after\n")
+    patch = run(lock_repository, "git", "diff", "--binary", "--", "pylock.build.toml").stdout
+    run(lock_repository, "git", "restore", "pylock.build.toml")
+    patch_dir = tmp_path / "release-tools-lock"
+    patch_dir.mkdir()
+    (patch_dir / "lock.patch").write_text(patch)
+    applied = execute(lock_repository, publish_scripts / "publish-apply-lock-patch.sh", tmp_path)
+    assert applied.returncode == 0, applied.stderr
+    accepted = execute(
+        lock_repository,
+        publish_scripts / "publish-check-dependency-patch-paths.sh",
+        tmp_path,
+        ADDITIONAL_LOCK="pylock.build.toml",
+    )
+    assert accepted.returncode == 0, accepted.stderr
+    rejected = execute(
+        lock_repository,
+        publish_scripts / "publish-check-dependency-patch-paths.sh",
+        tmp_path,
+        ADDITIONAL_LOCK="pylock.pgo.toml",
+    )
+    assert rejected.returncode != 0
+    assert "unexpected dependency path: pylock.build.toml" in rejected.stderr
+
+
 @pytest.mark.parametrize(
     ("path", "unsafe_mode"),
-    [("pylock.toml", "executable"), (".pre-commit-config.yaml", "symlink")],
-    ids=["executable-lock", "symlink-hook-config"],
+    [
+        pytest.param("pylock.toml", "executable", id="executable-lock"),
+        pytest.param(".pre-commit-config.yaml", "symlink", id="symlink-hook-config"),
+    ],
 )
 def test_upgrade_rejects_unsafe_file_mode(
     lock_repository: Path, tmp_path: Path, publish_scripts: Path, path: str, unsafe_mode: str
@@ -476,9 +402,6 @@ def test_upgrade_combines_lock_and_hook_patches(lock_repository: Path, tmp_path:
         lock_repository,
         publish_scripts / "publish-check-dependency-patch-paths.sh",
         tmp_path,
-        LOCK="pylock.toml",
-        CONFIG=".pre-commit-config.yaml",
-        KEEP_UV_LOCK="false",
     )
 
     assert (applied_lock.returncode, applied_hooks.returncode, checked.returncode) == (0, 0, 0)
@@ -488,7 +411,7 @@ def test_upgrade_combines_lock_and_hook_patches(lock_repository: Path, tmp_path:
     ]
 
 
-def test_upgrade_lists_cutoff_exceptions_in_pull_request(
+def test_upgrade_preserves_requested_pull_request_body(
     lock_repository: Path, tmp_path: Path, publish_scripts: Path
 ) -> None:
     result = execute(
@@ -496,33 +419,9 @@ def test_upgrade_lists_cutoff_exceptions_in_pull_request(
         publish_scripts / "publish-write-dependency-pull-request-body.sh",
         tmp_path,
         PR_BODY="Refresh release tools.",
-        EXCLUDE_NEWER_PACKAGES="release-creator=2026-10-19T20:26:31Z\nuv-build=2026-10-20T15:11:07Z",
     )
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "pull-request.md").read_text() == (
-        "Refresh release tools.\n\n"
-        "Reviewed package cutoff floors:\n"
-        "- `release-creator=2026-10-19T20:26:31Z`\n"
-        "- `uv-build=2026-10-20T15:11:07Z`\n"
-    )
-
-
-@pytest.mark.parametrize(
-    ("branch", "base", "accepted"),
-    [("automation/update-release-tools", "main", True), ("main", "main", False), ("bad branch", "main", False)],
-    ids=["automation-branch", "base-branch", "invalid-ref"],
-)
-def test_upgrade_rejects_unsafe_branch(
-    lock_repository: Path, tmp_path: Path, publish_scripts: Path, branch: str, base: str, accepted: bool
-) -> None:
-    result = execute(
-        lock_repository,
-        publish_scripts / "publish-check-dependency-branch.sh",
-        tmp_path,
-        BRANCH=branch,
-        BASE=base,
-    )
-    assert (result.returncode == 0) == accepted
+    assert (tmp_path / "pull-request.md").read_text() == "Refresh release tools.\n"
 
 
 def test_upgrade_finds_only_own_dependency_pull_request(
@@ -557,16 +456,12 @@ def test_upgrade_finds_only_own_dependency_pull_request(
         **environment,
         GITHUB_REPOSITORY="tox-dev/fixture",
         GITHUB_OUTPUT=str(tmp_path / "output"),
-        BRANCH="automation/update-release-tools",
-        BASE="main",
     )
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "output").read_text() == "number=18\n"
 
 
 def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) -> subprocess.CompletedProcess[str]:
-    active_cutoffs = tmp_path / "active-package-cutoffs"
-    active_cutoffs.write_text(f"{environment.get('EXCLUDE_NEWER_PACKAGES', '')}\n")
     return subprocess.run(
         ["bash", str(script)],
         cwd=repository,
@@ -574,11 +469,11 @@ def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) 
         | {
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "refresh-release-lock"),
-            "EXCLUDE_NEWER_PACKAGES": "",
-            "BUILD_CONSTRAINTS": "",
-            "BUILD_REQUIREMENTS": "Cython>=3.0\nsetuptools>=80",
-            "HOOK_CONFIG": ".pre-commit-config.yaml",
-            "ACTIVE_PACKAGE_CUTOFFS": str(active_cutoffs),
+            "ADDITIONAL_LOCK": "",
+            "ADDITIONAL_GROUPS": "",
+            "MATRIX_PYTHON": "",
+            "MATRIX_PLATFORMS": "",
+            "MATRIX_IMPLEMENTATIONS": "",
         }
         | environment,
         text=True,

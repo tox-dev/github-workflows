@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -9,13 +11,13 @@ from pytest_httpserver import HTTPServer
 
 
 @pytest.mark.parametrize(
-    ("files", "labels", "write_method", "fragment_dirs", "extension", "fragment_style"),
+    ("files", "labels", "edit_option", "fragment_dirs", "extension", "fragment_style"),
     [
-        pytest.param([], [], "POST", "changelog.d", "md", "towncrier", id="add"),
+        pytest.param([], [], "--add-label", "changelog.d", "md", "towncrier", id="add"),
         pytest.param(
             [{"filename": "changelog.d/+old.feature.md", "status": "removed"}],
             [],
-            "POST",
+            "--add-label",
             "changelog.d",
             "md",
             "towncrier",
@@ -25,7 +27,7 @@ from pytest_httpserver import HTTPServer
         pytest.param(
             [{"filename": "changelog.d/+fix.bugfix.md"}],
             [{"name": "skip news"}],
-            "DELETE",
+            "--remove-label",
             "changelog.d",
             "md",
             "towncrier",
@@ -41,9 +43,63 @@ from pytest_httpserver import HTTPServer
             id="fragment-without-label",
         ),
         pytest.param(
+            [{"filename": "changelog.d/+fix.bugfix.2.md"}],
+            [{"name": "skip news"}],
+            "--remove-label",
+            "changelog.d",
+            "md",
+            "towncrier",
+            id="named-fragment-counter",
+        ),
+        pytest.param(
+            [{"filename": "changelog.d/123.bugfix.md"}],
+            [{"name": "skip news"}],
+            "--remove-label",
+            "changelog.d",
+            "md",
+            "towncrier",
+            id="numeric-fragment",
+        ),
+        pytest.param(
+            [{"filename": "changelog.d/123.bugfix.2.md"}],
+            [{"name": "skip news"}],
+            "--remove-label",
+            "changelog.d",
+            "md",
+            "towncrier",
+            id="numeric-fragment-counter",
+        ),
+        pytest.param(
+            [{"filename": "changelog.d/topic.feature.md"}],
+            [{"name": "skip news"}],
+            None,
+            "changelog.d",
+            "md",
+            "towncrier",
+            id="bare-name-not-a-fragment",
+        ),
+        pytest.param(
+            [{"filename": "changelog.d/123a.feature.md"}],
+            [{"name": "skip news"}],
+            None,
+            "changelog.d",
+            "md",
+            "towncrier",
+            id="mixed-number-not-a-fragment",
+        ),
+        pytest.param(
+            [{"filename": "changelog.d/+.feature.md"}],
+            [{"name": "skip news"}],
+            None,
+            "changelog.d",
+            "md",
+            "towncrier",
+            id="empty-named-stem-not-a-fragment",
+        ),
+        pytest.param(
             [{"filename": "docs/changelog.d/+fix.bugfix.md"}],
             [{"name": "skip news"}],
-            "DELETE",
+            "--remove-label",
             "changelog.d,docs/changelog.d",
             "md",
             "towncrier",
@@ -52,13 +108,13 @@ from pytest_httpserver import HTTPServer
         pytest.param(
             [{"filename": "docs/changelog/+fix.bugfix.rst"}],
             [{"name": "skip news"}],
-            "DELETE",
+            "--remove-label",
             "docs/changelog",
             "rst",
             "towncrier",
             id="rst-fragment-removes-label",
         ),
-        pytest.param([], [], "POST", ".changeset", "md", "changeset", id="changeset-add"),
+        pytest.param([], [], "--add-label", ".changeset", "md", "changeset", id="changeset-add"),
         pytest.param(
             [{"filename": "changelog.d/nested/+fix.bugfix.md"}],
             [{"name": "skip news"}],
@@ -80,7 +136,7 @@ from pytest_httpserver import HTTPServer
         pytest.param(
             [{"filename": ".changeset/fix-something.md"}],
             [{"name": "skip news"}],
-            "DELETE",
+            "--remove-label",
             ".changeset",
             "md",
             "changeset",
@@ -104,7 +160,7 @@ def test_label_bot_news_updates_label(
     github_api: tuple[HTTPServer, dict[str, str]],
     files: list[dict[str, str]],
     labels: list[dict[str, str]],
-    write_method: str | None,
+    edit_option: str | None,
     fragment_dirs: str,
     extension: str,
     fragment_style: str,
@@ -113,9 +169,17 @@ def test_label_bot_news_updates_label(
     prefix = "/api/v3/repos/tox-dev/fixture"
     server.expect_request(f"{prefix}/pulls/1/files", method="GET").respond_with_json(files)
     server.expect_request(f"{prefix}/issues/1/labels", method="GET").respond_with_json(labels)
-    if write_method is not None:
-        uri = f"{prefix}/issues/1/labels" + ("/skip news" if write_method == "DELETE" else "")
-        server.expect_request(uri, method=write_method).respond_with_json(labels)
+    real_gh = shutil.which("gh")
+    assert real_gh is not None
+    executable = tmp_path / "gh-shim" / "gh"
+    executable.parent.mkdir()
+    executable.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ $1 == pr && $2 == edit ]]; then printf "%s\\0" "$@" >>"$GH_EDIT_LOG"; exit 0; fi\n'
+        'exec "$GH_REAL" "$@"\n',
+    )
+    executable.chmod(0o755)
+    edit_log = tmp_path / "gh-edit-args"
     result = action(
         repository,
         tmp_path,
@@ -129,11 +193,17 @@ def test_label_bot_news_updates_label(
         EXTENSION=extension,
         FRAGMENT_STYLE=fragment_style,
         RUNNER_TEMP=str(tmp_path),
+        PATH=f"{executable.parent}:{os.environ['PATH']}",
+        GH_REAL=real_gh,
+        GH_EDIT_LOG=str(edit_log),
         **environment,
     )
     assert result.returncode == 0, result.stderr
-    assert [request.method for request, _ in server.log] == ["GET", "GET"] + (
-        [write_method] if write_method is not None else []
+    assert [request.method for request, _ in server.log] == ["GET", "GET"]
+    assert (edit_log.read_bytes().split(b"\0")[:-1] if edit_log.exists() else []) == (
+        [part.encode() for part in ("pr", "edit", "1", "--repo", "tox-dev/fixture", edit_option, "skip news")]
+        if edit_option is not None
+        else []
     )
 
 

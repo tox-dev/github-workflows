@@ -3,14 +3,13 @@ from __future__ import annotations
 import base64
 import json
 import os
-import shutil
 import subprocess
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 import yaml
+from conftest import action
 from pytest_httpserver import HTTPServer
 
 
@@ -243,20 +242,32 @@ def test_cooldown_checks_each_duplicate_repository(
     assert "hook revision is not eligible" in result.stderr
 
 
-@pytest.mark.parametrize("event_name", ["workflow_dispatch", "pull_request"], ids=["wrong-event", "wrong-event-head"])
-def test_cooldown_rejects_other_event_or_head_before_api(
+def test_cooldown_does_not_use_another_duplicate_repository_observation(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(server, author="pre-commit-ci[bot]", observed_days=0)
+    expect_config(server, "b" * 40, repository, ("v0", "v0"))
+    expect_config(server, "a" * 40, repository, ("v1", "v0"))
+    expect_historical_runs(server, older_head="c" * 40)
+    expect_config(server, "c" * 40, repository, ("v0", "v1"))
+    result = run_cooldown(action_scripts, tmp_path, environment)
+    assert result.returncode != 0
+    assert "hook revision has not been observed" in result.stderr
+
+
+def test_cooldown_rejects_other_event_before_api(
     tmp_path: Path,
     action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
-    event_name: str,
 ) -> None:
     server, environment = github_api
     result = run_cooldown(
         action_scripts,
         tmp_path,
         environment,
-        event_name=event_name,
-        event_head="c" * 40,
+        event_name="workflow_dispatch",
     )
     assert result.returncode != 0
     assert not server.log
@@ -272,62 +283,19 @@ def run_cooldown(
 ) -> subprocess.CompletedProcess[str]:
     path = tmp_path / "event.json"
     path.write_text(json.dumps({"number": 7, "pull_request": {"head": {"sha": event_head}}}))
-    subprocess.run(
-        ["uv", "venv", "--python", sys.executable, str(tmp_path / "hook-tools")], check=True, capture_output=True
+    (tmp_path / "pylock.toml").write_bytes((Path(__file__).resolve().parents[2] / "pylock.toml").read_bytes())
+    return action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "check-hook-update-cooldown",
+        version="",
+        MINIMUM_DAYS="7",
+        GITHUB_EVENT_NAME=event_name,
+        GITHUB_EVENT_PATH=str(path),
+        GITHUB_OUTPUT=str(tmp_path / "outputs"),
+        **environment,
     )
-    tools = tmp_path / "hook-tools" / "bin"
-    for name in ("prek", "yq"):
-        executable = shutil.which(name)
-        assert executable is not None
-        (tools / name).symlink_to(executable)
-    steps = yaml.safe_load((Path(__file__).resolve().parents[2] / "check-hook-update-cooldown/action.yml").read_text())[
-        "runs"
-    ]["steps"]
-    values = (
-        {name: os.environ[name] for name in ("HOME", "PATH", "LANG", "UV_CACHE_DIR") if name in os.environ}
-        | environment
-        | {
-            "REPOSITORY": "tox-dev/fixture",
-            "PR_NUMBER": "7",
-            "HEAD_SHA": "a" * 40,
-            "MINIMUM_DAYS": "7",
-            "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_EVENT_NAME": event_name,
-            "GITHUB_EVENT_PATH": str(path),
-            "GITHUB_OUTPUT": str(tmp_path / "outputs"),
-            "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "check-hook-update-cooldown"),
-            "GH_TOKEN": environment["GH_ENTERPRISE_TOKEN"],
-        }
-    )
-    result = subprocess.CompletedProcess[str]([], 0, "", "")
-    for index, step in enumerate(steps):
-        if "run" not in step or step.get("name") == "Install locked hook tools":
-            continue
-        condition = step.get("if")
-        if condition not in {
-            None,
-            "steps.identity.outputs.bot == 'true'",
-            "steps.identity.outputs.bot == 'true' && steps.identity.outputs.cooled != 'true'",
-        }:
-            msg = f"unsupported cooldown condition: {condition}"
-            raise ValueError(msg)
-        if condition and (not (tmp_path / "outputs").exists() or "bot=true" not in (tmp_path / "outputs").read_text()):
-            continue
-        if condition == "steps.identity.outputs.bot == 'true' && steps.identity.outputs.cooled != 'true'" and (
-            "cooled=true" in (tmp_path / "outputs").read_text()
-        ):
-            continue
-        result = subprocess.run(
-            ["bash", "-e", "-o", "pipefail", str(action_scripts / f"check-hook-update-cooldown-{index}.sh")],
-            cwd=tmp_path,
-            env=values,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode:
-            break
-    return result
 
 
 def expect_pull(

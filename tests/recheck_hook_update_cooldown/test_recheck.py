@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import os
-import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 import yaml
+from conftest import action
 from pytest_httpserver import HTTPServer
 
 
@@ -107,30 +106,17 @@ def test_recheck_reruns_failed_job(
         server.expect_request("/api/v3/repos/tox-dev/fixture/actions/jobs/99/rerun", method="POST").respond_with_data(
             status=201
         )
-    values = (
-        os.environ
-        | environment
-        | {
-            "GITHUB_REPOSITORY": "tox-dev/fixture",
-            "RUNNER_TEMP": str(tmp_path),
-            "MINIMUM_DAYS": "7",
-            "WORKFLOW": "check.yaml",
-            "JOB_NAME": job_name,
-            "GH_TOKEN": environment["GH_ENTERPRISE_TOKEN"],
-        }
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "recheck-hook-update-cooldown",
+        version="",
+        GH_TOKEN=environment["GH_ENTERPRISE_TOKEN"],
+        JOB_NAME=job_name,
+        **environment,
     )
-    action_path = Path(__file__).resolve().parents[2] / "recheck-hook-update-cooldown/action.yml"
-    steps = yaml.safe_load(action_path.read_text())["runs"]["steps"]
-    assert [step["name"] for step in steps] == ["Find hook update pull requests", "Rerun the failed hook checks"]
-    for index, _ in enumerate(steps):
-        result = subprocess.run(
-            ["bash", str(action_scripts / f"recheck-hook-update-cooldown-{index}.sh")],
-            env=values,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stderr
+    assert result.returncode == 0, result.stderr
     assert [request.path for request, _ in server.log].count(
         "/api/v3/repos/tox-dev/fixture/actions/jobs/99/rerun"
     ) == reruns
@@ -186,26 +172,16 @@ def test_recheck_continues_after_failed_rerun(
         server.expect_request(
             f"/api/v3/repos/tox-dev/fixture/actions/jobs/{job}/rerun", method="POST"
         ).respond_with_data(status=500 if number == 7 else 201)
-    values = (
-        os.environ
-        | environment
-        | {
-            "GITHUB_REPOSITORY": "tox-dev/fixture",
-            "RUNNER_TEMP": str(tmp_path),
-            "WORKFLOW": "check.yaml",
-            "JOB_NAME": "hook-cooldown",
-            "GH_TOKEN": environment["GH_ENTERPRISE_TOKEN"],
-        }
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "recheck-hook-update-cooldown",
+        version="",
+        GH_TOKEN=environment["GH_ENTERPRISE_TOKEN"],
+        **environment,
     )
-    for index in (0, 1):
-        result = subprocess.run(
-            ["bash", str(action_scripts / f"recheck-hook-update-cooldown-{index}.sh")],
-            env=values,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stderr
+    assert result.returncode == 0, result.stderr
     assert "could not rerun hook cooldown for pull request #7" in result.stderr
     assert [request.path for request, _ in server.log if request.method == "POST"] == [
         "/api/v3/repos/tox-dev/fixture/actions/jobs/97/rerun",

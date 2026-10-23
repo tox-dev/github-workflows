@@ -9,16 +9,20 @@ import yaml
 from conftest import run
 
 
-def test_validator_uses_locked_metadata_group() -> None:
+def test_validator_uses_shared_distribution_action() -> None:
     workflow = yaml.load(
         (Path(__file__).resolve().parents[2] / ".github/workflows/validate-python-release.yaml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    check = next(
-        step for step in workflow["jobs"]["validate"]["steps"] if step.get("uses") == "$/validate-python-distribution"
-    )
-    assert workflow["on"]["workflow_call"]["inputs"]["validation-group"]["default"] == "pkg-meta"
-    assert check["with"]["validation-group"] == "${{ inputs.validation-group }}"
+    assert any(step.get("uses") == "$/validate-python-distribution" for step in workflow["jobs"]["validate"]["steps"])
+    assert set(workflow["on"]["workflow_call"]["inputs"]) == {
+        "changelog",
+        "artifact-base-url",
+        "artifact-label",
+        "local-tool-source",
+        "source",
+        "artifact-prefix",
+    }
     assert set(workflow["jobs"]) == {"source-check", "validate"}
 
 

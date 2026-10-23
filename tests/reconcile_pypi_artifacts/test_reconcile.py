@@ -1,159 +1,147 @@
 from __future__ import annotations
 
-import json
-import os
-import shutil
-import subprocess
-import tomllib
+import hashlib
 from pathlib import Path
-from urllib.request import urlopen
+from textwrap import dedent
 
 import pytest
-import yaml
-from conftest import action, run
+from conftest import action
+from pytest_httpserver import HTTPServer
 
 
-def execute(script: Path, directory: Path, **settings: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", str(script)],
-        cwd=directory,
-        env=os.environ
-        | {"GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "reconcile-pypi-artifacts")}
-        | settings,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-
-@pytest.fixture
-def distribution(tmp_path: Path) -> Path:
-    dist = tmp_path / "dist"
-    dist.mkdir()
-    (dist / "codex_fixture_never_publish-999999-py3-none-any.whl").write_bytes(b"release fixture")
-    return dist
-
-
-def test_stage_selects_missing_artifact(distribution: Path, tmp_path: Path, action_scripts: Path) -> None:
-    source = Path(__file__).resolve().parents[2]
+@pytest.mark.parametrize(
+    ("project", "version", "distribution_exists"),
+    [
+        pytest.param("", "1.0", True, id="missing-project"),
+        pytest.param("fixture", "", True, id="missing-version"),
+        pytest.param("fixture", "1.0", False, id="missing-distribution"),
+    ],
+)
+def test_reconcile_rejects_invalid_inputs(
+    tmp_path: Path,
+    action_scripts: Path,
+    project: str,
+    version: str,
+    distribution_exists: bool,
+) -> None:
+    distribution = tmp_path / "dist"
+    if distribution_exists:
+        distribution.mkdir()
     result = action(
-        source,
+        Path(__file__).resolve().parents[2],
         tmp_path,
         action_scripts,
         "reconcile-pypi-artifacts",
-        version="999999",
-        PROJECT="codex-fixture-never-publish",
+        version=version,
+        PROJECT=project,
         DIST=str(distribution),
-        MODE="stage",
-        LOCK=str(source / "pylock.toml"),
-        PYTHON_VERSION="3.15",
-        LOCAL_TOOL_SOURCE="false",
-        TOOL_GROUP="release-notes",
-        MISSING_DIR=str(tmp_path / "missing"),
-    )
-    assert result.returncode == 0, result.stderr
-    assert (tmp_path / "output").read_text().splitlines() == [
-        "missing_count=1",
-        f"path={tmp_path}/pypi-missing-names.txt",
-    ]
-    assert (tmp_path / "missing" / next(distribution.iterdir()).name).read_bytes() == b"release fixture"
-    assert (tmp_path / "pypi-missing-names.txt").read_text() == f"{next(distribution.iterdir()).name}\n"
-
-
-@pytest.mark.parametrize("mode", ["invalid", "verify"])
-def test_invalid_input_fails_before_install(
-    distribution: Path, tmp_path: Path, action_scripts: Path, mode: str
-) -> None:
-    result = execute(
-        action_scripts / "reconcile-pypi-artifacts-0.sh",
-        tmp_path,
-        PROJECT="codex-fixture-never-publish",
-        VERSION="999999",
-        DIST=str(distribution if mode == "invalid" else tmp_path / "missing"),
-        MODE=mode,
     )
     assert result.returncode != 0
 
 
-def test_verify_checks_complete_pypi_release(tmp_path: Path, action_scripts: Path) -> None:
-    source = Path(__file__).resolve().parents[2]
-    install_reconcile(action_scripts, source, tmp_path)
-    with urlopen("https://pypi.org/pypi/release-creator/0.4.1/json", timeout=30) as response:
-        payload = json.load(response)
-    dist = tmp_path / "dist"
-    dist.mkdir()
-    for item in payload["urls"]:
-        with urlopen(item["url"], timeout=30) as response:
-            (dist / item["filename"]).write_bytes(response.read())
-    result = execute(
-        action_scripts / "reconcile-pypi-artifacts-5.sh",
-        tmp_path,
-        RUNNER_TEMP=str(tmp_path),
-        PROJECT="release-creator",
-        VERSION="0.4.1",
-        DIST=str(dist),
-        WAIT_SECONDS="0",
+@pytest.mark.parametrize(
+    ("remote_extra", "wrong_digest", "expected_error"),
+    [
+        pytest.param(False, False, "Provenance for file", id="matching-files-require-attestation"),
+        pytest.param(True, False, "PyPI has unexpected files", id="unexpected-remote-file"),
+        pytest.param(False, True, "PyPI has different SHA256 digests", id="digest-mismatch"),
+    ],
+)
+def test_reconcile_checks_complete_release_before_attestations(
+    tmp_path: Path,
+    action_scripts: Path,
+    httpserver: HTTPServer,
+    remote_extra: bool,
+    wrong_digest: bool,
+    expected_error: str,
+) -> None:
+    distribution = tmp_path / "dist"
+    distribution.mkdir()
+    wheel_name = "fixture-1.0-py3-none-any.whl"
+    wheel = distribution / wheel_name
+    wheel.write_bytes(b"wheel contents")
+    url = f"https://files.pythonhosted.org/packages/a/{wheel_name}"
+    sdist_name = "fixture-1.0.tar.gz"
+    sdist_url = f"https://files.pythonhosted.org/packages/b/{sdist_name}"
+    if not remote_extra and not wrong_digest:
+        (distribution / sdist_name).write_bytes(b"sdist contents")
+    files = [
+        {
+            "filename": wheel_name,
+            "url": url,
+            "hashes": {"sha256": "0" * 64 if wrong_digest else hashlib.sha256(wheel.read_bytes()).hexdigest()},
+            "yanked": False,
+        },
+    ]
+    if not wrong_digest:
+        files.append(
+            {
+                "filename": sdist_name,
+                "url": sdist_url,
+                "hashes": {
+                    "sha256": "1" * 64
+                    if remote_extra
+                    else hashlib.sha256((distribution / sdist_name).read_bytes()).hexdigest()
+                },
+                "yanked": False,
+            },
+        )
+    httpserver.expect_request("/simple/fixture/").respond_with_json({"meta": {"api-version": "1.0"}, "files": files})
+    if not remote_extra and not wrong_digest:
+        httpserver.expect_request(f"/packages/a/{wheel_name}").respond_with_data(wheel.read_bytes())
+        httpserver.expect_request(f"/integrity/fixture/1.0/{wheel_name}/provenance").respond_with_json(
+            {"message": "missing"}, status=404
+        )
+    python_path = tmp_path / "pythonpath"
+    python_path.mkdir()
+    (python_path / "sitecustomize.py").write_text(
+        dedent(
+            """
+            import os
+            from urllib.parse import urlsplit
+            import urllib.request
+
+            base = os.environ["TEST_PYPI_SERVER"]
+            original_open = urllib.request.urlopen
+
+            def route_open(request, *args, **kwargs):
+                parsed = urlsplit(request.full_url)
+                if parsed.hostname == "pypi.org":
+                    request = urllib.request.Request(f"{base}{parsed.path}", headers=dict(request.header_items()))
+                return original_open(request, *args, **kwargs)
+
+            urllib.request.urlopen = route_open
+
+            try:
+                import requests
+            except ImportError:
+                pass
+            else:
+                original_request = requests.Session.request
+
+                def route_request(self, method, url, *args, **kwargs):
+                    parsed = urlsplit(url)
+                    if parsed.hostname in {"pypi.org", "files.pythonhosted.org"}:
+                        url = f"{base}{parsed.path}"
+                    return original_request(self, method, url, *args, **kwargs)
+
+                requests.Session.request = route_request
+            """
+        ),
     )
-    assert result.returncode == 0, result.stderr
-
-
-def test_local_source_install_uses_checked_out_project(tmp_path: Path, action_scripts: Path) -> None:
-    source = Path(__file__).resolve().parents[2]
-    with (source / "pylock.toml").open("rb") as stream:
-        version = next(
-            item["version"] for item in tomllib.load(stream)["packages"] if item["name"] == "release-creator"
-        )
-    project = tmp_path / "release-creator"
-    run(tmp_path, "git", "clone", "--quiet", "https://github.com/tox-dev/release-creator", str(project))
-    run(project, "git", "checkout", "--quiet", version)
-    install_reconcile(action_scripts, project, tmp_path, local_source=True)
-    version = run(tmp_path, str(tmp_path / "pypi-reconcile/bin/release-creator"), "--help").stdout
-    assert "artifacts" in version
-    workflow = yaml.safe_load((source / ".github/workflows/prepare-towncrier-release.yaml").read_text())
-    for job in ("assemble", "validate"):
-        runner_temp = tmp_path / job
-        runner_temp.mkdir()
-        steps = workflow["jobs"][job]["steps"]
-        assert any(step.get("uses") == "$/install-locked-tools" for step in steps)
-        install_locked_tools(
-            action_scripts, project, runner_temp, project / ".venv", "release fix build project-runtime"
-        )
-        script = tmp_path / "prepare-install.sh"
-        script.write_text(next(step["run"] for step in steps if step.get("name") == "Install the tagged release tool"))
-        result = execute(script, project)
-        assert result.returncode == 0, result.stderr
-        assert "artifacts" in run(project, str(project / ".venv/bin/release-creator"), "--help").stdout
-        shutil.rmtree(project / ".venv")
-
-
-def install_reconcile(action_scripts: Path, repository: Path, tmp_path: Path, *, local_source: bool = False) -> None:
-    install_locked_tools(
+    result = action(
+        Path(__file__).resolve().parents[2],
+        tmp_path,
         action_scripts,
-        repository,
-        tmp_path,
-        tmp_path / "pypi-reconcile",
-        "release build project-runtime" if local_source else "release-notes",
+        "reconcile-pypi-artifacts",
+        version="1.0",
+        PROJECT="fixture",
+        DIST=str(distribution),
+        PYTHONPATH=str(python_path),
+        TEST_PYPI_SERVER=httpserver.url_for("").rstrip("/"),
+        NO_PROXY="localhost,127.0.0.1",
     )
-    if local_source:
-        result = execute(
-            action_scripts / "reconcile-pypi-artifacts-2.sh",
-            repository,
-            RUNNER_TEMP=str(tmp_path),
-        )
-        assert result.returncode == 0, result.stderr
-
-
-def install_locked_tools(action_scripts: Path, repository: Path, runner_temp: Path, venv: Path, groups: str) -> None:
-    source = Path(__file__).resolve().parents[2]
-    for index in range(3):
-        result = execute(
-            action_scripts / f"install-locked-tools-{index}.sh",
-            repository,
-            LOCK=str(repository / "pylock.toml"),
-            DEPENDENCY_GROUPS=groups,
-            PYTHON_VERSION="3.15",
-            RUNNER_TEMP=str(runner_temp),
-            VENV=str(venv),
-            GITHUB_ACTION_PATH=str(source / "install-locked-tools"),
-        )
-        assert result.returncode == 0, result.stderr
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+    if not remote_extra and not wrong_digest:
+        assert (tmp_path / "pypi-file-urls").read_text() == f"{url}\n{sdist_url}\n"

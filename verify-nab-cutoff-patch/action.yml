@@ -1,0 +1,8 @@
+name: Verify Nab cutoff patch
+description: Reject pyproject changes other than expired Nab package cutoffs
+runs:
+  using: composite
+  steps:
+    - name: Verify pyproject policy
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../tools/verify_cutoff_patch.py"

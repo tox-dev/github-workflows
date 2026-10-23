@@ -13,27 +13,9 @@ inputs:
   version:
     description: Explicit version for repositories with custom version selection
     default: ""
-  changelog:
-    description: Changelog path
-    required: true
-  fragments:
-    description: Towncrier fragment directory, relative to the repository root
-    default: changelog.d
-  format:
-    description: Changelog format, markdown, rst, or none
-    default: none
-  link-fragments:
-    description: Resolve named fragments and authors with release-creator
-    default: "true"
-  numbered-prs:
-    description: Treat numeric fragment names as original pull request numbers
-    default: "false"
-  patch:
-    description: Path for the generated Git patch
-    required: true
-  repository:
-    description: GitHub owner/repository used to resolve fragment authors
-    default: ""
+  phase:
+    description: Run the full preparation, changelog build, or finalization
+    default: all
 outputs:
   version:
     description: Resolved release version
@@ -41,21 +23,37 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Require a valid preparation phase
+      shell: bash
+      env:
+        PHASE: ${{ inputs.phase }}
+      run: |
+        case "$PHASE" in
+        all | build | finalize) ;;
+        *)
+          echo '::error::phase must be all, build, or finalize' >&2
+          exit 1
+          ;;
+        esac
     - name: Require a clean checkout
+      if: inputs.phase != 'finalize'
       shell: bash
       run: |
         if [[ -n $(git status --porcelain) ]]; then
           echo '::error::release preparation requires a clean checkout' >&2
           exit 1
         fi
+    - id: config
+      uses: $/read-towncrier-config
     - id: version
       name: Select release version
+      if: inputs.phase != 'finalize'
       shell: bash
       env:
         BUMP: ${{ inputs.bump }}
         TAG_PREFIX: ${{ inputs.tag-prefix }}
         VERSION: ${{ inputs.version }}
-        FRAGMENTS: ${{ inputs.fragments }}
+        FRAGMENTS: ${{ steps.config.outputs.fragments }}
       run: |
         set -euo pipefail
         if [[ -z "$VERSION" ]]; then
@@ -64,35 +62,23 @@ runs:
             args+=(--prefix "$TAG_PREFIX")
           fi
           VERSION=$(git tag --list | release-creator tags "${args[@]}")
+        else
+          git tag --list | release-creator tags --next auto --directory "$FRAGMENTS" >/dev/null
         fi
         git tag --list | release-creator tags "$VERSION" --require-newer
         printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
     - name: Link fragments and authors
+      if: inputs.phase != 'finalize'
       shell: bash
       env:
-        LINK_FRAGMENTS: ${{ inputs.link-fragments }}
-        NUMBERED_PRS: ${{ inputs.numbered-prs }}
-        FRAGMENTS: ${{ inputs.fragments }}
-        REPOSITORY: ${{ inputs.repository || github.repository }}
+        FRAGMENTS: ${{ steps.config.outputs.fragments }}
+        REPOSITORY: ${{ github.repository }}
         GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        if [[ "$LINK_FRAGMENTS" != true && "$LINK_FRAGMENTS" != false ]]; then
-          echo '::error::link-fragments must be true or false' >&2
-          exit 1
-        fi
-        if [[ "$NUMBERED_PRS" != true && "$NUMBERED_PRS" != false ]]; then
-          echo '::error::numbered-prs must be true or false' >&2
-          exit 1
-        fi
-        if [[ "$LINK_FRAGMENTS" == true ]]; then
-          args=(--directory "$FRAGMENTS" --repository "$REPOSITORY" --git --resolve-authors)
-          if [[ "$NUMBERED_PRS" == true ]]; then
-            args+=(--numbered-prs)
-          fi
-          release-creator fragments "${args[@]}"
-        fi
+        release-creator fragments --directory "$FRAGMENTS" --repository "$REPOSITORY"
     - name: Build changelog
+      if: inputs.phase != 'finalize'
       shell: bash
       env:
         VERSION: ${{ steps.version.outputs.version }}
@@ -108,41 +94,39 @@ runs:
         esac
         towncrier build --yes --version "$CHANGELOG_PREFIX${VERSION#v}"
     - name: Format changelog
+      if: inputs.phase != 'build'
       shell: bash
       env:
-        CHANGELOG: ${{ inputs.changelog }}
-        FORMAT: ${{ inputs.format }}
+        CHANGELOG: ${{ steps.config.outputs.changelog }}
+        FORMAT: ${{ steps.config.outputs.format }}
       run: |
         set -euo pipefail
         case "$FORMAT" in
         markdown) formatter=mdformat ;;
         rst) formatter=docstrfmt ;;
-        none) formatter="" ;;
         *)
-          echo '::error::format must be markdown, rst, or none' >&2
+          echo '::error::unsupported changelog format' >&2
           exit 1
           ;;
         esac
-        if [[ -n "$formatter" ]] && ! prek run "$formatter" --files "$CHANGELOG"; then
+        if ! prek run "$formatter" --files "$CHANGELOG"; then
           prek run "$formatter" --files "$CHANGELOG"
         fi
     - name: Check rendered release notes
+      if: inputs.phase != 'build'
       shell: bash
       env:
-        VERSION: ${{ steps.version.outputs.version }}
-        CHANGELOG: ${{ inputs.changelog }}
-        REPOSITORY: ${{ inputs.repository || github.repository }}
+        VERSION: ${{ inputs.version || steps.version.outputs.version }}
+        CHANGELOG: ${{ steps.config.outputs.changelog }}
+        REPOSITORY: ${{ github.repository }}
       run: |
         set -euo pipefail
-        notes=$(release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$REPOSITORY")
-        if [[ "$notes" != *'### '* ]]; then
-          echo '::error::release preparation has no release notes' >&2
-          exit 1
-        fi
+        release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$REPOSITORY" >/dev/null
     - name: Check generated files
+      if: inputs.phase != 'build'
       shell: bash
       env:
-        CHANGELOG: ${{ inputs.changelog }}
+        CHANGELOG: ${{ steps.config.outputs.changelog }}
       run: |
         if [[ -f "$CHANGELOG" ]] && ! git ls-files --error-unmatch "$CHANGELOG" >/dev/null 2>&1; then
           git add -N -- "$CHANGELOG"
@@ -152,14 +136,13 @@ runs:
           exit 1
         fi
     - name: Write release patch
+      if: inputs.phase != 'build'
       shell: bash
-      env:
-        PATCH: ${{ inputs.patch }}
       run: |
         set -euo pipefail
         git diff --check
-        git diff HEAD --binary >"$PATCH"
-        if [[ ! -s "$PATCH" ]]; then
+        git diff HEAD --binary >"$RUNNER_TEMP/release.patch"
+        if [[ ! -s "$RUNNER_TEMP/release.patch" ]]; then
           echo '::error::release preparation produced no patch' >&2
           exit 1
         fi

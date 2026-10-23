@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import tomllib
@@ -8,15 +7,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-import yaml
+from conftest import action
 
 
 @pytest.mark.parametrize(
     ("groups", "module"),
     [
-        pytest.param("release", "yaml", id="release"),
-        pytest.param("release test", "pytest", id="multiple-groups"),
-        pytest.param("release\ntest", "pytest", id="multiline-groups"),
+        pytest.param("release-news", "yaml", id="release-news"),
+        pytest.param("release-check release-notes", "release_creator", id="multiple-groups"),
+        pytest.param("release-check\nrelease-notes", "release_creator", id="multiline-groups"),
     ],
 )
 def test_install_locked_tools_installs_groups(tmp_path: Path, action_scripts: Path, groups: str, module: str) -> None:
@@ -26,7 +25,6 @@ def test_install_locked_tools_installs_groups(tmp_path: Path, action_scripts: Pa
         source,
         action_scripts,
         tmp_path,
-        lock=source / "pylock.toml",
         groups=groups,
         venv=environment,
     )
@@ -47,7 +45,8 @@ def test_install_locked_tools_installs_groups(tmp_path: Path, action_scripts: Pa
         pytest.param("release-news", "towncrier", "prek", id="pr-news"),
         pytest.param("release-validate", "release-creator", "towncrier", id="patch-validation"),
         pytest.param("release-shell", "yq", "release-creator", id="inline-shell"),
-        pytest.param("release-hooks", "towncrier", "twine", id="action-tests"),
+        pytest.param("release-hooks", "release-creator", "towncrier", id="action-tests"),
+        pytest.param("release-hook-check", "yq", "towncrier", id="hook-cooldown"),
     ],
 )
 def test_install_locked_tools_selects_job_tools(
@@ -58,7 +57,6 @@ def test_install_locked_tools_selects_job_tools(
         source,
         action_scripts,
         tmp_path,
-        lock=source / "pylock.toml",
         groups=group,
         venv=tmp_path / "tools",
     )
@@ -69,27 +67,27 @@ def test_install_locked_tools_selects_job_tools(
 
 def test_backend_constraints_match_shared_lock(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    executable = shutil.which("release-creator")
-    assert executable is not None
     generated = subprocess.run(
         [
-            executable,
-            "build-constraints",
-            "--lock",
-            str(source / "pylock.toml"),
-            "--group",
-            "build",
-            "--python-version",
-            "3.15",
-            "--output",
+            "uv",
+            "run",
+            "--no-project",
+            "--with",
+            "packaging>=26.1",
+            "python",
+            str(source / "tools/build_constraints.py"),
             str(tmp_path / "constraints.txt"),
+            str(source / "pylock.toml"),
         ],
         text=True,
         capture_output=True,
         check=False,
     )
     assert generated.returncode == 0, generated.stderr
-    assert (tmp_path / "constraints.txt").read_bytes() == (source / "release-build-constraints.txt").read_bytes()
+    constraints = (tmp_path / "constraints.txt").read_text()
+    assert "cython==" in constraints
+    assert "setuptools==" in constraints
+    assert "--hash=sha256:" in constraints
 
 
 def test_install_locked_tools_rejects_exporter_hash_mismatch(tmp_path: Path, action_scripts: Path) -> None:
@@ -97,14 +95,13 @@ def test_install_locked_tools_rejects_exporter_hash_mismatch(tmp_path: Path, act
     action_root = tmp_path / "action"
     action_root.mkdir()
     lock = (source / "pylock.toml").read_text()
-    package = next(package for package in tomllib.loads(lock)["packages"] if package["name"] == "release-creator")
+    package = next(package for package in tomllib.loads(lock)["packages"] if package["name"] == "nab")
     (tmp_path / "pylock.toml").write_text(lock.replace(package["wheels"][0]["hashes"]["sha256"], "0" * 64, 1))
     result = install(
         source,
         action_scripts,
         tmp_path,
-        lock=source / "pylock.toml",
-        groups="release",
+        groups="release-notes",
         venv=tmp_path / "tools",
         action_root=action_root,
         extra_env={"UV_CACHE_DIR": str(tmp_path / "cache")},
@@ -119,7 +116,6 @@ def test_install_locked_tools_rejects_empty_groups(tmp_path: Path, action_script
         source,
         action_scripts,
         tmp_path,
-        lock=source / "pylock.toml",
         groups="",
         venv=tmp_path / "tools",
     )
@@ -133,10 +129,10 @@ def test_install_locked_tools_rejects_missing_group(tmp_path: Path, action_scrip
         source,
         action_scripts,
         tmp_path,
-        lock=source / "pylock.toml",
         groups="relesae",
         venv=tmp_path / "tools",
     )
+    assert result.returncode != 0
     assert "missing lock dependency groups: relesae" in result.stderr
 
 
@@ -147,7 +143,6 @@ def test_install_locked_tools_reuses_exporter(tmp_path: Path, action_scripts: Pa
             source,
             action_scripts,
             tmp_path,
-            lock=source / "pylock.toml",
             groups="release-notes",
             venv=tmp_path / target,
         )
@@ -167,7 +162,6 @@ def test_install_locked_tools_uses_managed_python(tmp_path: Path, action_scripts
         source,
         action_scripts,
         tmp_path,
-        lock=source / "pylock.toml",
         groups="release-check",
         venv=tmp_path / "tools",
         extra_env={"PATH": str(tools)},
@@ -182,13 +176,12 @@ def test_install_locked_tools_exporter_does_not_build_pyyaml(tmp_path: Path, act
         source,
         action_scripts,
         tmp_path,
-        lock=source / "pylock.toml",
         groups="release-notes",
         venv=tmp_path / "tools",
     )
     assert result.returncode == 0, result.stderr
     imported = subprocess.run(
-        [str(tmp_path / "lock-exporter/bin/python"), "-c", "import yaml"],
+        [str(tmp_path / "lock-tools/bin/python"), "-c", "import yaml"],
         text=True,
         capture_output=True,
         check=False,
@@ -196,34 +189,52 @@ def test_install_locked_tools_exporter_does_not_build_pyyaml(tmp_path: Path, act
     assert "No module named 'yaml'" in imported.stderr
 
 
-def test_install_locked_tools_accepts_tool_only_lock(tmp_path: Path, action_scripts: Path) -> None:
-    source = Path(__file__).resolve().parents[2]
-    lock = tmp_path / "pylock.tool-only.toml"
-    lock.write_text((source / "pylock.toml").read_text().replace('    "build",\n', "", 1))
-    result = install(source, action_scripts, tmp_path, lock=lock, groups="release-notes", venv=tmp_path / "tools")
-    assert result.returncode == 0, result.stderr
-    assert (tmp_path / "tools/bin/release-creator").is_file()
-
-
 def test_install_locked_tools_merges_shared_and_caller_build_constraints(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    action_root = tmp_path / "action"
-    action_root.mkdir()
     (tmp_path / "pylock.toml").write_bytes((source / "pylock.toml").read_bytes())
-    (tmp_path / "release-build-constraints.txt").write_text(
-        (source / "release-build-constraints.txt").read_text() + f"probe-only==1.0 --hash=sha256:{'0' * 64}\n"
+    (tmp_path / "pylock.toml").write_text(
+        (tmp_path / "pylock.toml").read_text()
+        + """
+[[packages]]
+name = "probe-only"
+version = "1.0"
+marker = '\"build\" in dependency_groups'
+index = "https://pypi.org/simple/"
+[[packages.wheels]]
+name = "probe_only-1.0-py3-none-any.whl"
+url = "https://files.pythonhosted.org/probe_only-1.0-py3-none-any.whl"
+hashes.sha256 = """
+        + f'"{"0" * 64}"\n',
     )
     result = install(
-        source,
+        tmp_path,
         action_scripts,
         tmp_path,
-        lock=source / "pylock.toml",
         groups="release-notes",
         venv=tmp_path / "tools",
-        action_root=action_root,
     )
     assert result.returncode == 0, result.stderr
     assert "probe-only==1.0 " in (tmp_path / "caller-build-constraints.txt").read_text()
+
+
+def test_install_locked_tools_accepts_lock_without_build_group(tmp_path: Path, action_scripts: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "tool-only"\nversion = "0.1.0"\nrequires-python = ">=3.15"\n'
+        '[dependency-groups]\nrelease-check = ["prek>=0.2"]\n'
+        '[tool.nab]\nbase-group = "project-runtime"\ndefault-groups = []\n',
+    )
+    generated = subprocess.run(
+        ["uvx", "--from", "nab==0.0.22", "nab", "lock", "--groups", "release-check", "--output", "pylock.toml"],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert generated.returncode == 0, generated.stderr
+    assert "build" not in tomllib.loads((tmp_path / "pylock.toml").read_text())["dependency-groups"]
+    result = install(tmp_path, action_scripts, tmp_path, groups="release-check", venv=tmp_path / "tools")
+    assert result.returncode == 0, result.stderr
+    assert "setuptools==" in (tmp_path / "caller-build-constraints.txt").read_text()
 
 
 def test_install_locked_tools_ignores_resolution_cutoff_for_hashed_lock(tmp_path: Path, action_scripts: Path) -> None:
@@ -232,25 +243,52 @@ def test_install_locked_tools_ignores_resolution_cutoff_for_hashed_lock(tmp_path
         source,
         action_scripts,
         tmp_path,
-        lock=source / "pylock.toml",
-        groups="release",
+        groups="release-notes",
         venv=tmp_path / "tools",
         extra_env={"UV_EXCLUDE_NEWER": "1970-01-01T00:00:00Z"},
     )
     assert result.returncode == 0, result.stderr
+    locked_version = next(
+        package["version"]
+        for package in tomllib.loads((source / "pylock.toml").read_text())["packages"]
+        if package["name"] == "release-creator"
+    )
+    installed_version = subprocess.run(
+        [
+            str(tmp_path / "tools/bin/python"),
+            "-c",
+            "from importlib.metadata import version; print(version('release-creator'))",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    assert installed_version == locked_version
+
+
+def test_shared_lock_records_upload_times() -> None:
+    packages = tomllib.loads((Path(__file__).resolve().parents[2] / "pylock.toml").read_text())["packages"]
+    missing = {
+        package["name"]
+        for package in packages
+        if not any("upload-time" in artifact for artifact in [package.get("sdist", {}), *package.get("wheels", [])])
+    }
+    assert not missing, f"packages without upload times: {sorted(missing)}"
 
 
 def test_shared_lock_respects_seven_day_cutoff() -> None:
     source = Path(__file__).resolve().parents[2]
-    cutoff = datetime.now(UTC) - timedelta(days=7)
-    workflow = yaml.safe_load((source / ".github/workflows/update-tools.yaml").read_text())
+    policy = tomllib.loads((source / "pyproject.toml").read_text())["tool"]["nab"]
     floors = {
-        name: datetime.fromisoformat(value)
-        for name, value in (
-            line.split("=", 1) for line in workflow["jobs"]["update"]["with"]["exclude-newer-packages"].splitlines()
-        )
+        name: datetime.fromisoformat(settings["uploaded-prior-to"])
+        for name, settings in policy.get("packages", {}).items()
+        if "uploaded-prior-to" in settings
     }
-    packages = tomllib.loads((source / "pylock.toml").read_text())["packages"]
+    for rule in policy.get("package-rules", []):
+        floors.update(dict.fromkeys(rule["match"], datetime.fromisoformat(rule["uploaded-prior-to"])))
+    lock = tomllib.loads((source / "pylock.toml").read_text())
+    cutoff = datetime.now(UTC) - timedelta(days=7)
+    packages = lock["packages"]
     younger = {
         package["name"]
         for package in packages
@@ -261,9 +299,9 @@ def test_shared_lock_respects_seven_day_cutoff() -> None:
                 if "upload-time" in artifact
             ]
         )
-        and max(times) > max(cutoff, floors.get(package["name"], cutoff))
+        and max(times) > floors.get(package["name"], cutoff)
     }
-    assert younger == set()
+    assert not younger, f"packages newer than the seven-day cutoff: {sorted(younger)}"
 
 
 def install(
@@ -271,34 +309,19 @@ def install(
     action_scripts: Path,
     tmp_path: Path,
     *,
-    lock: Path,
     groups: str,
     venv: Path,
     action_root: Path | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    source = Path(__file__).resolve().parents[2]
-    environment = (
-        os.environ
-        | {
-            "LOCK": str(lock),
-            "DEPENDENCY_GROUPS": groups,
-            "PYTHON_VERSION": "3.15",
-            "VENV": str(venv),
-            "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_ACTION_PATH": str(action_root or source / "install-locked-tools"),
-        }
-        | (extra_env or {})
+    return action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "install-locked-tools",
+        version="",
+        GROUPS=groups,
+        VENV=str(venv),
+        **({"GITHUB_ACTION_PATH": str(action_root)} if action_root is not None else {}),
+        **(extra_env or {}),
     )
-    for index in range(3):
-        result = subprocess.run(
-            ["bash", str(action_scripts / f"install-locked-tools-{index}.sh")],
-            cwd=repository,
-            env=environment,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode:
-            return result
-    return result

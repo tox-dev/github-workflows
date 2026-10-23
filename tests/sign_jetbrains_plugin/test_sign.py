@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import os
 import shutil
 import subprocess
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
+from conftest import action
 
 
 @pytest.mark.parametrize(
@@ -55,33 +55,27 @@ def test_signs_and_verifies_exact_archive(
     if credential_format == "base64":
         key_text = base64.b64encode(key_text.encode()).decode()
         chain_text = base64.b64encode(chain_text.encode()).decode()
-    output = tmp_path / "output"
-    output.touch()
     java = shutil.which("java")
     assert java is not None
-    settings = {
-        "ARCHIVE": str(unsigned_archive),
-        "EXPECTED_SHA": hashlib.sha256(unsigned_archive.read_bytes()).hexdigest(),
-        "GITHUB_OUTPUT": str(output),
-        "RUNNER_TEMP": str(tmp_path),
-        "JAVA_HOME_17_X64": str(Path(java).resolve().parents[1]),
-        "SIGNER_BASE_URL": "https://repo.maven.apache.org/maven2/org/jetbrains/marketplace-zip-signer/0.1.43",
-        "SIGNER_SHA256": "2958a0f42221d6062b50f22754e413ae5cc42f60c441467202c6700df2e22f44",
-        "CERTIFICATE_CHAIN": chain_text,
-        "PRIVATE_KEY": key_text,
-        "PRIVATE_KEY_PASSWORD": password,
-    }
-    for index in range(4):
-        assert run_step(action_scripts, index, tmp_path, **settings).returncode == 0
-    settings["SIGNED"] = output.read_text().split("archive=", 1)[1].splitlines()[0]
-    assert run_step(action_scripts, 4, tmp_path, **settings).returncode == 0
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "sign-jetbrains-plugin",
+        version="",
+        ARCHIVE=str(unsigned_archive),
+        SHA256=hashlib.sha256(unsigned_archive.read_bytes()).hexdigest(),
+        JAVA_HOME_17_X64=str(Path(java).resolve().parents[1]),
+        CERTIFICATE_CHAIN=chain_text,
+        PRIVATE_KEY=key_text,
+        PRIVATE_KEY_PASSWORD=password,
+    )
+    assert result.returncode == 0, result.stderr
     assert not (tmp_path / "signing-key.pem").exists()
     assert not (tmp_path / "signing-key-decrypted.pem").exists()
     assert not (tmp_path / "signing-chain.pem").exists()
-    output.write_text("")
-    assert run_step(action_scripts, 5, tmp_path, **settings).returncode == 0
-    signed = Path(settings["SIGNED"])
-    assert dict(line.split("=", 1) for line in output.read_text().splitlines()) == {
+    signed = unsigned_archive.with_name("Plugin 2-1.0-signed.zip")
+    assert dict(line.split("=", 1) for line in (tmp_path / "output").read_text().splitlines()) == {
         "archive": str(signed),
         "sha256": hashlib.sha256(signed.read_bytes()).hexdigest(),
     }
@@ -120,34 +114,33 @@ def test_rejects_invalid_unsigned_archive(
         archive = tmp_path / "linked.zip"
         archive.symlink_to(unsigned_archive)
     assert (
-        run_step(
-            action_scripts,
-            0,
+        action(
             tmp_path,
+            tmp_path,
+            action_scripts,
+            "sign-jetbrains-plugin",
+            version="",
             ARCHIVE=str(archive),
-            EXPECTED_SHA="0" * 64 if invalid == "digest" else hashlib.sha256(archive.read_bytes()).hexdigest(),
-            GITHUB_OUTPUT=str(tmp_path / "output"),
+            SHA256="0" * 64 if invalid == "digest" else hashlib.sha256(archive.read_bytes()).hexdigest(),
         ).returncode
         != 0
     )
 
 
-def test_rejects_changed_signer_jar(action_scripts: Path, tmp_path: Path) -> None:
-    (tmp_path / "marketplace-signer-cli.jar").write_bytes(b"not the signer")
+def test_rejects_missing_java(action_scripts: Path, unsigned_archive: Path, tmp_path: Path) -> None:
     assert (
-        run_step(
-            action_scripts,
-            2,
+        action(
             tmp_path,
-            RUNNER_TEMP=str(tmp_path),
-            SIGNER_SHA256="2958a0f42221d6062b50f22754e413ae5cc42f60c441467202c6700df2e22f44",
+            tmp_path,
+            action_scripts,
+            "sign-jetbrains-plugin",
+            version="",
+            ARCHIVE=str(unsigned_archive),
+            SHA256=hashlib.sha256(unsigned_archive.read_bytes()).hexdigest(),
+            JAVA_HOME_17_X64=str(tmp_path / "missing"),
         ).returncode
         != 0
     )
-
-
-def test_rejects_missing_java(action_scripts: Path, tmp_path: Path) -> None:
-    assert run_step(action_scripts, 3, tmp_path, JAVA_HOME_17_X64=str(tmp_path / "missing")).returncode != 0
 
 
 @pytest.mark.parametrize("existing", [pytest.param("file", id="file"), pytest.param("symlink", id="symlink")])
@@ -159,7 +152,16 @@ def test_rejects_existing_signed_archive(
         signed.symlink_to(unsigned_archive)
     else:
         signed.write_bytes(b"existing")
-    result = run_step(action_scripts, 4, tmp_path, SIGNED=str(signed), RUNNER_TEMP=str(tmp_path))
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "sign-jetbrains-plugin",
+        version="",
+        ARCHIVE=str(unsigned_archive),
+        SHA256=hashlib.sha256(unsigned_archive.read_bytes()).hexdigest(),
+    )
+    assert result.returncode != 0
     assert "signed archive already exists" in result.stderr
 
 
@@ -197,14 +199,3 @@ def certificate(tmp_path: Path) -> tuple[Path, Path]:
         text=True,
     )
     return private_key, chain
-
-
-def run_step(action_scripts: Path, index: int, directory: Path, **settings: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", str(action_scripts / f"sign-jetbrains-plugin-{index}.sh")],
-        cwd=directory,
-        env=os.environ | settings,
-        text=True,
-        capture_output=True,
-        check=False,
-    )

@@ -1,234 +1,173 @@
 name: Refresh a release-tool lock
-description: Compile and check a local release-tool lock without GitHub writes
+description: Refresh or check the Nab lock for selected release groups
 inputs:
-  lock:
-    description: Path to the checked-in full project pylock file
-    default: pylock.toml
-  python-version:
-    description: Python version used to run the exporter and release tools
-    default: "3.15"
-  check-group:
-    description: Dependency group containing prek
-    default: release
-  keep-uv-lock:
-    description: Also refresh a checked-in uv.lock for projects that use it for their build
-    default: "false"
-  build-constraints:
-    description: Optional generated backend constraints path kept with this repository's lock
+  lock-groups:
+    description: Space-separated dependency groups recorded in pylock.toml
+    required: true
+  additional-lock:
+    description: Optional secondary pylock basename for a separate build matrix
     default: ""
-  build-requirements:
-    description: Additional build requirements, one per line
+  additional-lock-groups:
+    description: Groups for the secondary lock; empty selects build requirements
     default: ""
-  hook-config:
-    description: Pre-commit configuration path to protect from generated-file overwrite
-    default: .pre-commit-config.yaml
-  exclude-newer-packages:
-    description: Reviewed package=UTC minimum cutoffs; each expires when the seven-day cutoff passes it
+  additional-matrix-python:
+    description: Python range for the secondary lock
     default: ""
+  additional-matrix-platforms:
+    description: Space-separated Nab platform IDs for the secondary lock
+    default: ""
+  additional-matrix-implementations:
+    description: Space-separated Python implementations for the secondary lock
+    default: ""
+  mode:
+    description: Refresh the lock or check that the committed lock is current
+    default: refresh
 outputs:
   changed:
-    description: Whether the lock differs from the checkout
+    description: Whether the lock or expired package cutoffs differ from the checkout
     value: ${{ steps.lock.outputs.changed }}
 runs:
   using: composite
   steps:
-    - name: Install lock exporter
+    - name: Install locked Nab
       shell: bash
-      env:
-        PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
         set -euo pipefail
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
-        uv venv --allow-existing --python "$PYTHON_VERSION" "$RUNNER_TEMP/lock-exporter"
-        uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
-          --python "$RUNNER_TEMP/lock-exporter" --group release-notes \
-          --build-constraints "$GITHUB_ACTION_PATH/../release-build-constraints.txt" --require-build-hashes \
-          "$GITHUB_ACTION_PATH/../pylock.toml"
-    - id: cutoff
-      name: Set dependency age cutoff
+        uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/lock-tools"
+        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/lock-tools" --group lock-tools \
+          --only-binary :all: --require-hashes "$GITHUB_ACTION_PATH/../pylock.toml"
+    - name: Expire reviewed package cutoffs
       shell: bash
-      run: |
-        timestamp=$(
-          uv run --no-project --python 3.15 python - <<'PY'
-        from datetime import UTC, datetime, timedelta
-
-        print((datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ"))
-        PY
-        )
-        echo "timestamp=$timestamp" >>"$GITHUB_OUTPUT"
-    - id: exceptions
-      name: Select active package cutoffs
-      shell: bash
-      env:
-        EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
-        CUTOFF: ${{ steps.cutoff.outputs.timestamp }}
       run: |
         set -euo pipefail
-        now=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-        : >"$RUNNER_TEMP/active-package-cutoffs"
-        while IFS= read -r entry; do
-          if [[ -z "$entry" ]]; then
-            continue
-          fi
-          package=${entry%%=*}
-          timestamp=${entry#*=}
-          case "$package" in
-          '' | *[!a-zA-Z0-9._-]*)
-            echo "::error::invalid package cutoff: $entry" >&2
-            exit 1
-            ;;
-          esac
-          case "$timestamp" in
-          ????-??-??T??:??:??Z) ;;
-          *)
-            echo "::error::invalid package cutoff: $entry" >&2
-            exit 1
-            ;;
-          esac
-          if [[ "$timestamp" > "$now" ]] || ! uv run --no-project --python 3.15 \
-            python - "$timestamp" <<'PY'
-        import datetime
-        import sys
-
-        datetime.datetime.strptime(sys.argv[1], "%Y-%m-%dT%H:%M:%SZ")
-        PY
-          then
-            echo "::error::invalid package cutoff: $entry" >&2
-            exit 1
-          fi
-          if [[ "$timestamp" > "$CUTOFF" ]]; then
-            printf '%s\n' "$entry" >>"$RUNNER_TEMP/active-package-cutoffs"
-          fi
-        done <<<"$EXCLUDE_NEWER_PACKAGES"
-        echo "path=$RUNNER_TEMP/active-package-cutoffs" >>"$GITHUB_OUTPUT"
-    - name: Refresh full project lock
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
+          "$GITHUB_ACTION_PATH/../tools/expire_cutoffs.py" pyproject.toml
+        cp pyproject.toml "$RUNNER_TEMP/project-after-expiry.toml"
+    - name: Resolve release groups
       shell: bash
       env:
-        LOCK: ${{ inputs.lock }}
-        PYTHON_VERSION: ${{ inputs.python-version }}
-        UV_EXCLUDE_NEWER: ${{ steps.cutoff.outputs.timestamp }}
-        ACTIVE_PACKAGE_CUTOFFS: ${{ steps.exceptions.outputs.path }}
-        BUILD_REQUIREMENTS: ${{ inputs.build-requirements }}
+        LOCK_GROUPS: ${{ inputs.lock-groups }}
+        MODE: ${{ inputs.mode }}
+        ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
+        ADDITIONAL_GROUPS: ${{ inputs.additional-lock-groups }}
+        MATRIX_PYTHON: ${{ inputs.additional-matrix-python }}
+        MATRIX_PLATFORMS: ${{ inputs.additional-matrix-platforms }}
+        MATRIX_IMPLEMENTATIONS: ${{ inputs.additional-matrix-implementations }}
       run: |
         set -euo pipefail
-        exceptions=()
-        while IFS= read -r entry; do
-          if [[ -z "$entry" ]]; then
-            continue
-          fi
-          exceptions+=(--exclude-newer-package "$entry")
-        done <"$ACTIVE_PACKAGE_CUTOFFS"
-        requirements=()
-        while IFS= read -r requirement; do
-          if [[ -n "$requirement" ]]; then
-            requirements+=(--build-requirement "$requirement")
-          fi
-        done <<<"$BUILD_REQUIREMENTS"
-        uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator locks --output "$LOCK" \
-          --tool-python ">=$PYTHON_VERSION" "${requirements[@]}" "${exceptions[@]}"
-    - name: Refresh uv lock
-      if: inputs.keep-uv-lock == 'true'
-      shell: bash
-      env:
-        UV_EXCLUDE_NEWER: ${{ steps.cutoff.outputs.timestamp }}
-        ACTIVE_PACKAGE_CUTOFFS: ${{ steps.exceptions.outputs.path }}
-      run: |
-        set -euo pipefail
-        exceptions=()
-        while IFS= read -r entry; do
-          if [[ -z "$entry" ]]; then
-            continue
-          fi
-          exceptions+=(--exclude-newer-package "$entry")
-        done <"$ACTIVE_PACKAGE_CUTOFFS"
-        uv lock --upgrade "${exceptions[@]}"
-    - name: Refresh backend constraints
-      if: inputs.build-constraints != ''
-      shell: bash
-      env:
-        LOCK: ${{ inputs.lock }}
-        BUILD_CONSTRAINTS: ${{ inputs.build-constraints }}
-        HOOK_CONFIG: ${{ inputs.hook-config }}
-        PYTHON_VERSION: ${{ inputs.python-version }}
-      run: |
-        set -euo pipefail
-        case "$BUILD_CONSTRAINTS" in
-        /* | . | .. | ./* | */./* | */. | ../* | */../* | */.. | .git/* | */.git/* | *[!a-zA-Z0-9_./-]*)
-          echo "::error::invalid backend constraints path: $BUILD_CONSTRAINTS" >&2
-          exit 1
-          ;;
-        esac
-        case "${BUILD_CONSTRAINTS##*/}" in
-        *build-constraints.txt) ;;
-        *)
-          echo "::error::backend constraints filename must end in build-constraints.txt" >&2
-          exit 1
-          ;;
-        esac
-        if [[ "$BUILD_CONSTRAINTS" == "$LOCK" || "$BUILD_CONSTRAINTS" == "$HOOK_CONFIG" ||
-          "$BUILD_CONSTRAINTS" == pyproject.toml || "$BUILD_CONSTRAINTS" == uv.lock ||
-          "$BUILD_CONSTRAINTS" == pylock.toml ]]; then
-          echo "::error::backend constraints path collides with a project file: $BUILD_CONSTRAINTS" >&2
+        groups=()
+        while IFS= read -r line; do
+          read -ra selected <<<"$line"
+          groups+=("${selected[@]}")
+        done <<<"$LOCK_GROUPS"
+        if ((${#groups[@]} == 0)); then
+          echo '::error::at least one lock group is required' >&2
           exit 1
         fi
-        prefix=.
-        IFS=/ read -ra parts <<<"$BUILD_CONSTRAINTS"
-        for part in "${parts[@]}"; do
-          prefix="$prefix/$part"
-          if [[ -L "$prefix" ]]; then
-            echo "::error::backend constraints path contains a symlink: $BUILD_CONSTRAINTS" >&2
+        case "$MODE" in
+        check)
+          refresh=()
+          cp pylock.toml "$RUNNER_TEMP/pylock-before-check.toml"
+          ;;
+        refresh) refresh=(--upgrade) ;;
+        *)
+          echo "::error::invalid lock mode: $MODE" >&2
+          exit 1
+          ;;
+        esac
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --groups "${groups[@]}" \
+          --output pylock.toml "${refresh[@]}"
+        if [[ "$MODE" == check ]]; then
+          python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" \
+            "$RUNNER_TEMP/pylock-before-check.toml" pylock.toml
+        fi
+        if [[ -z "$ADDITIONAL_LOCK" ]]; then
+          if [[ -n "$ADDITIONAL_GROUPS$MATRIX_PYTHON$MATRIX_PLATFORMS$MATRIX_IMPLEMENTATIONS" ]]; then
+            echo '::error::secondary matrix inputs require additional-lock' >&2
             exit 1
           fi
-        done
-        uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator \
-          build-constraints --lock "$LOCK" --group build \
-          --python-version "$PYTHON_VERSION" --output "$BUILD_CONSTRAINTS"
-    - name: Install refreshed release tools
+          exit 0
+        fi
+        if [[ "$ADDITIONAL_LOCK" != pylock.*.toml || "$ADDITIONAL_LOCK" == */* ||
+          ! -f "$ADDITIONAL_LOCK" || -z "$MATRIX_PYTHON" ||
+          -z "$MATRIX_PLATFORMS" || -z "$MATRIX_IMPLEMENTATIONS" ]]; then
+          echo '::error::additional-lock needs an existing pylock.*.toml and a complete matrix' >&2
+          exit 1
+        fi
+        platforms=()
+        implementations=()
+        selected_groups=()
+        while IFS= read -r line; do
+          read -ra words <<<"$line"
+          platforms+=("${words[@]}")
+        done <<<"$MATRIX_PLATFORMS"
+        while IFS= read -r line; do
+          read -ra words <<<"$line"
+          implementations+=("${words[@]}")
+        done <<<"$MATRIX_IMPLEMENTATIONS"
+        while IFS= read -r line; do
+          read -ra words <<<"$line"
+          selected_groups+=("${words[@]}")
+        done <<<"$ADDITIONAL_GROUPS"
+        if ((${#platforms[@]} == 0 || ${#implementations[@]} == 0)); then
+          echo '::error::secondary matrix needs platforms and implementations' >&2
+          exit 1
+        fi
+        selection=(--build-requirements)
+        if ((${#selected_groups[@]})); then selection=(--groups "${selected_groups[@]}"); fi
+        cp "$ADDITIONAL_LOCK" "$RUNNER_TEMP/additional-lock-before.toml"
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock pyproject.toml "${selection[@]}" \
+          --project-matrix-python "$MATRIX_PYTHON" \
+          --project-matrix-platforms "${platforms[@]}" \
+          --project-matrix-implementations "${implementations[@]}" \
+          --output "$ADDITIONAL_LOCK" "${refresh[@]}"
+        python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" --environments-only \
+          "$RUNNER_TEMP/additional-lock-before.toml" "$ADDITIONAL_LOCK"
+        if [[ "$MODE" == check ]]; then
+          python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" \
+            "$RUNNER_TEMP/additional-lock-before.toml" "$ADDITIONAL_LOCK"
+        fi
+    - name: Install refreshed release checks
+      if: inputs.mode == 'refresh'
       uses: $/install-locked-tools
       with:
-        lock: ${{ inputs.lock }}
-        groups: ${{ inputs.check-group }}
-        python-version: ${{ inputs.python-version }}
+        groups: release-check
         venv: ${{ runner.temp }}/release-tools
     - name: Run repository checks
+      if: inputs.mode == 'refresh'
       shell: bash
       run: uv run --no-project --python "$RUNNER_TEMP/release-tools" prek run --all-files
-    - name: Check refreshed lock paths
+    - name: Check refreshed paths
       shell: bash
       env:
-        LOCK: ${{ inputs.lock }}
-        KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
-        BUILD_CONSTRAINTS: ${{ inputs.build-constraints }}
+        ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
       run: |
         set -euo pipefail
+        cmp pyproject.toml "$RUNNER_TEMP/project-after-expiry.toml"
         while IFS= read -r entry; do
           path=${entry:3}
-          if [[ "$path" != "$LOCK" && "$path" != "$BUILD_CONSTRAINTS" ]] &&
-            [[ "$KEEP_UV_LOCK" != true || "$path" != uv.lock ]]; then
-            echo "::error::prek changed file outside the lock file: $path" >&2
+          if [[ "$path" != pylock.toml && "$path" != pyproject.toml && "$path" != "${ADDITIONAL_LOCK:-}" ]]; then
+            echo "::error::prek changed file outside the lock and cutoff policy: $path" >&2
             exit 1
           fi
         done < <(git status --porcelain=v1 --untracked-files=all)
     - id: lock
       shell: bash
       env:
-        LOCK: ${{ inputs.lock }}
-        KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
-        BUILD_CONSTRAINTS: ${{ inputs.build-constraints }}
+        MODE: ${{ inputs.mode }}
+        ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
       run: |
         set -euo pipefail
-        paths=("$LOCK")
-        if [[ "$KEEP_UV_LOCK" == true ]]; then
-          paths+=(uv.lock)
-        fi
-        if [[ -n "$BUILD_CONSTRAINTS" ]]; then
-          paths+=("$BUILD_CONSTRAINTS")
-          git add -N -- "$BUILD_CONSTRAINTS"
-        fi
-        if git diff --quiet -- "${paths[@]}"; then
+        paths=(pylock.toml pyproject.toml)
+        if [[ -n "${ADDITIONAL_LOCK:-}" ]]; then paths+=("$ADDITIONAL_LOCK"); fi
+        if [[ "$MODE" == check ]]; then
+          git diff --exit-code -- "${paths[@]}"
           echo 'changed=false' >>"$GITHUB_OUTPUT"
-          exit 0
+        elif git diff --quiet -- "${paths[@]}"; then
+          echo 'changed=false' >>"$GITHUB_OUTPUT"
+        else
+          echo 'changed=true' >>"$GITHUB_OUTPUT"
+          git diff --binary -- "${paths[@]}" >"$RUNNER_TEMP/lock.patch"
+          test -s "$RUNNER_TEMP/lock.patch"
         fi
-        echo 'changed=true' >>"$GITHUB_OUTPUT"
-        git diff --binary -- "${paths[@]}" >"$RUNNER_TEMP/lock.patch"
-        test -s "$RUNNER_TEMP/lock.patch"

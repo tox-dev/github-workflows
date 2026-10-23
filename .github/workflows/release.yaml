@@ -34,7 +34,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      previous: ${{ steps.tag.outputs.previous }}
+      previous: ${{ steps.previous.outputs.previous }}
       commit: ${{ steps.tag.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,7 +50,7 @@ jobs:
         with:
           groups: release-notes
           venv: .venv
-      - name: Verify tag and select previous release
+      - name: Verify tagged source
         id: tag
         env:
           TAG: ${{ github.ref_name }}
@@ -59,8 +59,11 @@ jobs:
           test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
           git merge-base --is-ancestor HEAD origin/main
           echo "commit=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
-          previous=$(git tag --list | .venv/bin/release-creator tags "$TAG" --previous)
-          echo "previous=$previous" >>"$GITHUB_OUTPUT"
+      - id: previous
+        uses: $/select-previous-tag
+        with:
+          tag: ${{ github.ref_name }}
+          executable: .venv/bin/release-creator
   contributors:
     needs: source
     runs-on: ubuntu-26.04
@@ -117,7 +120,6 @@ jobs:
         with:
           tag: ${{ github.ref_name }}
           changelog: CHANGELOG.md
-          repository: ${{ github.repository }}
           generated-notes: ${{ runner.temp }}/generated-notes.md
           output: ${{ runner.temp }}/release-notes.md
       - id: artifact
@@ -129,6 +131,7 @@ jobs:
   publish:
     needs: [check, source, notes]
     runs-on: ubuntu-26.04
+    environment: release
     permissions:
       contents: write
     steps:
@@ -140,7 +143,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
-          repository: ${{ github.repository }}
           tag: ${{ github.ref_name }}
           commit: ${{ needs.source.outputs.commit }}
           title: ${{ github.ref_name }}

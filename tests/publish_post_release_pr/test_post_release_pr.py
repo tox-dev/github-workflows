@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from conftest import action
 from pytest_httpserver import HTTPServer
 
 
@@ -15,29 +16,24 @@ def test_action_maps_writer_app_slug() -> None:
     assert action["inputs"]["allowed-paths"]["required"]
     assert action["runs"]["steps"][0]["env"]["APP_SLUG"] == "${{ inputs.app-slug }}"
     assert action["runs"]["steps"][1]["env"]["ALLOWED_PATHS"] == "${{ inputs.allowed-paths }}"
-    assert action["runs"]["steps"][-1]["id"] == "publish"
+    assert "outputs" not in action
+    assert {"repository", "base", "label"}.isdisjoint(action["inputs"])
 
 
 def run_publish(action_scripts: Path, *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    steps = yaml.safe_load((Path(__file__).resolve().parents[2] / "publish-post-release-pr/action.yml").read_text())[
-        "runs"
-    ]["steps"]
-    action_variables = {name for step in steps for name in step["env"]}
-    base_env = {name: value for name, value in env.items() if name not in action_variables}
-    result = None
-    for index, step in enumerate(steps):
-        result = subprocess.run(
-            ["bash", str(action_scripts / f"publish-post-release-pr-{index}.sh")],
-            cwd=cwd,
-            env=base_env | {name: env[name] for name in step["env"]},
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode:
-            return result
-    assert result is not None
-    return result
+    settings = {
+        name: value
+        for name, value in env.items()
+        if name not in {"BASE", "LABEL"} and (name not in os.environ or os.environ[name] != value)
+    }
+    return action(
+        cwd,
+        Path(env["RUNNER_TEMP"]),
+        action_scripts,
+        "publish-post-release-pr",
+        version="",
+        **settings,
+    )
 
 
 def expect_bot(server: HTTPServer) -> None:
@@ -98,7 +94,7 @@ def publish(
         env=os.environ
         | environment
         | {
-            "REPOSITORY": "tox-dev/fixture",
+            "GITHUB_REPOSITORY": "tox-dev/fixture",
             "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": "a" * 40,
@@ -112,7 +108,6 @@ def publish(
             "CANDIDATE_COMMIT": "",
             "LABEL": "skip news",
             "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_OUTPUT": str(tmp_path / "output"),
         },
     )
     return result, server
@@ -123,7 +118,6 @@ def test_merged_branch_deleted_and_main_matches_is_complete(
 ) -> None:
     result, server = publish(tmp_path, action_scripts, github_api, main_blob="b" * 40, expected_blob="b" * 40)
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "output").read_text() == "pull-request=7\n"
     assert [request.method for request, _ in server.log] == ["GET"] * 6
 
 
@@ -142,7 +136,6 @@ def test_merged_branch_deleted_and_later_main_change_fails(
 ) -> None:
     result, server = publish(tmp_path, action_scripts, github_api, main_blob="c" * 40, expected_blob="b" * 40)
     assert result.returncode != 0
-    assert not (tmp_path / "output").exists()
     assert [request.method for request, _ in server.log] == ["GET"] * 4
 
 
@@ -150,8 +143,11 @@ def test_open_pull_request_metadata_change_fails(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     server, environment = github_api
+    expect_bot(server)
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
+    paths = tmp_path / "paths.tsv"
+    paths.write_text(f"gradle.properties\t{'b' * 40}\n")
     server.expect_request("/api/v3/repos/tox-dev/fixture/pulls", method="GET").respond_with_json(
         [
             {
@@ -165,23 +161,26 @@ def test_open_pull_request_metadata_change_fails(
             }
         ]
     )
-    result = subprocess.run(
-        ["bash", str(action_scripts / "publish-post-release-pr-3.sh")],
+    result = run_publish(
+        action_scripts,
         cwd=tmp_path,
         env=os.environ
         | environment
         | {
-            "REPOSITORY": "tox-dev/fixture",
+            "GITHUB_REPOSITORY": "tox-dev/fixture",
+            "APP_SLUG": "fixture-app",
             "BASE": "main",
+            "BASE_COMMIT": "a" * 40,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
             "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
+            "PATHS_FILE": str(paths),
+            "ALLOWED_PATHS": "gradle.properties",
+            "BUNDLE": "",
+            "CANDIDATE_COMMIT": "",
             "RUNNER_TEMP": str(tmp_path),
         },
-        text=True,
-        capture_output=True,
-        check=False,
     )
     assert result.returncode != 0
     assert "open pull request metadata changed" in result.stderr
@@ -216,7 +215,7 @@ def test_closed_unmerged_pr_blocks_retry_before_write(
         env=os.environ
         | environment
         | {
-            "REPOSITORY": "tox-dev/fixture",
+            "GITHUB_REPOSITORY": "tox-dev/fixture",
             "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
@@ -230,13 +229,11 @@ def test_closed_unmerged_pr_blocks_retry_before_write(
             "CANDIDATE_COMMIT": commit,
             "LABEL": "skip news",
             "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_OUTPUT": str(tmp_path / "output"),
         },
     )
     assert result.returncode != 0
     assert "post-release pull request was closed without merging; reopen it to retry" in result.stderr
     assert [request.method for request, _ in server.log] == ["GET", "GET"]
-    assert not (tmp_path / "output").exists()
 
 
 def run_git(directory: Path, *args: str) -> str:
@@ -284,15 +281,14 @@ def candidate(
 
 @pytest.mark.parametrize(
     "branch_tamper",
-    ["none", "tree", "author", "committer", "message", "base", "parent"],
-    ids=[
-        "exact-branch",
-        "divergent-tree",
-        "divergent-author",
-        "divergent-committer",
-        "divergent-message",
-        "moved-base",
-        "merge-commit",
+    [
+        pytest.param("none", id="exact-branch"),
+        pytest.param("tree", id="divergent-tree"),
+        pytest.param("author", id="divergent-author"),
+        pytest.param("committer", id="divergent-committer"),
+        pytest.param("message", id="divergent-message"),
+        pytest.param("base", id="moved-base"),
+        pytest.param("parent", id="merge-commit"),
     ],
 )
 def test_open_branch_must_match_prepared_candidate(
@@ -354,7 +350,7 @@ def test_open_branch_must_match_prepared_candidate(
         env=os.environ
         | environment
         | {
-            "REPOSITORY": "tox-dev/fixture",
+            "GITHUB_REPOSITORY": "tox-dev/fixture",
             "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
@@ -368,15 +364,15 @@ def test_open_branch_must_match_prepared_candidate(
             "CANDIDATE_COMMIT": commit,
             "LABEL": "skip news",
             "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_OUTPUT": str(tmp_path / "output"),
         },
     )
     assert (result.returncode == 0) is (branch_tamper == "none"), result.stderr
-    assert (tmp_path / "output").exists() is (branch_tamper == "none")
     assert all(request.method == "GET" for request, _ in server.log)
 
 
-@pytest.mark.parametrize("matching_head", [True, False], ids=["prepared-head", "changed-head"])
+@pytest.mark.parametrize(
+    "matching_head", [pytest.param(True, id="prepared-head"), pytest.param(False, id="changed-head")]
+)
 def test_absent_branch_pushes_prepared_commit_and_opens_pr(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]], matching_head: bool
 ) -> None:
@@ -435,7 +431,7 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
         env=os.environ
         | environment
         | {
-            "REPOSITORY": "tox-dev/fixture",
+            "GITHUB_REPOSITORY": "tox-dev/fixture",
             "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
@@ -449,26 +445,23 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
             "CANDIDATE_COMMIT": commit,
             "LABEL": "skip news",
             "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_OUTPUT": str(tmp_path / "output"),
             "GIT_CONFIG_GLOBAL": str(git_config),
         },
     )
     assert (result.returncode == 0) is matching_head, result.stderr
     assert run_git(remote, "rev-parse", "refs/heads/post-release-v2.4.7") == commit
-    assert (tmp_path / "output").exists() is matching_head
 
 
 @pytest.mark.parametrize(
     "changed_input",
-    ["commit", "blob", "extra", "author", "committer", "message", "unauthorized"],
-    ids=[
-        "stale-bundle",
-        "changed-path-manifest",
-        "extra-path",
-        "wrong-author",
-        "wrong-committer",
-        "wrong-message",
-        "unauthorized-path",
+    [
+        pytest.param("commit", id="stale-bundle"),
+        pytest.param("blob", id="changed-path-manifest"),
+        pytest.param("extra", id="extra-path"),
+        pytest.param("author", id="wrong-author"),
+        pytest.param("committer", id="wrong-committer"),
+        pytest.param("message", id="wrong-message"),
+        pytest.param("unauthorized", id="unauthorized-path"),
     ],
 )
 def test_prepared_candidate_identity_is_checked_before_api_write(
@@ -499,7 +492,7 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
         env=os.environ
         | environment
         | {
-            "REPOSITORY": "tox-dev/fixture",
+            "GITHUB_REPOSITORY": "tox-dev/fixture",
             "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
@@ -513,9 +506,7 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
             "COMMIT_MESSAGE": "Bump version",
             "LABEL": "skip news",
             "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_OUTPUT": str(tmp_path / "output"),
         },
     )
     assert result.returncode != 0
     assert [request.method for request, _ in server.log] == ["GET"]
-    assert not (tmp_path / "output").exists()

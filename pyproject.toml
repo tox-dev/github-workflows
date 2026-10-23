@@ -8,24 +8,60 @@ license = "MIT"
 license-files = [ "LICENSE" ]
 
 [dependency-groups]
-release = [ "release-creator>=0.5.1", "towncrier>=26.9", "prek>=0.2", "yq>=4.4.5" ]
+build = [ "Cython>=3.0", "setuptools>=80" ]
+lock-tools = [ "nab==0.0.22", "tomlkit>=0.13" ]
 release-notes = [ "release-creator>=0.5.1" ]
 release-news = [ "release-creator>=0.5.1", "towncrier>=26.9" ]
 release-prepare = [ "release-creator>=0.5.1", "towncrier>=26.9", "prek>=0.2" ]
 release-validate = [ "release-creator>=0.5.1", "prek>=0.2" ]
 release-check = [ "prek>=0.2" ]
+release-attestations = [ "pypi-attestations>=0.0.30" ]
 release-shell = [ "prek>=0.2", "yq>=4.4.5" ]
-release-hooks = [ "release-creator>=0.5.1", "towncrier>=26.9", "prek>=0.2", "yq>=4.4.5" ]
+release-hooks = [ "release-creator>=0.5.1", "prek>=0.2" ]
+release-hook-check = [ "prek>=0.2", "yq>=4.4.5" ]
 test = [
   "pytest>=9",
   "pytest-httpserver",
   "pytest-xdist>=3",
   "pyyaml>=6",
+  "tomlkit>=0.13",
   "tox>=4.64.7",
   "tox-uv>=1.36.1",
   "trustme",
   "ty",
 ]
+
+[tool.nab]
+mode = "universal"
+uploaded-prior-to = "P7D"
+decision-order = "stable"
+base-group = "project-runtime"
+default-groups = []
+
+[tool.nab.matrix]
+python = ">=3.15,<3.16"
+platforms = [ "linux_x86_64", "linux_aarch64", "macos_arm64", "windows_amd64" ]
+
+[tool.nab.packages.nab]
+uploaded-prior-to = "2026-10-18T05:45:09Z"
+
+[tool.nab.packages.nab-index]
+uploaded-prior-to = "2026-10-18T05:45:09Z"
+
+[tool.nab.packages.nab-markersets]
+uploaded-prior-to = "2026-10-18T05:45:09Z"
+
+[tool.nab.packages.nab-project]
+uploaded-prior-to = "2026-10-18T05:45:09Z"
+
+[tool.nab.packages.nab-provider]
+uploaded-prior-to = "2026-10-18T05:45:09Z"
+
+[tool.nab.packages.nab-resolver]
+uploaded-prior-to = "2026-10-18T05:45:09Z"
+
+[tool.nab.packages.release-creator]
+uploaded-prior-to = "2026-10-22T13:51:56Z"
 
 [tool.ruff]
 line-length = 120

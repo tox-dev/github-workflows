@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import os
-import subprocess
 from hashlib import sha256
+from pathlib import Path
 from textwrap import dedent
-lazy from pathlib import Path
 
 import pytest
+import yaml
 from conftest import action, run
 
 
@@ -19,23 +18,24 @@ def test_validate_applies_patch(repository: Path, tmp_path: Path, action_scripts
     assert run(repository, "git", "diff", "--cached", "--name-only").stdout.strip()
 
 
-def test_validate_custom_remote_branch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_validate_applies_patch_in_fresh_worktree(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
-    run(repository, "git", "reset", "--hard", "HEAD")
-    run(repository, "git", "remote", "add", "release-remote", str(tmp_path / "remote.git"))
-    run(repository, "git", "push", "release-remote", "HEAD:release")
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "validate-release-patch",
-        version="0.2.0",
-        BRANCH="release",
-        REMOTE="release-remote",
-        EXPECTED_SHA="",
-    )
+    source_staged = run(repository, "git", "diff", "--cached", "--name-only").stdout
+    validation = tmp_path / "validation"
+    run(repository, "git", "worktree", "add", "--detach", str(validation), "HEAD")
+    result = action(validation, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode == 0, result.stderr
-    assert run(repository, "git", "diff", "--cached", "--name-only").stdout.strip()
+    assert run(validation, "git", "diff", "--cached", "--name-only").stdout.strip()
+    assert run(repository, "git", "diff", "--cached", "--name-only").stdout == source_staged
+
+
+def test_validate_steps_honor_working_directory() -> None:
+    config = yaml.safe_load((Path(__file__).resolve().parents[2] / "validate-release-patch/action.yml").read_text())
+    assert all(
+        step.get("working-directory", step.get("with", {}).get("working-directory"))
+        == "${{ inputs.working-directory }}"
+        for step in config["runs"]["steps"]
+    )
 
 
 def track_rst_changelog(repository: Path) -> None:
@@ -73,9 +73,7 @@ def test_validate_rst_heading(repository: Path, tmp_path: Path, action_scripts: 
     )
     (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
     run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(
-        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0", CHANGELOG="CHANGELOG.rst"
-    )
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode == 0, result.stderr
 
 
@@ -95,9 +93,7 @@ def test_validate_rejects_rst_conflict_marker(
     changelog.write_text(f"Changelog\n=========\n\n0.2.0\n=====\n\n{marker}\n")
     (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
     run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(
-        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0", CHANGELOG="CHANGELOG.rst"
-    )
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "release changelog contains conflict markers" in result.stderr
 
@@ -106,20 +102,18 @@ def test_validate_rejects_rst_conflict_marker(
 def test_validate_rejects_staged_rst_conflict_marker(
     repository: Path, tmp_path: Path, action_scripts: Path, tracked: bool
 ) -> None:
-    if tracked:
-        (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n")
-        run(repository, "git", "add", "CHANGELOG.rst")
-        run(repository, "git", "commit", "-m", "Track RST changelog")
-    (repository / "CHANGELOG.rst").write_text("Changelog\n=========\n\n<<<<<<< HEAD\n")
-    run(repository, "git", "add", "CHANGELOG.rst")
-    result = subprocess.run(
-        ["bash", str(action_scripts / "validate-release-patch-5.sh")],
-        cwd=repository,
-        env=os.environ | {"CHANGELOG": "CHANGELOG.rst", "RUNNER_TEMP": str(tmp_path)},
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    track_rst_changelog(repository)
+    changelog = repository / "CHANGELOG.rst"
+    if not tracked:
+        run(repository, "git", "rm", "CHANGELOG.rst")
+        run(repository, "git", "commit", "-m", "Remove RST changelog")
+        run(repository, "git", "push", "origin", "main")
+    changelog.write_text("Changelog\n=========\n\n<<<<<<< HEAD\n")
+    if not tracked:
+        run(repository, "git", "add", "-N", "CHANGELOG.rst")
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
+    run(repository, "git", "reset", "--hard", "HEAD")
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "conflict markers" in result.stderr
 
@@ -143,7 +137,7 @@ def test_validate_rejects_stale_branch(repository: Path, tmp_path: Path, action_
         action_scripts,
         "validate-release-patch",
         version="0.2.0",
-        EXPECTED_SHA="0000000000000000000000000000000000000000",
+        GITHUB_SHA="0000000000000000000000000000000000000000",
     )
     assert result.returncode != 0
     assert "changed during release preparation" in result.stderr
@@ -290,13 +284,13 @@ def test_validate_rejects_renamed_fragment_source(repository: Path, tmp_path: Pa
 @pytest.mark.parametrize(
     ("before", "after", "error"),
     [
-        pytest.param("[tool.towncrier]", "[tool.other]", "configuration and categories", id="missing-config"),
-        pytest.param('directory = "changelog.d"\n', "", "paths do not match", id="missing-directory"),
-        pytest.param('filename = "CHANGELOG.md"\n', "", "paths do not match", id="missing-filename"),
+        pytest.param("[tool.towncrier]", "[tool.other]", "Towncrier configuration is required", id="missing-config"),
+        pytest.param('directory = "changelog.d"\n', "", "normalized relative paths", id="missing-directory"),
+        pytest.param('filename = "CHANGELOG.md"\n', "", "normalized relative paths", id="missing-filename"),
         pytest.param(
             'type = [{ directory = "feature", name = "Added", showcontent = true }]\n',
             "",
-            "configuration and categories",
+            "Towncrier fragment categories are required",
             id="missing-categories",
         ),
     ],
@@ -397,11 +391,12 @@ def test_validate_rejects_embedded_heading(repository: Path, tmp_path: Path, act
 
 
 def test_validate_rejects_prek_changes(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / ".pre-commit-config.yaml").write_text(
-        "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
-        "        name: release-check\n"
-        "        entry: bash -c 'if [[ $VALIDATE_REHEARSAL == 1 ]]; then printf changed >> CHANGELOG.md; fi'\n"
-        "        language: system\n        pass_filenames: false\n",
+    config = repository / ".pre-commit-config.yaml"
+    config.write_text(
+        config.read_text().replace(
+            "entry: bash -c true",
+            "entry: bash -c 'if [[ $VALIDATE_REHEARSAL == 1 ]]; then printf changed >> CHANGELOG.md; fi'",
+        ),
     )
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Check release tree")
@@ -421,11 +416,12 @@ def test_validate_rejects_prek_changes(repository: Path, tmp_path: Path, action_
 
 
 def test_validate_rejects_untracked_prek_output(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / ".pre-commit-config.yaml").write_text(
-        "repos:\n  - repo: local\n    hooks:\n      - id: release-check\n"
-        "        name: release-check\n"
-        "        entry: bash -c 'if [[ $VALIDATE_REHEARSAL == 1 ]]; then touch extra-output; fi'\n"
-        "        language: system\n        pass_filenames: false\n",
+    config = repository / ".pre-commit-config.yaml"
+    config.write_text(
+        config.read_text().replace(
+            "entry: bash -c true",
+            "entry: bash -c 'if [[ $VALIDATE_REHEARSAL == 1 ]]; then touch extra-output; fi'",
+        ),
     )
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Check release tree")

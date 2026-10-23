@@ -1,119 +1,60 @@
 name: Install locked release tools
 description: Install selected pylock groups with hashed build dependencies
 inputs:
-  lock:
-    description: Full project pylock file
-    default: pylock.toml
   groups:
     description: Space-separated dependency groups to install
-    default: release
-  python-version:
-    description: Python version for the tool environment
-    default: "3.15"
+    required: true
   venv:
     description: Virtual environment directory
     required: true
 runs:
   using: composite
   steps:
-    - name: Install shared lock exporter
+    - name: Install locked pylock reader
       shell: bash
       run: |
         set -euo pipefail
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
-        uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/lock-exporter"
-        uv run --no-project --python "$RUNNER_TEMP/lock-exporter" python - "$GITHUB_ACTION_PATH/../pylock.toml" \
-          "$RUNNER_TEMP/lock-exporter-requirements.txt" <<'PY'
-        import sys
-        import tomllib
-
-        with open(sys.argv[1], "rb") as source:
-            packages = tomllib.load(source)["packages"]
-        requirements = []
-        for name in ("release-creator", "packaging", "tomli-w"):
-            selected = [package for package in packages if package["name"] == name]
-            if len(selected) != 1:
-                sys.exit(f"shared lock must contain exactly one {name} package")
-            package = selected[0]
-            wheels = [wheel for wheel in package.get("wheels", []) if wheel["url"].endswith("-py3-none-any.whl")]
-            if len(wheels) != 1:
-                sys.exit(f"shared lock must contain exactly one universal {name} wheel")
-            requirements.append(f"{name}=={package['version']} --hash=sha256:{wheels[0]['hashes']['sha256']}\n")
-        with open(sys.argv[2], "w", encoding="utf-8") as output:
-            output.writelines(requirements)
-        PY
-        uv pip sync --python "$RUNNER_TEMP/lock-exporter" --only-binary :all: --require-hashes \
-          "$RUNNER_TEMP/lock-exporter-requirements.txt"
-    - name: Derive caller backend constraints
+        uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/lock-tools"
+        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/lock-tools" --group lock-tools \
+          --only-binary :all: --require-hashes "$GITHUB_ACTION_PATH/../pylock.toml"
+    - name: Select locked groups and build constraints
       shell: bash
       env:
-        LOCK: ${{ inputs.lock }}
-        PYTHON_VERSION: ${{ inputs.python-version }}
-      run: |
-        set -euo pipefail
-        if uv run --no-project --python "$RUNNER_TEMP/lock-exporter" python - "$LOCK" <<'PY'
-        import sys
-        import tomllib
-
-        with open(sys.argv[1], "rb") as source:
-            groups = tomllib.load(source).get("dependency-groups", [])
-        sys.exit("build" not in groups)
-        PY
-        then
-          uv run --no-project --python "$RUNNER_TEMP/lock-exporter" release-creator build-constraints \
-            --lock "$LOCK" --group build \
-            --python-version "$PYTHON_VERSION" --output "$RUNNER_TEMP/caller-build-constraints.txt"
-          uv run --no-project --python "$RUNNER_TEMP/lock-exporter" python - \
-            "$GITHUB_ACTION_PATH/../release-build-constraints.txt" \
-            "$RUNNER_TEMP/caller-build-constraints.txt" <<'PY'
-        import sys
-        from pathlib import Path
-
-        pins = {
-            line.partition("==")[0]: line
-            for path in map(Path, sys.argv[1:])
-            for line in path.read_text().splitlines()
-        }
-        Path(sys.argv[2]).write_text("".join(f"{line}\n" for _, line in sorted(pins.items())))
-        PY
-        else
-          cp "$GITHUB_ACTION_PATH/../release-build-constraints.txt" "$RUNNER_TEMP/caller-build-constraints.txt"
-        fi
-    - name: Install locked groups
-      shell: bash
-      env:
-        LOCK: ${{ inputs.lock }}
         DEPENDENCY_GROUPS: ${{ inputs.groups }}
-        PYTHON_VERSION: ${{ inputs.python-version }}
         VENV: ${{ inputs.venv }}
       run: |
         set -euo pipefail
-        unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
-        uv venv --allow-existing --python "$PYTHON_VERSION" "$VENV"
+        uv venv --allow-existing --python 3.15 "$VENV"
         groups=()
-        selected_groups=()
         while IFS= read -r line; do
           read -ra selected <<<"$line"
-          for group in "${selected[@]}"; do
-            groups+=(--group "$group")
-            selected_groups+=("$group")
-          done
+          groups+=("${selected[@]}")
         done <<<"$DEPENDENCY_GROUPS"
         if ((${#groups[@]} == 0)); then
           echo '::error::at least one dependency group is required' >&2
           exit 1
         fi
-        uv run --no-project --python "$VENV" python - "$LOCK" "${selected_groups[@]}" <<'PY'
-        import sys
-        import tomllib
-
-        with open(sys.argv[1], "rb") as source:
-            available = set(tomllib.load(source).get("dependency-groups", []))
-        missing = set(sys.argv[2:]) - available
-        if missing:
-            sys.exit(f"missing lock dependency groups: {', '.join(sorted(missing))}")
-        PY
-        uv pip sync --preview-features pylock --preview-features build-dependency-hashes --only-binary release-creator \
-          --python "$VENV" "${groups[@]}" \
-          --build-constraints "$RUNNER_TEMP/caller-build-constraints.txt" \
-          --require-build-hashes "$LOCK"
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
+          "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" pylock.toml "${groups[@]}"
+        package_path=$(uv run --no-project --python "$RUNNER_TEMP/lock-tools" python -c \
+          'from pathlib import Path; import packaging; print(Path(packaging.__file__).parent.parent)')
+        PYTHONPATH="$package_path" uv run --no-project --python "$VENV" python \
+          "$GITHUB_ACTION_PATH/../tools/build_constraints.py" \
+          --shared-policy "$GITHUB_ACTION_PATH/../pyproject.toml" "$RUNNER_TEMP/caller-build-constraints.txt" \
+          "$GITHUB_ACTION_PATH/../pylock.toml" pylock.toml
+        printf '%s\n' "${groups[@]}" >"$RUNNER_TEMP/selected-lock-groups"
+    - name: Install selected groups
+      shell: bash
+      env:
+        VENV: ${{ inputs.venv }}
+      run: |
+        set -euo pipefail
+        unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
+        groups=()
+        while IFS= read -r group; do
+          groups+=(--group "$group")
+        done <"$RUNNER_TEMP/selected-lock-groups"
+        uv pip sync --preview-features pylock --preview-features build-dependency-hashes --python "$VENV" \
+          "${groups[@]}" --build-constraints "$RUNNER_TEMP/caller-build-constraints.txt" \
+          --require-build-hashes pylock.toml

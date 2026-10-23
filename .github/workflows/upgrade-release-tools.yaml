@@ -2,46 +2,30 @@ name: Upgrade release tools
 on:
   workflow_call:
     inputs:
-      lock:
-        description: Path to the checked-in pylock file
+      lock-groups:
+        description: Release dependency groups selected by the universal lock
+        required: true
         type: string
-        default: pylock.toml
-      hook-config:
-        description: Path to the pre-commit configuration
-        type: string
-        default: .pre-commit-config.yaml
-      python-version:
-        description: Python version used to run the exporter and release tools
-        type: string
-        default: "3.15"
-      check-group:
-        description: Dependency group containing prek
-        type: string
-        default: release
-      keep-uv-lock:
-        description: Also refresh a checked-in uv.lock used by the project build
-        type: boolean
-        default: false
-      build-constraints:
-        description: Generated backend constraints path kept with the project lock
+      additional-lock:
+        description: Optional secondary pylock basename for a separate build matrix
         type: string
         default: ""
-      build-requirements:
-        description: Additional build requirements, one per line
+      additional-lock-groups:
+        description: Groups for the secondary lock; empty selects build requirements
         type: string
         default: ""
-      exclude-newer-packages:
-        description: Reviewed package=UTC minimum cutoffs; each expires when the seven-day cutoff passes it
+      additional-matrix-python:
+        description: Python range for the secondary lock
         type: string
         default: ""
-      branch:
-        description: Branch used for the dependency pull request
+      additional-matrix-platforms:
+        description: Space-separated Nab platform IDs for the secondary lock
         type: string
-        default: automation/update-release-tools
-      base:
-        description: Target branch for the dependency pull request
+        default: ""
+      additional-matrix-implementations:
+        description: Space-separated implementations for the secondary lock
         type: string
-        default: main
+        default: ""
       commit-message:
         description: Commit message for the refreshed dependency files
         type: string
@@ -75,19 +59,17 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: latest-known
-          python-version: ${{ inputs.python-version }}
+          python-version: "3.15"
           enable-cache: false
       - id: lock
         uses: $/refresh-release-lock
         with:
-          lock: ${{ inputs.lock }}
-          python-version: ${{ inputs.python-version }}
-          check-group: ${{ inputs.check-group }}
-          keep-uv-lock: ${{ inputs.keep-uv-lock }}
-          build-constraints: ${{ inputs.build-constraints }}
-          build-requirements: ${{ inputs.build-requirements }}
-          hook-config: ${{ inputs.hook-config }}
-          exclude-newer-packages: ${{ inputs.exclude-newer-packages }}
+          lock-groups: ${{ inputs.lock-groups }}
+          additional-lock: ${{ inputs.additional-lock }}
+          additional-lock-groups: ${{ inputs.additional-lock-groups }}
+          additional-matrix-python: ${{ inputs.additional-matrix-python }}
+          additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
+          additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.lock.outputs.changed == 'true'
         with:
@@ -112,13 +94,10 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: latest-known
-          python-version: ${{ inputs.python-version }}
+          python-version: "3.15"
           enable-cache: false
       - id: hooks
         uses: $/refresh-hook-pins
-        with:
-          config: ${{ inputs.hook-config }}
-          python-version: ${{ inputs.python-version }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.hooks.outputs.changed == 'true'
         with:
@@ -130,7 +109,7 @@ jobs:
     needs: [generate-lock, generate-hooks]
     if: |
       (needs.generate-lock.outputs.changed == 'true' || needs.generate-hooks.outputs.changed == 'true') &&
-      github.ref == format('refs/heads/{0}', inputs.base)
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     environment: release-auth
     permissions:
@@ -163,30 +142,34 @@ jobs:
           git apply --index "$RUNNER_TEMP/release-tools-hooks/hooks.patch"
       - name: Check dependency patch paths
         env:
-          LOCK: ${{ inputs.lock }}
-          CONFIG: ${{ inputs.hook-config }}
-          KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
-          BUILD_CONSTRAINTS: ${{ inputs.build-constraints }}
+          ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
         run: |
           set -euo pipefail
-          while IFS= read -r path; do
-            if [[ "$path" != "$LOCK" && "$path" != "$CONFIG" && "$path" != "$BUILD_CONSTRAINTS" ]] &&
-              [[ "$KEEP_UV_LOCK" != true || "$path" != uv.lock ]]; then
+          if [[ -n "$ADDITIONAL_LOCK" && ("$ADDITIONAL_LOCK" != pylock.*.toml || "$ADDITIONAL_LOCK" == */*) ]]; then
+            echo '::error::invalid additional lock basename' >&2
+            exit 1
+          fi
+          git diff --cached --name-only --no-renames -z >"$RUNNER_TEMP/dependency-paths"
+          while IFS= read -r -d '' path; do
+            if [[ "$path" != pylock.toml && "$path" != pyproject.toml &&
+              "$path" != .pre-commit-config.yaml && "$path" != "$ADDITIONAL_LOCK" ]]; then
               echo "::error::unexpected dependency path: $path" >&2
               exit 1
             fi
-          done < <(git diff --cached --name-only)
+          done <"$RUNNER_TEMP/dependency-paths"
           git diff --cached --check
       - name: Check dependency patch file mode
         run: |
           set -euo pipefail
+          git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/dependency-modes"
           while IFS= read -r -d '' metadata && IFS= read -r -d '' path; do
             read -ra fields <<<"$metadata"
             if [[ "${fields[1]}" != 100644 ]]; then
               echo "::error::unexpected dependency file mode in $path: ${fields[1]}" >&2
               exit 1
             fi
-          done < <(git diff --cached --raw --no-renames -z)
+          done <"$RUNNER_TEMP/dependency-modes"
+      - uses: $/verify-nab-cutoff-patch
       - name: Commit refreshed tools
         env:
           COMMIT_MESSAGE: ${{ inputs.commit-message }}
@@ -194,17 +177,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m "$COMMIT_MESSAGE"
-      - name: Check dependency branch
-        env:
-          BRANCH: ${{ inputs.branch }}
-          BASE: ${{ inputs.base }}
-        run: |
-          set -euo pipefail
-          git check-ref-format --branch "$BRANCH"
-          if [[ "$BRANCH" == "$BASE" ]]; then
-            echo '::error::dependency branch must differ from the base branch' >&2
-            exit 1
-          fi
       - name: Check release App credentials
         env:
           RELEASE_APP_CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
@@ -229,36 +201,25 @@ jobs:
       - name: Push dependency branch
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
-          BRANCH: ${{ inputs.branch }}
         run: |
           gh auth setup-git --hostname github.com --force
-          git push --force-with-lease origin "HEAD:refs/heads/$BRANCH"
+          git push --force-with-lease origin HEAD:refs/heads/automation/update-release-tools
       - name: Write dependency pull request body
         env:
           PR_BODY: ${{ inputs.pull-request-body }}
-          EXCLUDE_NEWER_PACKAGES: ${{ inputs.exclude-newer-packages }}
-        run: |
-          printf '%s\n' "$PR_BODY" >"$RUNNER_TEMP/pull-request.md"
-          if [[ -n "$EXCLUDE_NEWER_PACKAGES" ]]; then
-            printf '\nReviewed package cutoff floors:\n' >>"$RUNNER_TEMP/pull-request.md"
-            while IFS= read -r entry; do
-              if [[ -n "$entry" ]]; then
-                printf -- '- %s\n' "\`$entry\`" >>"$RUNNER_TEMP/pull-request.md"
-              fi
-            done <<<"$EXCLUDE_NEWER_PACKAGES"
-          fi
+        run: printf '%s\n' "$PR_BODY" >"$RUNNER_TEMP/pull-request.md"
       - name: Find dependency pull request
         id: pr
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
-          BRANCH: ${{ inputs.branch }}
-          BASE: ${{ inputs.base }}
         run: |
           set -euo pipefail
           owner=${GITHUB_REPOSITORY%%/*}
-          gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f head="$owner:$BRANCH" -f base="$BASE" |
-            jq -r --arg repository "$GITHUB_REPOSITORY" --arg branch "$BRANCH" --arg base "$BASE" '
-              [.[] | select(.head.repo.full_name == $repository and .head.ref == $branch and .base.ref == $base)] |
+          gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open \
+            -f head="$owner:automation/update-release-tools" -f base=main |
+            jq -r --arg repository "$GITHUB_REPOSITORY" '
+              [.[] | select(.head.repo.full_name == $repository and
+                .head.ref == "automation/update-release-tools" and .base.ref == "main")] |
               if length == 0 then "number="
               elif length == 1 then "number=\(.[0].number)"
               else error("multiple dependency pull requests") end
@@ -276,9 +237,7 @@ jobs:
         if: steps.pr.outputs.number == ''
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
-          BRANCH: ${{ inputs.branch }}
-          BASE: ${{ inputs.base }}
           PR_TITLE: ${{ inputs.pull-request-title }}
         run: |
-          gh pr create --base "$BASE" --head "$BRANCH" --title "$PR_TITLE" \
+          gh pr create --base main --head automation/update-release-tools --title "$PR_TITLE" \
             --body-file "$RUNNER_TEMP/pull-request.md" --label dependencies --label 'skip news'

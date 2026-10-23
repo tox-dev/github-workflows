@@ -1,5 +1,5 @@
-name: Reconcile PyPI artifacts
-description: Stage missing files or verify the exact published distribution set
+name: Verify PyPI artifacts
+description: Compare every built file with PyPI and verify its trusted-publisher attestation
 inputs:
   project:
     description: PyPI project name
@@ -10,103 +10,52 @@ inputs:
   dist:
     description: Directory containing the complete expected distribution set
     required: true
-  mode:
-    description: Stage missing files or verify the complete release
-    required: true
-  missing-dir:
-    description: Fresh output directory for files absent from PyPI in stage mode
-    default: missing
-  wait-seconds:
-    description: Maximum PyPI JSON propagation wait in verify mode
-    default: "120"
-  lock:
-    description: Full project pylock containing release-creator
-    default: pylock.toml
-  tool-group:
-    description: Dependency group containing release-creator
-    default: release
-  python-version:
-    description: Python version used for the locked release tool
-    default: "3.15"
   local-tool-source:
-    description: Install release-creator from this tagged checkout instead of the lock's project wheel
+    description: Install release-creator from the tagged checkout
     default: "false"
-outputs:
-  missing-count:
-    description: Number of files absent from PyPI before staging
-    value: ${{ steps.stage.outputs.missing_count }}
-  manifest:
-    description: Path to the filename allowlist produced in stage mode
-    value: ${{ steps.manifest.outputs.path }}
 runs:
   using: composite
   steps:
-    - name: Check reconciliation inputs
+    - name: Check artifact inputs
       shell: bash
       env:
         PROJECT: ${{ inputs.project }}
         VERSION: ${{ inputs.version }}
         DIST: ${{ inputs.dist }}
-        MODE: ${{ inputs.mode }}
       run: |
-        set -euo pipefail
         [[ -n "$PROJECT" && -n "$VERSION" && -d "$DIST" ]] || exit 1
-        case "$MODE" in
-        stage | verify) ;;
-        *)
-          echo "::error::invalid PyPI reconciliation mode: $MODE" >&2
-          exit 1
-          ;;
-        esac
     - name: Install locked release tool
       uses: $/install-locked-tools
       with:
-        lock: ${{ inputs.lock }}
-        groups: ${{ inputs.tool-group }}${{ inputs.local-tool-source == 'true' && ' build project-runtime' || '' }}
-        python-version: ${{ inputs.python-version }}
+        groups: release-notes${{ inputs.local-tool-source == 'true' && ' project-runtime' || '' }}
         venv: ${{ runner.temp }}/pypi-reconcile
     - name: Install tagged release tool
       if: inputs.local-tool-source == 'true'
       shell: bash
-      run: uv pip install --python "$RUNNER_TEMP/pypi-reconcile" --no-deps --no-build-isolation .
-    - id: stage
-      name: Stage files missing from PyPI
-      if: inputs.mode == 'stage'
+      env:
+        DIST: ${{ inputs.dist }}
+      run: uv pip install --python "$RUNNER_TEMP/pypi-reconcile" --no-deps "$DIST"/release_creator-*.whl
+    - name: Compare published files
       shell: bash
       env:
         PROJECT: ${{ inputs.project }}
         VERSION: ${{ inputs.version }}
         DIST: ${{ inputs.dist }}
-        MISSING_DIR: ${{ inputs.missing-dir }}
       run: |
         uv run --no-project --python "$RUNNER_TEMP/pypi-reconcile" release-creator artifacts --project "$PROJECT" \
-          --version "$VERSION" --dist "$DIST" --mode stage --missing-dir "$MISSING_DIR" \
-          --github-output "$GITHUB_OUTPUT"
-    - id: manifest
-      name: Record missing artifact names
-      if: inputs.mode == 'stage'
+          --version "$VERSION" --dist "$DIST" --wait-seconds 120 >"$RUNNER_TEMP/pypi-file-urls"
+    - name: Install locked provenance verifier
+      uses: $/install-locked-tools
+      with:
+        groups: release-attestations
+        venv: ${{ runner.temp }}/pypi-attestations
+    - name: Verify trusted-publisher attestations
       shell: bash
       env:
-        MISSING_DIR: ${{ inputs.missing-dir }}
+        REPOSITORY: ${{ github.repository }}
       run: |
         set -euo pipefail
-        test -d "$MISSING_DIR"
-        test -z "$(find "$MISSING_DIR" -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
-        shopt -s nullglob
-        : >"$RUNNER_TEMP/pypi-missing-names.txt"
-        for artifact in "$MISSING_DIR"/*; do
-          printf '%s\n' "${artifact##*/}" >>"$RUNNER_TEMP/pypi-missing-names.txt"
-        done
-        LC_ALL=C sort -o "$RUNNER_TEMP/pypi-missing-names.txt" "$RUNNER_TEMP/pypi-missing-names.txt"
-        echo "path=$RUNNER_TEMP/pypi-missing-names.txt" >>"$GITHUB_OUTPUT"
-    - name: Verify files published on PyPI
-      if: inputs.mode == 'verify'
-      shell: bash
-      env:
-        PROJECT: ${{ inputs.project }}
-        VERSION: ${{ inputs.version }}
-        DIST: ${{ inputs.dist }}
-        WAIT_SECONDS: ${{ inputs.wait-seconds }}
-      run: |
-        uv run --no-project --python "$RUNNER_TEMP/pypi-reconcile" release-creator artifacts --project "$PROJECT" \
-          --version "$VERSION" --dist "$DIST" --mode verify --wait-seconds "$WAIT_SECONDS"
+        while IFS= read -r url; do
+          uv run --no-project --python "$RUNNER_TEMP/pypi-attestations" pypi-attestations verify pypi \
+            --repository "https://github.com/$REPOSITORY" "$url"
+        done <"$RUNNER_TEMP/pypi-file-urls"

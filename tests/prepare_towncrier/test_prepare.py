@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import os
-import subprocess
 from datetime import date
+from pathlib import Path
 from textwrap import dedent
-lazy from pathlib import Path
 
 import pytest
-import yaml
 from conftest import action, run
 from pytest_httpserver import HTTPServer
 
@@ -19,34 +16,42 @@ def test_prepare_builds_patch(repository: Path, tmp_path: Path, action_scripts: 
     assert "0.2.0" in (tmp_path / "release.patch").read_text()
 
 
-def test_prepare_workflow_preserves_unformatted_default() -> None:
-    workflow = yaml.load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text(),
-        Loader=yaml.BaseLoader,
-    )
-    assert workflow["on"]["workflow_call"]["inputs"]["format"]["default"] == "none"
+def test_prepare_includes_new_changelog_in_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    run(repository, "git", "rm", "CHANGELOG.md")
+    run(repository, "git", "commit", "-m", "Remove old changelog")
+    run(repository, "git", "push", "origin", "main")
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
+    assert result.returncode == 0, result.stderr
+    assert "new file mode 100644" in (tmp_path / "release.patch").read_text()
+    assert "+++ b/CHANGELOG.md" in (tmp_path / "release.patch").read_text()
 
 
-def test_prepare_custom_changelog_and_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_prepare_build_phase_defers_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="build")
+    assert result.returncode == 0, result.stderr
+    assert "0.2.0" in (repository / "CHANGELOG.md").read_text()
+    assert not (tmp_path / "release.patch").exists()
+
+
+def test_prepare_finalize_phase_writes_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="build")
+    assert result.returncode == 0, result.stderr
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="finalize")
+    assert result.returncode == 0, result.stderr
+    assert "0.2.0" in (tmp_path / "release.patch").read_text()
+
+
+def test_prepare_custom_changelog(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     project = repository / "pyproject.toml"
     project.write_text(project.read_text().replace("CHANGELOG.md", "HISTORY.md"))
     (repository / "CHANGELOG.md").rename(repository / "HISTORY.md")
     run(repository, "git", "add", "-A")
     run(repository, "git", "commit", "-m", "Use a custom changelog")
     run(repository, "git", "push", "origin", "main")
-    patch = tmp_path / "custom.patch"
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "prepare-towncrier",
-        version="0.2.0",
-        CHANGELOG="HISTORY.md",
-        PATCH=str(patch),
-    )
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
     assert result.returncode == 0, result.stderr
     assert "0.2.0" in (repository / "HISTORY.md").read_text()
-    assert "HISTORY.md" in patch.read_text()
+    assert "HISTORY.md" in (tmp_path / "release.patch").read_text()
 
 
 def test_prepare_custom_fragment_directory(
@@ -65,17 +70,16 @@ def test_prepare_custom_fragment_directory(
         action_scripts,
         "prepare-towncrier",
         version="",
-        FRAGMENTS="docs/changelog.d",
-        LINK_FRAGMENTS="true",
-        REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(github_api, 2),
+        GITHUB_REPOSITORY="tox-dev/github-workflows",
+        **_author_lookup(repository, github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     assert "version=0.2.0" in (tmp_path / "output").read_text()
-    assert (
+    expected = (
         "Add a new feature ([#2](https://github.com/tox-dev/github-workflows/pull/2)) "
         "by [@gaborbernat](https://github.com/gaborbernat)."
-    ) in (repository / "CHANGELOG.md").read_text()
+    )
+    assert expected in " ".join((repository / "CHANGELOG.md").read_text().split())
     assert "docs/changelog.d/+feature.feature.md" in (tmp_path / "release.patch").read_text()
 
 
@@ -88,9 +92,8 @@ def test_prepare_renders_github_notes(
         action_scripts,
         "prepare-towncrier",
         version="0.2.0",
-        LINK_FRAGMENTS="true",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(github_api, 2),
+        **_author_lookup(repository, github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     result = run(
@@ -129,15 +132,8 @@ def test_prepare_rejects_dirty_checkout(repository: Path, tmp_path: Path, action
 @pytest.mark.parametrize(
     ("option", "value", "error"),
     [
-        pytest.param("FORMAT", "yaml", "format must be markdown, rst, or none", id="format"),
-        pytest.param(
-            "LINK_FRAGMENTS",
-            "maybe",
-            "link-fragments must be true or false",
-            id="fragment-linking",
-        ),
-        pytest.param("NUMBERED_PRS", "maybe", "numbered-prs must be true or false", id="numbered-prs"),
         pytest.param("CHANGELOG_PREFIX", "x", "changelog-prefix must be empty or v", id="changelog-prefix"),
+        pytest.param("PHASE", "unknown", "phase must be all, build, or finalize", id="phase"),
     ],
 )
 def test_prepare_rejects_invalid_option(
@@ -211,18 +207,18 @@ def test_prepare_links_named_fragments(
         action_scripts,
         "prepare-towncrier",
         version="0.2.0",
-        LINK_FRAGMENTS="true",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(github_api, 2),
+        **_author_lookup(repository, github_api, 2),
     )
     assert result.returncode == 0, result.stderr
-    assert (
+    expected = (
         "Add a new feature ([#2](https://github.com/tox-dev/github-workflows/pull/2)) "
         "by [@gaborbernat](https://github.com/gaborbernat)."
-    ) in (repository / "CHANGELOG.md").read_text()
+    )
+    assert expected in " ".join((repository / "CHANGELOG.md").read_text().split())
 
 
-def test_prepare_links_numbered_pull_requests(
+def test_prepare_links_numeric_fragment_to_merged_pull_request(
     repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     run(repository, "git", "mv", "changelog.d/+feature.feature.md", "changelog.d/2.feature.md")
@@ -234,16 +230,14 @@ def test_prepare_links_numbered_pull_requests(
         action_scripts,
         "prepare-towncrier",
         version="0.2.0",
-        LINK_FRAGMENTS="true",
-        NUMBERED_PRS="true",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(github_api, 2),
+        **_author_lookup(repository, github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     assert "[#2](https://github.com/tox-dev/github-workflows/pull/2)" in (repository / "CHANGELOG.md").read_text()
 
 
-def test_prepare_keeps_default_numbered_issue(
+def test_prepare_resolves_numeric_fragment_from_commit(
     repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     run(repository, "git", "mv", "changelog.d/+feature.feature.md", "changelog.d/2.feature.md")
@@ -255,9 +249,8 @@ def test_prepare_keeps_default_numbered_issue(
         action_scripts,
         "prepare-towncrier",
         version="0.2.0",
-        LINK_FRAGMENTS="true",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(github_api, 3),
+        **_author_lookup(repository, github_api, 3),
     )
     assert result.returncode == 0, result.stderr
     assert "[#3](https://github.com/tox-dev/github-workflows/pull/3)" in (repository / "CHANGELOG.md").read_text()
@@ -270,7 +263,7 @@ def test_prepare_rejects_unlinked_fragment_name(
     run(repository, "git", "mv", "changelog.d/+feature.feature.md", "changelog.d/feature.feature.md")
     run(repository, "git", "commit", "-m", "Use a bare fragment name")
     run(repository, "git", "push", "origin", "main")
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version=version, LINK_FRAGMENTS="true")
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version=version)
     assert result.returncode != 0
     assert "unsupported changelog fragment name" in result.stderr
     assert not (tmp_path / "release.patch").exists()
@@ -285,7 +278,7 @@ def test_prepare_rejects_untracked_output(repository: Path, tmp_path: Path, acti
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Write untracked output")
     run(repository, "git", "push", "origin", "main")
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", FORMAT="markdown")
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
     assert result.returncode != 0
     assert "created untracked files" in result.stderr
 
@@ -297,46 +290,33 @@ def test_prepare_rejects_empty_release(repository: Path, tmp_path: Path, action_
     run(repository, "git", "push", "origin", "main")
     result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
     assert result.returncode != 0
-    assert "has no release notes" in result.stderr
+    assert "no changelog fragments to release" in result.stderr
 
 
 def test_prepare_rejects_empty_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    result = subprocess.run(
-        ["bash", "-e", "-o", "pipefail", str(action_scripts / "prepare-towncrier-7.sh")],
-        cwd=repository,
-        env=os.environ | {"PATCH": str(tmp_path / "release.patch")},
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    built = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="build")
+    assert built.returncode == 0, built.stderr
+    run(repository, "git", "add", "-A")
+    run(repository, "git", "commit", "-m", "Store rendered notes")
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="finalize")
     assert result.returncode != 0
     assert "produced no patch" in result.stderr
 
 
 def test_prepare_formats_markdown(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / ".pre-commit-config.yaml").write_text(
-        "repos:\n  - repo: local\n    hooks:\n      - id: mdformat\n"
-        "        name: mdformat\n        entry: mdformat --wrap 120\n"
-        "        language: system\n        types: [markdown]\n",
-    )
     (repository / "changelog.d/+feature.feature.md").write_text("Add " + "a long sentence " * 15 + ".\n")
     run(repository, "git", "add", ".")
-    run(repository, "git", "commit", "-m", "Set markdown hook")
+    run(repository, "git", "commit", "-m", "Add long changelog entry")
     run(repository, "git", "push", "origin", "main")
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "prepare-towncrier",
-        version="0.2.0",
-        FORMAT="markdown",
-    )
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
     assert result.returncode == 0, result.stderr
     changelog_lines = (repository / "CHANGELOG.md").read_text().splitlines()
     assert max(map(len, changelog_lines)) <= 120  # ruff: ignore[magic-value-comparison]  # Changelog width.
 
 
-def test_prepare_formats_rst(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_prepare_formats_rst(
+    repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     project = repository / "pyproject.toml"
     project.write_text(
         project.read_text().replace("CHANGELOG.md", "CHANGELOG.rst").replace("template.jinja2", "template.rst.jinja2")
@@ -359,14 +339,15 @@ def test_prepare_formats_rst(repository: Path, tmp_path: Path, action_scripts: P
         action_scripts,
         "prepare-towncrier",
         version="0.2.0",
-        FORMAT="rst",
-        CHANGELOG="CHANGELOG.rst",
+        **_author_lookup(repository, github_api, 2),
     )
     assert result.returncode == 0, result.stderr
-    assert "Add a After feature." in (repository / "CHANGELOG.rst").read_text()
+    assert "Add a After feature (:pr:`2`) by :user:`gaborbernat`." in (repository / "CHANGELOG.rst").read_text()
 
 
-def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_prepare_avoids_rst_conflict_marker(
+    repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     project = repository / "pyproject.toml"
     project.write_text(
         project.read_text()
@@ -396,8 +377,7 @@ def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, ac
         action_scripts,
         "prepare-towncrier",
         version="0.2.0",
-        FORMAT="rst",
-        CHANGELOG="CHANGELOG.rst",
+        **_author_lookup(repository, github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     run(repository, "git", "reset", "--hard", "HEAD")
@@ -407,15 +387,20 @@ def test_prepare_avoids_rst_conflict_marker(repository: Path, tmp_path: Path, ac
         action_scripts,
         "validate-release-patch",
         version="0.2.0",
-        CHANGELOG="CHANGELOG.rst",
     )
     assert result.returncode == 0, result.stderr
     assert "Changes\n=======" in (repository / "CHANGELOG.rst").read_text()
 
 
-def _author_lookup(github_api: tuple[HTTPServer, dict[str, str]], number: int) -> dict[str, str]:
+def _author_lookup(repository: Path, github_api: tuple[HTTPServer, dict[str, str]], number: int) -> dict[str, str]:
     server, environment = github_api
-    server.expect_request(f"/api/v3/repos/tox-dev/github-workflows/pulls/{number}", method="GET").respond_with_json(
-        {"user": {"login": "gaborbernat", "type": "User"}},
-    )
+    commit = run(repository, "git", "rev-parse", "HEAD").stdout.strip()
+    for name in ("fixture", "github-workflows"):
+        server.expect_request(
+            f"/api/v3/repos/tox-dev/{name}/commits/{commit}/pulls",
+            method="GET",
+            query_string="per_page=100",
+        ).respond_with_json(
+            [{"number": number, "merge_commit_sha": commit, "user": {"login": "gaborbernat", "type": "User"}}],
+        )
     return environment

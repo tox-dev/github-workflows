@@ -13,9 +13,6 @@ inputs:
   message:
     description: Release commit message
     required: true
-  branch:
-    description: Protected release branch
-    default: main
   annotated:
     description: Create an annotated tag
     default: "false"
@@ -76,7 +73,6 @@ runs:
       env:
         VERSION: ${{ inputs.version }}
         GH_TOKEN: ${{ inputs.token }}
-        BRANCH: ${{ inputs.branch }}
       run: |
         gh auth setup-git --hostname github.com --force
-        git push --atomic origin "HEAD:refs/heads/$BRANCH" "refs/tags/$VERSION"
+        git push --atomic origin HEAD:refs/heads/main "refs/tags/$VERSION"

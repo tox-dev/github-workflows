@@ -95,7 +95,7 @@ jobs:
           enable-cache: false
       - uses: $/install-locked-tools
         with:
-          groups: release-hooks
+          groups: release-news release-shell
           venv: .release-tools
       - name: Add locked tools to PATH
         run: echo "$PWD/.release-tools/bin" >>"$GITHUB_PATH"
@@ -149,10 +149,6 @@ jobs:
       pull-requests: read
     steps:
       - uses: $/check-hook-update-cooldown
-        with:
-          repository: ${{ github.repository }}
-          pull-request: ${{ github.event.pull_request.number }}
-          head-sha: ${{ github.event.pull_request.head.sha }}
   release-tools-preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
@@ -169,13 +165,9 @@ jobs:
           enable-cache: false
       - uses: $/refresh-release-lock
         with:
-          python-version: "3.15"
-          check-group: release-check
-          build-constraints: release-build-constraints.txt
-          build-requirements: |-
-            Cython>=3.0
-            setuptools>=80
-          exclude-newer-packages: release-creator=2026-10-22T13:51:56Z
+          lock-groups: >-
+            build lock-tools release-notes release-news release-prepare release-validate release-check release-attestations release-shell release-hooks release-hook-check
+          mode: check
   gate:
     name: ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Required checks pass (non-PR)' }}
     if: ${{ !cancelled() }}

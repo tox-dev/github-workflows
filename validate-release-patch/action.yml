@@ -7,24 +7,9 @@ inputs:
   patch:
     description: Path to the downloaded patch
     required: true
-  changelog:
-    description: Changelog path
-    required: true
-  fragments:
-    description: Fragment directory
-    required: true
-  branch:
-    description: Protected release branch
-    default: main
-  remote:
-    description: Git remote containing the release branch
-    default: origin
-  expected-sha:
-    description: Exact branch commit used for release preparation
-    default: ""
-  repository:
-    description: GitHub owner/repository for the rendered changelog
-    default: ""
+  working-directory:
+    description: Checkout to validate and apply the patch in
+    default: .
   expected-patch-sha:
     description: SHA-256 digest from a separate keyless validation job
     default: ""
@@ -36,6 +21,7 @@ runs:
   steps:
     - name: Require a clean release checkout
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: |
         if [[ -n $(git status --porcelain) ]]; then
           echo '::error::release validation requires a clean checkout' >&2
@@ -43,19 +29,17 @@ runs:
         fi
     - name: Verify release source
       shell: bash
-      env:
-        BRANCH: ${{ inputs.branch }}
-        REMOTE: ${{ inputs.remote }}
-        EXPECTED_SHA: ${{ inputs.expected-sha }}
+      working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
-        git fetch "$REMOTE" "$BRANCH"
-        if [[ $(git rev-parse "$REMOTE/$BRANCH") != "${EXPECTED_SHA:-$GITHUB_SHA}" ]]; then
-          echo "::error::$BRANCH changed during release preparation; dispatch again" >&2
+        git fetch origin main
+        if [[ $(git rev-parse origin/main) != "$GITHUB_SHA" ]]; then
+          echo '::error::main changed during release preparation; dispatch again' >&2
           exit 1
         fi
     - name: Apply release patch
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
         PATCH: ${{ inputs.patch }}
         EXPECTED_PATCH_SHA: ${{ inputs.expected-patch-sha }}
@@ -81,11 +65,17 @@ runs:
           echo '::error::release patch contains no changes' >&2
           exit 1
         fi
+    - id: config
+      uses: $/read-towncrier-config
+      with:
+        working-directory: ${{ inputs.working-directory }}
     - name: Check release patch paths
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
-        CHANGELOG: ${{ inputs.changelog }}
-        FRAGMENTS: ${{ inputs.fragments }}
+        CHANGELOG: ${{ steps.config.outputs.changelog }}
+        FRAGMENTS: ${{ steps.config.outputs.fragments }}
+        CATEGORIES: ${{ steps.config.outputs.categories-file }}
       run: |
         set -euo pipefail
         reject_fragment() {
@@ -97,26 +87,6 @@ runs:
         *.rst) fragment_extension=rst ;;
         *) exit 1 ;;
         esac
-        if git cat-file -e HEAD:towncrier.toml 2>/dev/null; then
-          git show HEAD:towncrier.toml >"$RUNNER_TEMP/release-towncrier.toml"
-        else
-          git show HEAD:pyproject.toml >"$RUNNER_TEMP/release-towncrier.toml"
-        fi
-        python3 - "$RUNNER_TEMP/release-towncrier.toml" "$FRAGMENTS" "$CHANGELOG" \
-          >"$RUNNER_TEMP/release-fragment-categories" <<'PY'
-        import sys
-        import tomllib
-        from pathlib import Path
-
-        document = tomllib.loads(Path(sys.argv[1]).read_text())
-        config = document.get('tool', {}).get('towncrier')
-        if not config or not config.get('type'):
-            raise SystemExit('Towncrier configuration and categories are required')
-        if config.get('directory') != sys.argv[2] or config.get('filename') != sys.argv[3]:
-            raise SystemExit('Towncrier paths do not match release inputs')
-        for category in config['type']:
-            print(category['directory'])
-        PY
         git diff --cached --name-status --no-renames -z >"$RUNNER_TEMP/release-paths"
         while IFS= read -r -d '' status && IFS= read -r -d '' path; do
           if [[ "$path" == "$CHANGELOG" ]]; then
@@ -138,9 +108,7 @@ runs:
           fragment=${fragment%."$fragment_extension"}
           category=${fragment##*.}
           stem=${fragment%."$category"}
-          if [[ -s "$RUNNER_TEMP/release-fragment-categories" ]]; then
-            grep -Fqx -- "$category" "$RUNNER_TEMP/release-fragment-categories" || reject_fragment
-          fi
+          grep -Fqx -- "$category" "$CATEGORIES" || reject_fragment
           case "$stem" in
           +*)
             case "${stem#+}" in
@@ -157,8 +125,9 @@ runs:
         fi
     - name: Check release patch file modes
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
-        FRAGMENTS: ${{ inputs.fragments }}
+        FRAGMENTS: ${{ steps.config.outputs.fragments }}
       run: |
         set -euo pipefail
         git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/release-modes"
@@ -196,10 +165,11 @@ runs:
           fi
         done <"$RUNNER_TEMP/release-modes"
     - name: Check RST conflict markers
-      if: endsWith(inputs.changelog, '.rst')
+      if: steps.config.outputs.format == 'rst'
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
-        CHANGELOG: ${{ inputs.changelog }}
+        CHANGELOG: ${{ steps.config.outputs.changelog }}
       run: |
         set -euo pipefail
         git diff --cached --unified=0 -- "$CHANGELOG" >"$RUNNER_TEMP/release-rst-diff"
@@ -215,18 +185,20 @@ runs:
     - name: Check rendered release section
       if: inputs.checks == 'true'
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
         VERSION: ${{ inputs.version }}
-        CHANGELOG: ${{ inputs.changelog }}
-        REPOSITORY: ${{ inputs.repository || github.repository }}
+        CHANGELOG: ${{ steps.config.outputs.changelog }}
       run: |
-        if ! release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$REPOSITORY" >/dev/null; then
+        if ! release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$GITHUB_REPOSITORY" \
+          >/dev/null; then
           echo "::error::$CHANGELOG has no valid section for $VERSION" >&2
           exit 1
         fi
     - name: Run prek on release patch
       if: inputs.checks == 'true'
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
         git diff --cached --check

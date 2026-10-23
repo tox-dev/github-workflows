@@ -14,44 +14,8 @@ on:
         description: Optional v prefix for the Towncrier changelog heading
         type: string
         default: ""
-      changelog:
-        description: Tracked changelog path
-        required: true
-        type: string
-      fragments:
-        description: Towncrier fragment directory
-        required: true
-        type: string
-      format:
-        description: Changelog format for the repository's prek hook
-        type: string
-        default: none
-      lock:
-        description: Full project pylock path
-        type: string
-        default: pylock.toml
-      python-version:
-        description: Python version for the locked release tools
-        type: string
-        default: "3.15"
-      prepare-group:
-        description: Dependency group containing release-creator, Towncrier, and prek
-        type: string
-        default: release
-      validate-group:
-        description: Dependency group containing release-creator and prek
-        type: string
-        default: release
       local-tool-source:
         description: Install release-creator from the tagged checkout for its own release
-        type: boolean
-        default: false
-      link-fragments:
-        description: Link merged fragments to their pull requests
-        type: boolean
-        default: true
-      numbered-prs:
-        description: Treat numeric fragment names as original pull request numbers
         type: boolean
         default: false
       annotated:
@@ -80,6 +44,7 @@ jobs:
     outputs:
       version: ${{ steps.prepare.outputs.version }}
       artifact-id: ${{ steps.patch.outputs.artifact-id }}
+      patch-sha: ${{ steps.digest.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -89,85 +54,60 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: latest-known
-          python-version: ${{ inputs.python-version }}
+          python-version: "3.15"
           enable-cache: false
       - uses: $/install-locked-tools
         with:
-          lock: ${{ inputs.lock }}
-          groups: ${{ inputs.prepare-group }}${{ inputs.local-tool-source && ' fix build project-runtime' || '' }}
-          python-version: ${{ inputs.python-version }}
+          groups: release-prepare${{ inputs.local-tool-source && ' project-runtime' || '' }}
           venv: .venv
       - name: Add locked tools to PATH
         run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
-      - name: Install the tagged release tool
+      - name: Install prek hooks
+        id: hooks
+        run: prek install-hooks
+        background: true
+      - name: Create a fresh validation worktree
+        run: git worktree add --detach "$RUNNER_TEMP/release-validation" "$GITHUB_SHA"
+      - name: Build local release tool wheel
         if: inputs.local-tool-source
-        run: uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
+        run: |
+          uv build --wheel --build-constraints "$RUNNER_TEMP/caller-build-constraints.txt" \
+            --require-build-hashes --out-dir "$RUNNER_TEMP/local-tool-dist" .
+      - name: Install local release tool wheel
+        if: inputs.local-tool-source
+        run: uv pip install --python .venv/bin/python --no-deps "$RUNNER_TEMP/local-tool-dist/"*.whl
       - id: prepare
+        name: Build changelog
         uses: $/prepare-towncrier
         with:
           bump: ${{ inputs.bump }}
           tag-prefix: ${{ inputs.tag-prefix }}
           changelog-prefix: ${{ inputs.changelog-prefix }}
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          format: ${{ inputs.format }}
-          link-fragments: ${{ inputs.link-fragments }}
-          numbered-prs: ${{ inputs.numbered-prs }}
+          phase: build
+      - wait: hooks
+      - name: Finalize release patch
+        uses: $/prepare-towncrier
+        with:
+          version: ${{ steps.prepare.outputs.version }}
+          phase: finalize
+      - uses: $/validate-release-patch
+        with:
+          version: ${{ steps.prepare.outputs.version }}
           patch: ${{ runner.temp }}/release.patch
+          working-directory: ${{ runner.temp }}/release-validation
+      - name: Record validated patch digest
+        id: digest
+        run: |
+          patch_sha=$(sha256sum "$RUNNER_TEMP/release.patch")
+          printf 'sha=%s\n' "${patch_sha%% *}" >>"$GITHUB_OUTPUT"
       - id: patch
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-patch
           path: ${{ runner.temp }}/release.patch
           if-no-files-found: error
-  validate:
-    needs: assemble
-    runs-on: ubuntu-26.04
-    permissions:
-      contents: read
-    outputs:
-      patch-sha: ${{ steps.digest.outputs.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-          ref: ${{ github.sha }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          artifact-ids: ${{ needs.assemble.outputs.artifact-id }}
-          path: ${{ runner.temp }}/release-patch
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: latest-known
-          python-version: ${{ inputs.python-version }}
-          enable-cache: false
-      - uses: $/install-locked-tools
-        with:
-          lock: ${{ inputs.lock }}
-          groups: ${{ inputs.validate-group }}${{ inputs.local-tool-source && ' fix build project-runtime' || '' }}
-          python-version: ${{ inputs.python-version }}
-          venv: .venv
-      - name: Add locked tools to PATH
-        run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
-      - name: Install the tagged release tool
-        if: inputs.local-tool-source
-        run: uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
-      - uses: $/validate-release-patch
-        with:
-          version: ${{ needs.assemble.outputs.version }}
-          patch: ${{ runner.temp }}/release-patch/release.patch
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          branch: main
-          expected-sha: ${{ github.sha }}
-      - name: Record validated patch digest
-        id: digest
-        run: |
-          read -r patch_sha _ < <(sha256sum "$RUNNER_TEMP/release-patch/release.patch")
-          echo "sha=$patch_sha" >>"$GITHUB_OUTPUT"
   push:
-    needs: [assemble, validate]
+    needs: assemble
     runs-on: ubuntu-26.04
     environment:
       name: release-auth
@@ -187,10 +127,7 @@ jobs:
         with:
           version: ${{ needs.assemble.outputs.version }}
           patch: ${{ runner.temp }}/release-patch/release.patch
-          changelog: ${{ inputs.changelog }}
-          fragments: ${{ inputs.fragments }}
-          expected-sha: ${{ github.sha }}
-          expected-patch-sha: ${{ needs.validate.outputs.patch-sha }}
+          expected-patch-sha: ${{ needs.assemble.outputs.patch-sha }}
           checks: "false"
       - name: Require release App key
         env:

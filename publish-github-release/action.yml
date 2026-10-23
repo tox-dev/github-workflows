@@ -1,9 +1,6 @@
 name: Publish GitHub Release
 description: Resume a matching draft or verify an already published release
 inputs:
-  repository:
-    description: Owner and repository containing the tag
-    required: true
   tag:
     description: Existing Git tag for the release
     required: true
@@ -31,7 +28,7 @@ runs:
     - name: Verify the tagged release request
       shell: bash
       env:
-        GH_REPO: ${{ inputs.repository }}
+        GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
         COMMIT: ${{ inputs.commit }}
         TITLE: ${{ inputs.title }}
@@ -50,16 +47,8 @@ runs:
           exit 1
           ;;
         esac
-        read -r object_type object_sha < <(
-          gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '[.object.type, .object.sha] | @tsv'
-        )
-        while [[ "$object_type" == tag ]]; do
-          read -r object_type object_sha < <(
-            gh api "repos/$GH_REPO/git/tags/$object_sha" --jq '[.object.type, .object.sha] | @tsv'
-          )
-        done
-        test "$object_type" == commit
-        test "$object_sha" == "$COMMIT"
+        tag_commit=$(gh api "repos/$GH_REPO/commits/refs/tags/$TAG" --jq .sha)
+        test "$tag_commit" == "$COMMIT"
         printf '[]\n' >"$RUNNER_TEMP/release-assets.json"
         if [[ -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob dotglob
@@ -70,7 +59,7 @@ runs:
             test -f "$asset"
             name=${asset##*/}
             case "$name" in
-            .* | *[[:cntrl:]]*)
+            .* | *#* | *[[:cntrl:]]*)
               echo "::error::unsafe release asset name: $name"
               exit 1
               ;;
@@ -84,7 +73,7 @@ runs:
     - name: Inspect any existing release
       shell: bash
       env:
-        GH_REPO: ${{ inputs.repository }}
+        GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
         TITLE: ${{ inputs.title }}
         NOTES_FILE: ${{ inputs.notes-file }}
@@ -114,7 +103,7 @@ runs:
     - name: Create a missing draft
       shell: bash
       env:
-        GH_REPO: ${{ inputs.repository }}
+        GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
         COMMIT: ${{ inputs.commit }}
         TITLE: ${{ inputs.title }}
@@ -135,7 +124,7 @@ runs:
     - name: Upload missing draft assets
       shell: bash
       env:
-        GH_REPO: ${{ inputs.repository }}
+        GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
         TITLE: ${{ inputs.title }}
         NOTES_FILE: ${{ inputs.notes-file }}
@@ -173,18 +162,27 @@ runs:
             sleep 2
           done
           if jq -e '.[0].draft' "$RUNNER_TEMP/release-current.json" >/dev/null; then
-            upload_url=$(jq -r '.[0].upload_url | split("{")[0]' "$RUNNER_TEMP/release-current.json")
             for asset in "$ASSETS_DIRECTORY"/*; do
               name=${asset##*/}
               if ! jq -e --arg name "$name" 'any(.[0].assets[]; .name == $name)' \
                 "$RUNNER_TEMP/release-current.json" >/dev/null; then
-                gh api -X POST "$upload_url?name=$(jq -nr --arg name "$name" '$name | @uri')" --input "$asset" \
-                  -H 'Content-Type: application/octet-stream' \
-                  >"$RUNNER_TEMP/release-uploaded.json"
-                jq -e --arg name "$name" --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
-                  .name == $name and .state == "uploaded" and
-                  (.digest as $digest | any($assets[0][]; .name == $name and .digest == $digest))
-                ' "$RUNNER_TEMP/release-uploaded.json"
+                for attempt in {1..6}; do
+                  if gh release upload "$TAG" "$asset" --repo "$GH_REPO"; then
+                    break
+                  fi
+                  if gh api "repos/$GH_REPO/releases/$release_id" | jq -e --arg name "$name" \
+                    --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+                    any(.assets[]; .name == $name and .state == "uploaded" and
+                      (.digest as $digest | any($assets[0][]; .name == $name and .digest == $digest)))
+                  ' >/dev/null; then
+                    break
+                  fi
+                  if ((attempt == 6)); then
+                    echo "::error::could not upload release asset: $name" >&2
+                    exit 1
+                  fi
+                  sleep 2
+                done
               fi
             done
           fi
@@ -192,7 +190,7 @@ runs:
     - name: Verify the complete asset set
       shell: bash
       env:
-        GH_REPO: ${{ inputs.repository }}
+        GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
         TITLE: ${{ inputs.title }}
         NOTES_FILE: ${{ inputs.notes-file }}
@@ -225,7 +223,7 @@ runs:
     - name: Publish the draft
       shell: bash
       env:
-        GH_REPO: ${{ inputs.repository }}
+        GH_REPO: ${{ github.repository }}
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
@@ -236,7 +234,7 @@ runs:
     - name: Verify the final release state
       shell: bash
       env:
-        GH_REPO: ${{ inputs.repository }}
+        GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
         TITLE: ${{ inputs.title }}
         NOTES_FILE: ${{ inputs.notes-file }}
@@ -268,3 +266,25 @@ runs:
         done
         echo '::error::final release state did not match after publication' >&2
         exit 1
+    - name: Verify published asset attestations
+      if: inputs.mode != 'stage' && inputs.assets-directory != ''
+      shell: bash
+      env:
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
+        ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        for asset in "$ASSETS_DIRECTORY"/*; do
+          for attempt in {1..6}; do
+            if gh release verify-asset "$TAG" "$asset" --repo "$GH_REPO"; then
+              break
+            fi
+            if ((attempt == 6)); then
+              echo "::error::release asset attestation could not be verified: ${asset##*/}" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+        done

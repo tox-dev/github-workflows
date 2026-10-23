@@ -1,24 +1,9 @@
 name: Build Python distribution
 description: Build a wheel and sdist from source checked in a separate job
 inputs:
-  lock:
-    description: Full project pylock containing build backend dependencies
-    default: pylock.toml
-  python-version:
-    description: Python version for uv build
-    default: "3.15"
-  planner-group:
-    description: Dependency group containing release-creator
-    default: release
   source:
     description: Distribution source directory
     default: .
-  local-tool-source:
-    description: Install release-creator from this tagged checkout before planning the build
-    default: "false"
-  out-dir:
-    description: Directory for the wheel and sdist
-    default: dist
 runs:
   using: composite
   steps:
@@ -31,50 +16,22 @@ runs:
         fi
     - name: Require empty output directory
       shell: bash
-      env:
-        OUT_DIR: ${{ inputs.out-dir }}
       run: |
         set -euo pipefail
-        if [[ -d "$OUT_DIR" && -n $(find "$OUT_DIR" -mindepth 1 -maxdepth 1 -print -quit) ]]; then
-          echo "::error::distribution output directory is not empty: $OUT_DIR" >&2
+        if [[ -d dist && -n $(find dist -mindepth 1 -maxdepth 1 -print -quit) ]]; then
+          echo '::error::distribution output directory is not empty: dist' >&2
           exit 1
         fi
-    - name: Install locked build planner
-      uses: $/install-locked-tools
-      with:
-        lock: ${{ inputs.lock }}
-        groups: ${{ inputs.planner-group }}${{ inputs.local-tool-source == 'true' && ' build project-runtime' || '' }}
-        python-version: "3.15"
-        venv: ${{ runner.temp }}/build-planner
     - name: Select build interpreter
       shell: bash
-      env:
-        PYTHON_VERSION: ${{ inputs.python-version }}
-      run: uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/build-python"
-    - name: Install the tagged build planner
-      if: inputs.local-tool-source == 'true'
-      shell: bash
-      env:
-        LOCK: ${{ inputs.lock }}
-        SOURCE: ${{ inputs.source }}
-      run: |
-        uv pip install --python "$RUNNER_TEMP/build-planner" --no-deps --no-build-isolation "$SOURCE"
-    - name: Write backend constraints
-      shell: bash
-      env:
-        LOCK: ${{ inputs.lock }}
-      run: |
-        uv run --no-project --python "$RUNNER_TEMP/build-planner" release-creator build-constraints --lock "$LOCK" \
-          --python-version "$(
-            uv run --no-project --python "$RUNNER_TEMP/build-python" \
-              python -c 'import platform; print(platform.python_version())'
-          )" \
-          --output "$RUNNER_TEMP/build-constraints.txt"
+      run: uv venv --python 3.15 "$RUNNER_TEMP/build-python"
+    - id: constraints
+      uses: $/export-build-constraints
     - name: Build wheel and sdist
       shell: bash
       env:
         SOURCE: ${{ inputs.source }}
-        OUT_DIR: ${{ inputs.out-dir }}
+        BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}
       run: |
         set -euo pipefail
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
@@ -84,4 +41,4 @@ runs:
         SOURCE_DATE_EPOCH=$(git -C "$SOURCE" log -1 --format=%ct)
         uv build --python "$build_python" \
           --python-preference only-managed --sdist --wheel \
-          --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir "$OUT_DIR"
+          --build-constraints "$BUILD_CONSTRAINTS" --require-build-hashes "$SOURCE" --out-dir dist

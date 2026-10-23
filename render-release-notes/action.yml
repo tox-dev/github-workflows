@@ -7,21 +7,12 @@ inputs:
   changelog:
     description: Tracked changelog path
     required: true
-  repository:
-    description: GitHub owner/repository
-    required: true
-  package:
-    description: Package name for changelogs and tags with separate release namespaces
-    default: ""
   artifact-url:
     description: Published ecosystem release URL
     default: ""
   artifact-label:
     description: Link text for the published artifact
     default: PyPI release
-  issue-role:
-    description: Target of reStructuredText issue roles, issue or pull
-    default: issue
   output:
     description: Path for the rendered Markdown body
     required: true
@@ -31,44 +22,27 @@ inputs:
 outputs:
   previous:
     description: Previous version tag, or an empty string for the first release
-    value: ${{ steps.version.outputs.previous }}
+    value: ${{ steps.previous.outputs.previous }}
 runs:
   using: composite
   steps:
-    - id: version
-      name: Check the release tag
-      shell: bash
-      env:
-        TAG: ${{ inputs.tag }}
-        PACKAGE: ${{ inputs.package }}
-      run: |
-        set -euo pipefail
-        args=()
-        if [[ -n "$PACKAGE" ]]; then
-          args+=(--package "$PACKAGE")
-        fi
-        release-creator tags "$TAG" "${args[@]}"
-        previous=$(git tag --list | release-creator tags "$TAG" --previous "${args[@]}")
-        printf 'previous=%s\n' "$previous" >>"$GITHUB_OUTPUT"
+    - id: previous
+      uses: $/select-previous-tag
+      with:
+        tag: ${{ inputs.tag }}
     - name: Render GitHub Release notes
       shell: bash
       env:
         TAG: ${{ inputs.tag }}
-        PACKAGE: ${{ inputs.package }}
         CHANGELOG: ${{ inputs.changelog }}
-        REPOSITORY: ${{ inputs.repository }}
         ARTIFACT_URL: ${{ inputs.artifact-url }}
         ARTIFACT_LABEL: ${{ inputs.artifact-label }}
-        ISSUE_ROLE: ${{ inputs.issue-role }}
         OUTPUT: ${{ inputs.output }}
         GENERATED_NOTES: ${{ inputs.generated-notes }}
-        PREVIOUS: ${{ steps.version.outputs.previous }}
+        PREVIOUS: ${{ steps.previous.outputs.previous }}
       run: |
         set -euo pipefail
-        args=(--changelog "$CHANGELOG" --tag "$TAG" --repository "$REPOSITORY" --issue-role "$ISSUE_ROLE")
-        if [[ -n "$PACKAGE" ]]; then
-          args+=(--package "$PACKAGE")
-        fi
+        args=(--changelog "$CHANGELOG" --tag "$TAG" --repository "$GITHUB_REPOSITORY")
         if [[ -n "$PREVIOUS" ]]; then
           args+=(--previous "$PREVIOUS")
         fi
@@ -79,13 +53,3 @@ runs:
           args+=(--generated-notes "$GENERATED_NOTES")
         fi
         release-creator notes "${args[@]}" >"$OUTPUT"
-        comparisons=0
-        while IFS= read -r line; do
-          case "$line" in
-          '**Full Changelog**:'*) comparisons=$((comparisons + 1)) ;;
-          esac
-        done <"$OUTPUT"
-        if [[ ! -s "$OUTPUT" ]] || [[ -n "$PREVIOUS" && "$comparisons" -ne 1 ]]; then
-          echo '::error::release notes must contain one comparison link' >&2
-          exit 1
-        fi

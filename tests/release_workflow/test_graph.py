@@ -5,27 +5,80 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import pytest
 import yaml
 
 
-@pytest.mark.parametrize("workflow_name", ["prepare-release", "prepare-towncrier-release"])
-def test_prepare_jobs_transfer_the_uploaded_patch(workflow_name: str) -> None:
+def test_prepare_workflow_calls_reusable_preparation() -> None:
     workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / f".github/workflows/{workflow_name}.yaml").read_text()
+        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-release.yaml").read_text()
+    )
+    assert list(workflow["jobs"]) == ["prepare"]
+    assert workflow["jobs"]["prepare"]["uses"] == "$/.github/workflows/prepare-towncrier-release.yaml"
+
+
+def test_prepare_jobs_transfer_the_uploaded_patch() -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
     )
     jobs = workflow["jobs"]
+    assert list(jobs) == ["assemble", "push"]
     assert jobs["assemble"]["outputs"]["artifact-id"] == "${{ steps.patch.outputs.artifact-id }}"
+    assert jobs["assemble"]["outputs"]["patch-sha"] == "${{ steps.digest.outputs.sha }}"
     assert (
         next(step for step in jobs["assemble"]["steps"] if step.get("id") == "patch")["with"]["name"] == "release-patch"
     )
-    for job_name in ("validate", "push"):
-        assert (
-            next(step for step in jobs[job_name]["steps"] if "download-artifact" in step.get("uses", ""))["with"][
-                "artifact-ids"
-            ]
-            == "${{ needs.assemble.outputs.artifact-id }}"
-        )
+    assert (
+        next(step for step in jobs["push"]["steps"] if "download-artifact" in step.get("uses", ""))["with"][
+            "artifact-ids"
+        ]
+        == "${{ needs.assemble.outputs.artifact-id }}"
+    )
+
+
+def test_prepare_validates_patch_in_fresh_worktree() -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
+    )
+    steps = workflow["jobs"]["assemble"]["steps"]
+    worktree = next(step for step in steps if step.get("name") == "Create a fresh validation worktree")
+    validation = next(step for step in steps if step.get("uses") == "$/validate-release-patch")
+    assert "git worktree add --detach" in worktree["run"]
+    assert validation["with"]["working-directory"] == "${{ runner.temp }}/release-validation"
+    assert (
+        steps.index(worktree)
+        < steps.index(validation)
+        < next(index for index, step in enumerate(steps) if step.get("id") == "patch")
+    )
+
+
+def test_prepare_builds_local_tool_once_with_locked_backends() -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
+    )
+    steps = workflow["jobs"]["assemble"]["steps"]
+    builds = [step for step in steps if step.get("name") == "Build local release tool wheel"]
+    assert len(builds) == 1
+    assert '--build-constraints "$RUNNER_TEMP/caller-build-constraints.txt"' in builds[0]["run"]
+    assert "--require-build-hashes" in builds[0]["run"]
+    assert any(
+        step.get("name") == "Install local release tool wheel" and '"$RUNNER_TEMP/local-tool-dist/"*.whl' in step["run"]
+        for step in steps
+    )
+
+
+def test_prepare_installs_hooks_while_building_changelog() -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
+    )
+    steps = workflow["jobs"]["assemble"]["steps"]
+    hooks = next(step for step in steps if step.get("id") == "hooks")
+    build = next(step for step in steps if step.get("id") == "prepare")
+    wait = next(step for step in steps if step.get("wait") == "hooks")
+    finalize = next(step for step in steps if step.get("name") == "Finalize release patch")
+    assert hooks["background"] is True
+    assert hooks["run"] == "prek install-hooks"
+    assert [build["with"]["phase"], finalize["with"]["phase"]] == ["build", "finalize"]
+    assert steps.index(hooks) < steps.index(build) < steps.index(wait) < steps.index(finalize)
 
 
 def test_changelog_checkout_fetches_the_base_branch() -> None:

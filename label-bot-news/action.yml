@@ -55,6 +55,7 @@ runs:
         FRAGMENTS: ${{ inputs.fragments }}
         EXTENSION: ${{ inputs.extension }}
         FRAGMENT_STYLE: ${{ inputs.fragment-style }}
+        LC_ALL: C
       run: |
         has_fragment=false
         mapfile -t files <"$RUNNER_TEMP/bot-pr-files"
@@ -72,7 +73,17 @@ runs:
               case "$path" in
               "$directory"/*.*."$EXTENSION")
                 fragment=${path#"$directory"/}
-                if [[ "$fragment" != */* ]]; then has_fragment=true; fi
+                if [[ "$fragment" == */* ]]; then continue; fi
+                stem=${fragment%."$EXTENSION"}
+                counter=${stem##*.}
+                if [[ "$stem" == *.*.* && -n "$counter" && "$counter" != *[!0-9]* ]]; then
+                  stem=${stem%.*}
+                fi
+                if [[ "$stem" != *.* ]]; then continue; fi
+                identifier=${stem%.*}
+                if [[ "$identifier" == +?* ]] || [[ -n "$identifier" && "$identifier" != *[!0-9]* ]]; then
+                  has_fragment=true
+                fi
                 ;;
               esac
             fi
@@ -101,7 +112,7 @@ runs:
           has_label=true
         fi
         if [[ "$has_fragment" == false && "$has_label" == false ]]; then
-          gh api -X POST "repos/$REPOSITORY/issues/$PR_NUMBER/labels" -f 'labels[]=skip news' >/dev/null
+          gh pr edit "$PR_NUMBER" --repo "$REPOSITORY" --add-label 'skip news' >/dev/null
         elif [[ "$has_fragment" == true && "$has_label" == true ]]; then
-          gh api -X DELETE "repos/$REPOSITORY/issues/$PR_NUMBER/labels/skip%20news" >/dev/null
+          gh pr edit "$PR_NUMBER" --repo "$REPOSITORY" --remove-label 'skip news' >/dev/null
         fi
