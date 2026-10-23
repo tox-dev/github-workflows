@@ -52,14 +52,7 @@ def test_validator_isolates_release_tools_from_build() -> None:
         (Path(__file__).resolve().parents[2] / ".github/workflows/validate-python-release.yaml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    assert set(workflow["on"]["workflow_call"]["inputs"]) == {
-        "source",
-        "artifact-prefix",
-        "changelog",
-        "artifact-base-url",
-        "artifact-label",
-        "local-tool-source",
-    }
+    assert set(workflow["on"]["workflow_call"]["inputs"]) == {"source", "artifact-prefix"}
     assert set(workflow["jobs"]) == {"source-check", "constraints", "build", "validate"}
     assert workflow["jobs"]["build"]["needs"] == "constraints"
     assert not any(step.get("uses", "").startswith("$/install-") for step in workflow["jobs"]["build"]["steps"])

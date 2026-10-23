@@ -224,17 +224,27 @@ def test_upgrade_check_mode_rejects_lock_drift(lock_repository: Path, tmp_path: 
 
 
 @pytest.mark.parametrize(
-    ("path", "accepted"),
+    ("path", "artifact", "additional_lock", "accepted"),
     [
-        pytest.param("pylock.toml", True, id="lock"),
-        pytest.param("pyproject.toml", True, id="nab-policy"),
-        pytest.param(".pre-commit-config.yaml", True, id="hooks"),
-        pytest.param("uv.lock", False, id="uv-lock"),
-        pytest.param("other.txt", False, id="unrelated-file"),
+        pytest.param("pylock.toml", "lock", "", True, id="lock"),
+        pytest.param("pyproject.toml", "lock", "", True, id="nab-policy"),
+        pytest.param("pylock.zipapp.toml", "lock", "pylock.zipapp.toml", True, id="secondary-lock"),
+        pytest.param(".pre-commit-config.yaml", "hooks", "", True, id="hooks"),
+        pytest.param(".pre-commit-config.yaml", "lock", "", False, id="hook-in-lock-artifact"),
+        pytest.param("pylock.toml", "hooks", "", False, id="lock-in-hook-artifact"),
+        pytest.param("pyproject.toml", "hooks", "", False, id="policy-in-hook-artifact"),
+        pytest.param("uv.lock", "lock", "", False, id="uv-lock"),
+        pytest.param("other.txt", "lock", "", False, id="unrelated-file"),
     ],
 )
-def test_upgrade_rejects_unrelated_patch(
-    lock_repository: Path, tmp_path: Path, publish_scripts: Path, path: str, accepted: bool
+def test_upgrade_checks_each_artifact_path(
+    lock_repository: Path,
+    tmp_path: Path,
+    publish_scripts: Path,
+    path: str,
+    artifact: str,
+    additional_lock: str,
+    accepted: bool,
 ) -> None:
     (lock_repository / path).write_text("before\n")
     run(lock_repository, "git", "add", ".")
@@ -242,14 +252,20 @@ def test_upgrade_rejects_unrelated_patch(
     (lock_repository / path).write_text("after\n")
     patch = run(lock_repository, "git", "diff", "--binary", "--", path).stdout
     run(lock_repository, "git", "restore", path)
-    patch_dir = tmp_path / "release-tools-lock"
+    patch_dir = tmp_path / f"release-tools-{artifact}"
     patch_dir.mkdir()
-    (patch_dir / "lock.patch").write_text(patch)
-    applied = execute(lock_repository, publish_scripts / "publish-apply-lock-patch.sh", tmp_path)
-    assert applied.returncode == 0, applied.stderr
-    result = execute(lock_repository, publish_scripts / "publish-check-dependency-patch-paths.sh", tmp_path)
+    (patch_dir / f"{artifact}.patch").write_text(patch)
+    result = execute(
+        lock_repository,
+        publish_scripts / "publish-check-artifact-patch-paths.sh",
+        tmp_path,
+        ADDITIONAL_LOCK=additional_lock,
+        LOCK_CHANGED=str(artifact == "lock").lower(),
+        HOOKS_CHANGED=str(artifact == "hooks").lower(),
+    )
     assert (result.returncode == 0) == accepted
-    assert ("unexpected dependency path" in result.stderr) == (not accepted)
+    assert (f"unexpected {artifact} patch path: {path}" in result.stderr) == (not accepted)
+    assert run(lock_repository, "git", "status", "--porcelain").stdout == ""
 
 
 @pytest.mark.parametrize("additional_lock", ["other.txt", "../pylock.other.toml"], ids=["arbitrary", "parent"])
@@ -264,9 +280,11 @@ def test_upgrade_rejects_unsafe_additional_lock(
 
     result = execute(
         lock_repository,
-        publish_scripts / "publish-check-dependency-patch-paths.sh",
+        publish_scripts / "publish-check-artifact-patch-paths.sh",
         tmp_path,
         ADDITIONAL_LOCK=additional_lock,
+        LOCK_CHANGED="true",
+        HOOKS_CHANGED="false",
     )
 
     assert result.returncode != 0
@@ -327,13 +345,15 @@ def test_upgrade_combines_lock_and_hook_patches(lock_repository: Path, tmp_path:
     hooks_artifact.mkdir()
     (hooks_artifact / "hooks.patch").write_text(hooks_patch)
 
-    applied_lock = execute(lock_repository, publish_scripts / "publish-apply-lock-patch.sh", tmp_path)
-    applied_hooks = execute(lock_repository, publish_scripts / "publish-apply-hook-patch.sh", tmp_path)
     checked = execute(
         lock_repository,
-        publish_scripts / "publish-check-dependency-patch-paths.sh",
+        publish_scripts / "publish-check-artifact-patch-paths.sh",
         tmp_path,
+        LOCK_CHANGED="true",
+        HOOKS_CHANGED="true",
     )
+    applied_lock = execute(lock_repository, publish_scripts / "publish-apply-lock-patch.sh", tmp_path)
+    applied_hooks = execute(lock_repository, publish_scripts / "publish-apply-hook-patch.sh", tmp_path)
 
     assert (applied_lock.returncode, applied_hooks.returncode, checked.returncode) == (0, 0, 0)
     assert run(lock_repository, "git", "diff", "--cached", "--name-only").stdout.splitlines() == [

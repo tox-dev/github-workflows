@@ -154,15 +154,11 @@ jobs:
         with:
           name: release-tools-hooks
           path: ${{ runner.temp }}/release-tools-hooks
-      - name: Apply lock patch
-        if: needs.generate-lock.outputs.changed == 'true'
-        run: git apply --index "$RUNNER_TEMP/release-tools-lock/lock.patch"
-      - name: Apply hook patch
-        if: needs.generate-hooks.outputs.changed == 'true'
-        run: git apply --index "$RUNNER_TEMP/release-tools-hooks/hooks.patch"
-      - name: Check dependency patch paths
+      - name: Check artifact patch paths
         env:
           ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
+          LOCK_CHANGED: ${{ needs.generate-lock.outputs.changed }}
+          HOOKS_CHANGED: ${{ needs.generate-hooks.outputs.changed }}
         run: |
           set -euo pipefail
           if [[ -n "$ADDITIONAL_LOCK" &&
@@ -170,14 +166,33 @@ jobs:
             echo "::error::invalid additional lock: $ADDITIONAL_LOCK" >&2
             exit 1
           fi
-          git diff --cached --name-only --no-renames -z >"$RUNNER_TEMP/dependency-paths"
-          while IFS= read -r -d '' path; do
-            if [[ "$path" != pylock.toml && "$path" != pyproject.toml &&
-              "$path" != .pre-commit-config.yaml && "$path" != "$ADDITIONAL_LOCK" ]]; then
-              echo "::error::unexpected dependency path: $path" >&2
-              exit 1
+          for artifact in lock hooks; do
+            if [[ "$artifact" == lock ]]; then
+              [[ "$LOCK_CHANGED" == true ]] || continue
+              patch="$RUNNER_TEMP/release-tools-lock/lock.patch"
+            else
+              [[ "$HOOKS_CHANGED" == true ]] || continue
+              patch="$RUNNER_TEMP/release-tools-hooks/hooks.patch"
             fi
-          done <"$RUNNER_TEMP/dependency-paths"
+            GIT_INDEX_FILE="$RUNNER_TEMP/$artifact.index" git read-tree HEAD
+            GIT_INDEX_FILE="$RUNNER_TEMP/$artifact.index" git apply --cached "$patch"
+            GIT_INDEX_FILE="$RUNNER_TEMP/$artifact.index" \
+              git diff --cached --name-only --no-renames -z >"$RUNNER_TEMP/$artifact-paths"
+            while IFS= read -r -d '' path; do
+              if [[ "$artifact" == lock && "$path" != pylock.toml && "$path" != pyproject.toml &&
+                "$path" != "$ADDITIONAL_LOCK" ]] ||
+                [[ "$artifact" == hooks && "$path" != .pre-commit-config.yaml ]]; then
+                echo "::error::unexpected $artifact patch path: $path" >&2
+                exit 1
+              fi
+            done <"$RUNNER_TEMP/$artifact-paths"
+          done
+      - name: Apply lock patch
+        if: needs.generate-lock.outputs.changed == 'true'
+        run: git apply --index "$RUNNER_TEMP/release-tools-lock/lock.patch"
+      - name: Apply hook patch
+        if: needs.generate-hooks.outputs.changed == 'true'
+        run: git apply --index "$RUNNER_TEMP/release-tools-hooks/hooks.patch"
       - name: Check dependency patch file mode
         run: |
           set -euo pipefail

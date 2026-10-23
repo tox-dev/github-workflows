@@ -73,10 +73,11 @@ The Action expects a pull request base ref and a Markdown or reStructuredText ch
 Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Its read-only jobs refresh the universal
 `pylock.toml` and the frozen pre-commit hooks in parallel. Nab reads the seven-day package cutoff and any reviewed
 package exceptions from `[tool.nab]`. The hook updater applies the same cooldown to hook revisions and their
-`additional_dependencies`. Each job uploads a patch. The writer accepts changes to `pylock.toml`, an explicitly
-configured secondary lock, and `.pre-commit-config.yaml`, plus removal of expired Nab cutoffs in `pyproject.toml`. It
-independently checks those cutoff removals before minting the App token, then opens or updates one dependency PR from
-`automation/update-release-tools` to `main`. A lock or hook update runs the normal PR checks before merge.
+`additional_dependencies`. Each job uploads a patch. The lock patch may change `pylock.toml`, an explicitly configured
+secondary lock, and `pyproject.toml` for expired Nab cutoffs. The hook patch may change only `.pre-commit-config.yaml`.
+The writer checks each patch before applying it and verifies cutoff removals before minting the App token. It then opens
+or updates one dependency PR from `automation/update-release-tools` to `main`. A lock or hook update runs the normal PR
+checks before merge.
 
 The writer uses a repository-only release App with Contents and Pull requests write access. Install the App on this
 repository, set `RELEASE_APP_CLIENT_ID` as a repository variable, and store `RELEASE_APP_PRIVATE_KEY` in the
@@ -245,9 +246,7 @@ The caller needs `release-check` for prek and a `build` group for backend constr
 Publish only after the reusable workflow succeeds. Download the distribution with pinned `download-artifact`
 [v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
 which checks the artifact digest. Render GitHub notes in the caller's tag workflow after fetching GitHub's contributor
-metadata; this reusable workflow does not render notes. Keep PyPI OIDC in the caller's `release` environment job. Older
-callers may still pass `changelog`, `artifact-base-url`, `artifact-label`, or `local-tool-source`. These inputs are
-accepted for compatibility but have no effect; remove them when updating the caller workflow.
+metadata; this reusable workflow does not render notes. Keep PyPI OIDC in the caller's `release` environment job.
 
 ## Build a distribution for a pull request
 
