@@ -79,6 +79,7 @@ runs:
       if: steps.identity.outputs.bot == 'true'
       with:
         groups: release-hook-check
+        lock-source: shared
         venv: ${{ runner.temp }}/hook-tools
     - name: Read the base and proposed hook configurations
       if: steps.identity.outputs.bot == 'true'

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -8,37 +7,19 @@ from textwrap import dedent
 
 import pytest
 import tomlkit
-import yaml
+from conftest import action
 
 
-def test_export_build_constraints_uses_checked_in_locks(tmp_path: Path) -> None:
+def test_export_build_constraints_uses_checked_in_locks(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     (tmp_path / "pylock.toml").write_bytes((source / "pylock.toml").read_bytes())
-    output = tmp_path / "output"
-    steps = yaml.safe_load((source / "export-build-constraints/action.yml").read_text())["runs"]["steps"]
-    for step in steps:
-        result = subprocess.run(
-            ["bash", "-e", "-o", "pipefail", "-c", step["run"]],
-            cwd=tmp_path,
-            env=os.environ
-            | {
-                "GITHUB_ACTION_PATH": str(source / "export-build-constraints"),
-                "GITHUB_OUTPUT": str(output),
-                "RUNNER_TEMP": str(tmp_path),
-                "BUILD_LOCK": "pylock.toml",
-                "TARGET_PLATFORM": "",
-                "TARGETS": "",
-            },
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stderr
+    result = action(tmp_path, tmp_path, action_scripts, "export-build-constraints", version="")
+    assert result.returncode == 0, result.stderr
     constraints = (tmp_path / "build-constraints.txt").read_text()
     assert "cython==" in constraints
     assert "setuptools==" in constraints
     assert "pytest==" not in constraints
-    assert output.read_text() == f"path={tmp_path / 'build-constraints.txt'}\n"
+    assert (tmp_path / "output").read_text() == f"path={tmp_path / 'build-constraints.txt'}\n"
 
 
 @pytest.mark.parametrize(

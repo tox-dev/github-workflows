@@ -255,7 +255,7 @@ def test_validate_rejects_unsupported_fragment_path(
         EXPECTED_PATCH_SHA=sha256((tmp_path / "release.patch").read_bytes()).hexdigest(),
     )
     assert result.returncode != 0
-    assert "unsupported release fragment" in result.stderr
+    assert "unexpected release path status" in result.stderr
 
 
 def test_validate_rejects_renamed_fragment_source(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
@@ -278,7 +278,7 @@ def test_validate_rejects_renamed_fragment_source(repository: Path, tmp_path: Pa
         EXPECTED_PATCH_SHA=sha256((tmp_path / "release.patch").read_bytes()).hexdigest(),
     )
     assert result.returncode != 0
-    assert "unsupported release fragment" in result.stderr
+    assert "unexpected release path status" in result.stderr
 
 
 @pytest.mark.parametrize(

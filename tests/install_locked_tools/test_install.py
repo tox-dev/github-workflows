@@ -90,21 +90,21 @@ def test_backend_constraints_match_shared_lock(tmp_path: Path) -> None:
     assert "--hash=sha256:" in constraints
 
 
-def test_install_locked_tools_rejects_exporter_hash_mismatch(tmp_path: Path, action_scripts: Path) -> None:
+def test_install_lock_tools_rejects_hash_mismatch(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    action_root = tmp_path / "action"
+    action_root = tmp_path / "install-lock-tools"
     action_root.mkdir()
     lock = (source / "pylock.toml").read_text()
     package = next(package for package in tomllib.loads(lock)["packages"] if package["name"] == "nab")
     (tmp_path / "pylock.toml").write_text(lock.replace(package["wheels"][0]["hashes"]["sha256"], "0" * 64, 1))
-    result = install(
-        source,
-        action_scripts,
+    result = action(
         tmp_path,
-        groups="release-notes",
-        venv=tmp_path / "tools",
-        action_root=action_root,
-        extra_env={"UV_CACHE_DIR": str(tmp_path / "cache")},
+        tmp_path,
+        action_scripts,
+        "install-lock-tools",
+        version="0.2.0",
+        GITHUB_ACTION_PATH=str(action_root),
+        UV_CACHE_DIR=str(tmp_path / "cache"),
     )
     assert result.returncode != 0
     assert "Hash mismatch" in result.stderr
@@ -134,6 +134,36 @@ def test_install_locked_tools_rejects_missing_group(tmp_path: Path, action_scrip
     )
     assert result.returncode != 0
     assert "missing lock dependency groups: relesae" in result.stderr
+
+
+def test_install_locked_tools_shared_group_ignores_missing_caller_group(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    lock = (source / "pylock.toml").read_text().replace('    "release-attestations",\n', "", 1)
+    (tmp_path / "pylock.toml").write_text(lock)
+    assert "release-attestations" not in tomllib.loads(lock)["dependency-groups"]
+    result = install(
+        tmp_path,
+        action_scripts,
+        tmp_path,
+        groups="release-attestations",
+        venv=tmp_path / "tools",
+        lock_source="shared",
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "tools/bin/pypi-attestations").is_file()
+
+
+def test_install_locked_tools_rejects_unknown_lock_source(tmp_path: Path, action_scripts: Path) -> None:
+    result = install(
+        Path(__file__).resolve().parents[2],
+        action_scripts,
+        tmp_path,
+        groups="release-notes",
+        venv=tmp_path / "tools",
+        lock_source="unknown",
+    )
+    assert result.returncode != 0
+    assert "unknown lock source: unknown" in result.stderr
 
 
 def test_install_locked_tools_reuses_exporter(tmp_path: Path, action_scripts: Path) -> None:
@@ -311,7 +341,7 @@ def install(
     *,
     groups: str,
     venv: Path,
-    action_root: Path | None = None,
+    lock_source: str = "caller",
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return action(
@@ -322,6 +352,6 @@ def install(
         version="",
         GROUPS=groups,
         VENV=str(venv),
-        **({"GITHUB_ACTION_PATH": str(action_root)} if action_root is not None else {}),
+        LOCK_SOURCE=lock_source,
         **(extra_env or {}),
     )

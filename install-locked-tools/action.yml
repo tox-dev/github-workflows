@@ -7,25 +7,39 @@ inputs:
   venv:
     description: Virtual environment directory
     required: true
+  lock-source:
+    description: Install groups from the caller or the shared Action lock
+    default: caller
 runs:
   using: composite
   steps:
-    - name: Install locked pylock reader
-      shell: bash
-      run: |
-        set -euo pipefail
-        unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
-        uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/lock-tools"
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/lock-tools" --group lock-tools \
-          --only-binary :all: --require-hashes "$GITHUB_ACTION_PATH/../pylock.toml"
-    - name: Select locked groups and build constraints
+    - uses: $/install-lock-tools
+    - id: selection
+      name: Select locked groups and build constraints
       shell: bash
       env:
         DEPENDENCY_GROUPS: ${{ inputs.groups }}
         VENV: ${{ inputs.venv }}
+        LOCK_SOURCE: ${{ inputs.lock-source }}
       run: |
         set -euo pipefail
         uv venv --allow-existing --python 3.15 "$VENV"
+        case "$LOCK_SOURCE" in
+          caller)
+            lock=pylock.toml
+            locks=("$GITHUB_ACTION_PATH/../pylock.toml" "$lock")
+            policy=(--shared-policy "$GITHUB_ACTION_PATH/../pyproject.toml")
+            ;;
+          shared)
+            lock="$GITHUB_ACTION_PATH/../pylock.toml"
+            locks=("$lock")
+            policy=()
+            ;;
+          *)
+            echo "::error::unknown lock source: $LOCK_SOURCE" >&2
+            exit 1
+            ;;
+        esac
         groups=()
         while IFS= read -r line; do
           read -ra selected <<<"$line"
@@ -36,18 +50,20 @@ runs:
           exit 1
         fi
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
-          "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" pylock.toml "${groups[@]}"
+          "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" "${groups[@]}"
         package_path=$(uv run --no-project --python "$RUNNER_TEMP/lock-tools" python -c \
           'from pathlib import Path; import packaging; print(Path(packaging.__file__).parent.parent)')
         PYTHONPATH="$package_path" uv run --no-project --python "$VENV" python \
           "$GITHUB_ACTION_PATH/../tools/build_constraints.py" \
-          --shared-policy "$GITHUB_ACTION_PATH/../pyproject.toml" "$RUNNER_TEMP/caller-build-constraints.txt" \
-          "$GITHUB_ACTION_PATH/../pylock.toml" pylock.toml
+          "${policy[@]}" "$RUNNER_TEMP/caller-build-constraints.txt" \
+          "${locks[@]}"
         printf '%s\n' "${groups[@]}" >"$RUNNER_TEMP/selected-lock-groups"
+        printf 'lock=%s\n' "$lock" >>"$GITHUB_OUTPUT"
     - name: Install selected groups
       shell: bash
       env:
         VENV: ${{ inputs.venv }}
+        LOCK: ${{ steps.selection.outputs.lock }}
       run: |
         set -euo pipefail
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
@@ -57,4 +73,4 @@ runs:
         done <"$RUNNER_TEMP/selected-lock-groups"
         uv pip sync --preview-features pylock --preview-features build-dependency-hashes --python "$VENV" \
           "${groups[@]}" --build-constraints "$RUNNER_TEMP/caller-build-constraints.txt" \
-          --require-build-hashes pylock.toml
+          --require-build-hashes "$LOCK"

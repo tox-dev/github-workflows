@@ -14,9 +14,6 @@ outputs:
   format:
     description: Changelog formatter, markdown or rst
     value: ${{ steps.config.outputs.format }}
-  categories-file:
-    description: File containing one allowed fragment category per line
-    value: ${{ steps.config.outputs.categories-file }}
 runs:
   using: composite
   steps:
@@ -32,7 +29,7 @@ runs:
         else
           git show HEAD:pyproject.toml >"$config_dir/config.toml"
         fi
-        python3 - "$config_dir/config.toml" "$config_dir/categories" "$GITHUB_OUTPUT" <<'PY'
+        python3 - "$config_dir/config.toml" "$GITHUB_OUTPUT" <<'PY'
         import sys
         import tomllib
         from pathlib import Path, PurePosixPath
@@ -71,8 +68,6 @@ runs:
             for category in categories
         ):
             raise SystemExit("Towncrier fragment categories must be printable names")
-        Path(sys.argv[2]).write_text("".join(f"{category}\n" for category in categories), encoding="utf-8")
-        with Path(sys.argv[3]).open("a", encoding="utf-8") as output:
+        with Path(sys.argv[2]).open("a", encoding="utf-8") as output:
             output.write(f"changelog={changelog}\nfragments={config['directory']}\nformat={format_name}\n")
-            output.write(f"categories-file={sys.argv[2]}\n")
         PY

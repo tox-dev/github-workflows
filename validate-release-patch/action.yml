@@ -75,18 +75,8 @@ runs:
       env:
         CHANGELOG: ${{ steps.config.outputs.changelog }}
         FRAGMENTS: ${{ steps.config.outputs.fragments }}
-        CATEGORIES: ${{ steps.config.outputs.categories-file }}
       run: |
         set -euo pipefail
-        reject_fragment() {
-          echo "::error::unsupported release fragment: $path" >&2
-          exit 1
-        }
-        case "$CHANGELOG" in
-        *.md) fragment_extension=md ;;
-        *.rst) fragment_extension=rst ;;
-        *) exit 1 ;;
-        esac
         git diff --cached --name-status --no-renames -z >"$RUNNER_TEMP/release-paths"
         while IFS= read -r -d '' status && IFS= read -r -d '' path; do
           if [[ "$path" == "$CHANGELOG" ]]; then
@@ -97,32 +87,20 @@ runs:
             exit 1
           fi
           if [[ "$status" != D ]]; then
-            reject_fragment
+            echo "::error::unexpected release path status: $status $path" >&2
+            exit 1
           fi
-          fragment=${path#"$FRAGMENTS/"}
-          case "$fragment" in
-          '' | */*) reject_fragment ;;
-          *."$fragment_extension") ;;
-          *) reject_fragment ;;
-          esac
-          fragment=${fragment%."$fragment_extension"}
-          category=${fragment##*.}
-          stem=${fragment%."$category"}
-          grep -Fqx -- "$category" "$CATEGORIES" || reject_fragment
-          case "$stem" in
-          +*)
-            case "${stem#+}" in
-            '' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) reject_fragment ;;
-            esac
-            ;;
-          '' | *[!0-9]*) reject_fragment ;;
-          esac
         done <"$RUNNER_TEMP/release-paths"
 
         if git diff --cached --quiet -- "$CHANGELOG"; then
           echo "::error::release patch does not change $CHANGELOG" >&2
           exit 1
         fi
+    - name: Check consumed fragments
+      if: inputs.checks == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: release-creator validate-fragment-deletions
     - name: Check release patch file modes
       shell: bash
       working-directory: ${{ inputs.working-directory }}

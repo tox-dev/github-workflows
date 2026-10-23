@@ -11,12 +11,11 @@ def test_reader_uses_configured_type_array(repository: Path, tmp_path: Path, act
     result = action(repository, tmp_path, action_scripts, "read-towncrier-config", version="")
     assert result.returncode == 0, result.stderr
     outputs = dict(line.split("=", 1) for line in (tmp_path / "output").read_text().splitlines())
-    assert {key: value for key, value in outputs.items() if key != "categories-file"} == {
+    assert outputs == {
         "changelog": "CHANGELOG.md",
         "fragments": "changelog.d",
         "format": "markdown",
     }
-    assert Path(outputs["categories-file"]).read_text() == "feature\n"
 
 
 def test_reader_prefers_towncrier_fragment_tables(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
@@ -40,12 +39,11 @@ def test_reader_prefers_towncrier_fragment_tables(repository: Path, tmp_path: Pa
     result = action(repository, tmp_path, action_scripts, "read-towncrier-config", version="")
     assert result.returncode == 0, result.stderr
     outputs = dict(line.split("=", 1) for line in (tmp_path / "output").read_text().splitlines())
-    assert {key: value for key, value in outputs.items() if key != "categories-file"} == {
+    assert outputs == {
         "changelog": "docs/NEWS.rst",
         "fragments": "docs/news",
         "format": "rst",
     }
-    assert Path(outputs["categories-file"]).read_text() == "feature\nbugfix\n"
 
 
 @pytest.mark.parametrize("path", [pytest.param("../NEWS.md", id="parent"), pytest.param("/NEWS.md", id="absolute")])

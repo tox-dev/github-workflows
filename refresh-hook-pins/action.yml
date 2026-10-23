@@ -10,6 +10,7 @@ runs:
     - uses: $/install-locked-tools
       with:
         groups: release-hooks
+        lock-source: shared
         venv: ${{ runner.temp }}/hook-tools
     - name: Refresh frozen hook revisions
       shell: bash

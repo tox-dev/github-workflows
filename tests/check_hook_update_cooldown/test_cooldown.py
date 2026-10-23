@@ -283,7 +283,9 @@ def run_cooldown(
 ) -> subprocess.CompletedProcess[str]:
     path = tmp_path / "event.json"
     path.write_text(json.dumps({"number": 7, "pull_request": {"head": {"sha": event_head}}}))
-    (tmp_path / "pylock.toml").write_bytes((Path(__file__).resolve().parents[2] / "pylock.toml").read_bytes())
+    (tmp_path / "pylock.toml").write_text(
+        'lock-version = "1.0"\ncreated-by = "test"\nrequires-python = ">=3.15"\npackages = []\n',
+    )
     return action(
         tmp_path,
         tmp_path,

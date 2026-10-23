@@ -56,6 +56,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "resolve-pr-from-run",
         "refresh-release-lock",
         "install-locked-tools",
+        "install-lock-tools",
         "export-build-constraints",
         "read-towncrier-config",
         "refresh-hook-pins",
@@ -239,7 +240,11 @@ def _run_action(
                 repository,
                 action_scripts,
                 nested_name,
-                environment | {"GITHUB_ACTION_PATH": str(source / nested_name)},
+                environment
+                | {
+                    "GITHUB_ACTION_PATH": str(source / nested_name),
+                    "GITHUB_OUTPUT": str(Path(environment["RUNNER_TEMP"]) / f"nested-{name}-{index}-output"),
+                },
                 nested_inputs,
             )
             stdout.append(result.stdout)
@@ -286,14 +291,18 @@ def _run_action(
 
 def run(directory: Path, *command: str) -> subprocess.CompletedProcess[str]:
     environment = _safe_environment()
-    return subprocess.run(
+    result = subprocess.run(
         command,
         cwd=directory,
         env=environment | {"PATH": _tools_path(environment)},
         text=True,
         capture_output=True,
-        check=True,
+        check=False,
     )
+    if result.returncode:
+        msg = f"{' '.join(command)} failed with exit code {result.returncode}:\n{result.stderr}"
+        raise AssertionError(msg)
+    return result
 
 
 def _tools_path(environment: dict[str, str]) -> str:

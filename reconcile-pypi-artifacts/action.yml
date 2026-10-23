@@ -49,6 +49,7 @@ runs:
       with:
         groups: release-attestations
         venv: ${{ runner.temp }}/pypi-attestations
+        lock-source: shared
     - name: Verify trusted-publisher attestations
       shell: bash
       env:

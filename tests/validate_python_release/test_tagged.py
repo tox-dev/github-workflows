@@ -33,11 +33,16 @@ def test_validator_uses_shared_distribution_action() -> None:
         pytest.param("annotated", "refs/tags/0.2.0", True, id="annotated-tag"),
         pytest.param("branch", "refs/tags/0.2.0", False, id="same-name-branch"),
         pytest.param("lightweight", "refs/heads/main", False, id="branch-event"),
+        pytest.param("off-main", "refs/tags/0.2.0", False, id="tagged-off-main-commit"),
     ],
 )
 def test_validator_requires_exact_tag(repository: Path, tag_kind: str, event_ref: str, accepted: bool) -> None:
     if tag_kind == "branch":
         run(repository, "git", "branch", "0.2.0")
+    elif tag_kind == "off-main":
+        run(repository, "git", "switch", "-c", "release-candidate")
+        run(repository, "git", "commit", "--allow-empty", "-m", "Unmerged change")
+        run(repository, "git", "tag", "0.2.0")
     elif tag_kind == "annotated":
         run(repository, "git", "tag", "-a", "-m", "Release", "0.2.0")
     else:

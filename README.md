@@ -6,18 +6,26 @@ repository keeps its dispatch form, publisher, GitHub environment, and required 
 
 ## Install locked tools
 
-`install-locked-tools` creates a virtual environment and installs selected groups from the caller's `pylock.toml`. Nab's
-universal lock records the selected release groups for Linux, macOS, and Windows. It resolves dependencies under the
-seven-day cutoff in `[tool.nab]`; test, type, and documentation dependencies resolve fresh. The Action rejects missing
-groups and leaves tracked files unchanged. Source builds use constraints generated from the lock's `build` group under
-the runner's temporary directory.
+`install-locked-tools` creates a virtual environment and installs selected groups from the caller's `pylock.toml` by
+default. `lock-source: shared` selects this Action repository's `pylock.toml` for shared jobs such as hook maintenance
+that do not need the caller's release tools. Nab's universal lock records the selected release groups for Linux, macOS,
+and Windows. It resolves dependencies under the seven-day cutoff in `[tool.nab]`; test, type, and documentation
+dependencies resolve fresh. The Action rejects missing groups and leaves tracked files unchanged. Source builds use
+constraints generated from the lock's `build` group under the runner's temporary directory.
 
 - `venv` (required): directory for the virtual environment.
 - `groups` (required): whitespace-separated release dependency groups.
+- `lock-source`: `caller` (default) installs from the checkout's lock; `shared` installs from the pinned Action's lock.
+  Both paths use the pinned Action's lock-tool bootstrap. The Action checks that every selected group exists in the
+  selected lock and applies hashed build constraints.
 
 There is no named output. The installed commands are in `venv/bin` or Windows `venv/Scripts`; add that directory to
 `GITHUB_PATH` when later steps call them by name. Run `actions/checkout` and `astral-sh/setup-uv` with Python 3.15
 before this Action.
+
+`install-lock-tools` is the shared bootstrap used by `install-locked-tools`, `export-build-constraints`, and
+`refresh-release-lock`. It takes no inputs and has no outputs. It creates `$RUNNER_TEMP/lock-tools` and installs the
+hash-checked `lock-tools` group from this repository's pinned `pylock.toml`; it does not install caller dependencies.
 
 ## Check pull request news
 
@@ -111,10 +119,10 @@ against the settled label state.
 Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Its read-only jobs refresh the universal
 `pylock.toml` and the frozen pre-commit hooks in parallel. Nab reads the seven-day package cutoff and any reviewed
 package exceptions from `[tool.nab]`. The hook updater applies the same cooldown to hook revisions and their
-`additional_dependencies`. Each job uploads a patch. The writer accepts changes to `pylock.toml` and
-`.pre-commit-config.yaml`, plus removal of expired Nab cutoffs in `pyproject.toml`. It independently checks those cutoff
-removals before minting the App token, then opens or updates one dependency PR from `automation/update-release-tools` to
-`main`. A lock or hook update runs the normal PR checks before merge.
+`additional_dependencies`. Each job uploads a patch. The writer accepts changes to `pylock.toml`, an explicitly named
+secondary lock, and `.pre-commit-config.yaml`, plus removal of expired Nab cutoffs in `pyproject.toml`. It independently
+checks those cutoff removals before minting the App token, then opens or updates one dependency PR from
+`automation/update-release-tools` to `main`. A lock or hook update runs the normal PR checks before merge.
 
 The writer uses a repository-only release App with Contents and Pull requests write access. Install the App on this
 repository, set `RELEASE_APP_CLIENT_ID` as a repository variable, and store `RELEASE_APP_PRIVATE_KEY` in the
@@ -147,16 +155,48 @@ jobs:
 The required `lock-groups` input lists the caller's release dependency groups, separated by spaces or newlines. Include
 `build` and `lock-tools` where declared; exclude test, type, and documentation groups. This example lists this
 repository's groups; a caller supplies its own. The project configures its Python and platform targets in `[tool.nab]`.
+For a separately checked-in build matrix lock, also pass `additional-lock` with an existing `pylock.*.toml` basename,
+`additional-matrix-python` with its Python range, and `additional-matrix-platforms` and
+`additional-matrix-implementations` as space-separated Nab values. The secondary lock keeps its specified environment
+matrix during refresh. `additional-lock-groups` selects dependency groups for it; when empty, Nab locks the project's
+build requirements. These inputs have no effect when `additional-lock` is absent, and matrix inputs without that lock
+fail. The writer accepts only the named secondary lock path.
+
+For a repository that already commits `pylock.build.toml`, the complete caller is:
+
+```yaml
+name: Upgrade release tools
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: 0 8 * * 2
+permissions: {}
+jobs:
+  upgrade:
+    uses: >-
+      tox-dev/github-workflows/.github/workflows/upgrade-release-tools.yaml@SHA
+    permissions:
+      contents: read
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+    with:
+      lock-groups: build lock-tools release-news release-prepare release-check
+      additional-lock: pylock.build.toml
+      additional-matrix-python: '>=3.15,<3.16'
+      additional-matrix-platforms: linux_x86_64 macos_arm64 windows_amd64
+      additional-matrix-implementations: cpython
+```
+
 The optional `commit-message`, `pull-request-title`, and `pull-request-body` inputs retain existing PR wording. The
 workflow does not update `uv.lock` or a checked-in constraints file. Build constraints are generated from the lock's
 `build` group at runtime.
 
-`refresh-release-lock` is the read-only half of the updater. In `refresh` mode, it upgrades the selected release groups
-under Nab's configured cutoff, runs `prek`, and writes `$RUNNER_TEMP/lock.patch` if the lock or an expired Nab cutoff
-changes. In `check` mode, it regenerates without upgrading and fails if the checked-in files differ; the caller's normal
-formatting job runs `prek`. It rejects changes outside the lock and expired cutoff policy. Its `changed` output is
-`true` only when the refresh produces a patch. Neither mode pushes a branch or requests a write token. Check it on a PR
-in a job with Contents read permission:
+`refresh-release-lock` is the read-only half of the updater. It accepts the same secondary-lock inputs. In `refresh`
+mode, it upgrades the selected release groups under Nab's configured cutoff, runs `prek`, and writes
+`$RUNNER_TEMP/lock.patch` if either lock or an expired Nab cutoff changes. In `check` mode, it regenerates without
+upgrading and fails if the checked-in files differ; the caller's normal formatting job runs `prek`. It rejects changes
+outside the selected locks and expired cutoff policy. Its `changed` output is `true` only when the refresh produces a
+patch. Neither mode pushes a branch or requests a write token. Check it on a PR in a job with Contents read permission:
 
 ```yaml
 release-tools-preview:
@@ -274,9 +314,9 @@ Contents write job that creates the GitHub Release.
 ## Validate a Python release
 
 `validate-python-release.yaml` runs read-only source checks, notes rendering, a hash-constrained wheel and sdist build,
-and distribution checks on a release tag. It checks that the fully qualified tag ref resolves to the checked-out commit
-before building. The workflow uses `$/` for its own Actions, so a caller pinned to a workflow commit runs those Actions
-from the same commit.
+and distribution checks on a release tag. Before building, it requires the fully qualified tag ref to resolve to the
+checked-out commit and that commit to be on `main`. The workflow uses `$/` for its own Actions, so a caller pinned to a
+workflow commit runs those Actions from the same commit.
 
 Call the pinned workflow from the tag publisher's build job:
 
@@ -365,8 +405,7 @@ committed bytes so an untrusted release patch cannot change the allowed paths or
 ```
 
 `working-directory` defaults to `.`; pass a different checkout when validating a patch in a linked worktree. Outputs are
-`changelog`, `fragments`, `format` (`markdown` or `rst`), and `categories-file`, the temporary file with one allowed
-category per line. The Action writes that file under `runner.temp` and does not modify the checkout or GitHub state.
+`changelog`, `fragments`, and `format` (`markdown` or `rst`). The Action does not modify the checkout or GitHub state.
 
 ## Prepare Towncrier release
 
@@ -407,10 +446,10 @@ those changes. The checkout must be clean before this Action starts.
 ## Validate release patch
 
 `validate-release-patch` runs in the caller's fresh checkout of the original branch commit. It rejects a `main` branch
-that moved, applies the uploaded patch, checks its changed paths and file modes, renders the requested version with
-`release-creator`, and runs `prek`. It leaves the patch staged for the commit Action. Run it in a keyless validation
-job. The App-key job repeats the branch, digest, path, and mode checks with `checks: "false"`, without installing
-release tools.
+that moved, applies the uploaded patch, checks its changed paths and file modes, then asks `release-creator` to verify
+that every deleted file is a configured Towncrier fragment. It renders the requested version and runs `prek`. It leaves
+the patch staged for the commit Action. Run it in a keyless validation job. The App-key job repeats the branch, digest,
+path, and mode checks with `checks: "false"`, without installing release tools.
 
 ```yaml
   - uses: tox-dev/github-workflows/validate-release-patch@SHA

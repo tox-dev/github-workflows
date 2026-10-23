@@ -26,7 +26,7 @@ def test_cooldown_installs_only_required_hook_tools() -> None:
     assert next(step for step in action["runs"]["steps"] if step.get("uses") == "$/install-locked-tools") == {
         "uses": "$/install-locked-tools",
         "if": "steps.identity.outputs.bot == 'true'",
-        "with": {"groups": "release-hook-check", "venv": "${{ runner.temp }}/hook-tools"},
+        "with": {"groups": "release-hook-check", "lock-source": "shared", "venv": "${{ runner.temp }}/hook-tools"},
     }
 
 

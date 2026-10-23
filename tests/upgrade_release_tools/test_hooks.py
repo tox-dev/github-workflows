@@ -13,7 +13,9 @@ from conftest import action, run
 def hook_repository(tmp_path: Path) -> Path:
     repository = tmp_path / "repository"
     repository.mkdir()
-    (repository / "pylock.toml").write_bytes((Path(__file__).resolve().parents[2] / "pylock.toml").read_bytes())
+    (repository / "pylock.toml").write_text(
+        'lock-version = "1.0"\ncreated-by = "test"\nrequires-python = ">=3.15"\npackages = []\n',
+    )
     (repository / ".pre-commit-config.yaml").write_text(
         "repos:\n  - repo: local\n    hooks:\n      - id: test\n        name: test\n"
         "        entry: python -c 'pass'\n        language: python\n"
