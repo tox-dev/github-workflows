@@ -475,10 +475,9 @@ checkout or GitHub state.
       tag: ${{ github.ref_name }}
 ```
 
-`tag` is required. `executable` defaults to `release-creator` on `PATH` and accepts a path to a locked installation.
-`package` restricts the search to a package namespace and retains that prefix in the output. `stable-only: "true"`
-ignores prerelease tags. The `previous` output is empty when this is the first matching release. Pass it as
-`previous_tag_name` to GitHub's generated-notes endpoint only when nonempty.
+`tag` is required. `executable` defaults to `release-creator` on `PATH` and accepts a path to a locked installation. The
+`previous` output is empty when this is the first matching release. Pass it as `previous_tag_name` to GitHub's
+generated-notes endpoint only when nonempty.
 
 ## Reconcile PyPI artifacts
 

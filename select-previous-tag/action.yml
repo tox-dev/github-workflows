@@ -4,15 +4,6 @@ inputs:
   tag:
     description: Current release tag
     required: true
-  package:
-    description: Package namespace in a multi-package repository
-    default: ""
-  executable:
-    description: Path to the installed release-creator executable
-    default: release-creator
-  stable-only:
-    description: Ignore prerelease tags when finding the predecessor
-    default: "false"
 outputs:
   previous:
     description: Preceding tag, or empty for the first release
@@ -24,19 +15,11 @@ runs:
       shell: bash
       env:
         TAG: ${{ inputs.tag }}
-        PACKAGE: ${{ inputs.package }}
-        EXECUTABLE: ${{ inputs.executable }}
-        STABLE_ONLY: ${{ inputs.stable-only }}
       run: |
         set -euo pipefail
-        target="$TAG"
-        if [[ -n "$PACKAGE" && "$TAG" != */* ]]; then target="$PACKAGE/$TAG"; fi
-        if ! git show-ref --verify --quiet "refs/tags/$target"; then
-          echo "::error::release tag not found: $target" >&2
+        if ! git show-ref --verify --quiet "refs/tags/$TAG"; then
+          echo "::error::release tag not found: $TAG" >&2
           exit 1
         fi
-        args=(tags "$TAG" --previous)
-        if [[ -n "$PACKAGE" ]]; then args+=(--package "$PACKAGE"); fi
-        if [[ "$STABLE_ONLY" == true ]]; then args+=(--stable-only); fi
-        previous=$(git tag --list | "$EXECUTABLE" "${args[@]}")
+        previous=$(git tag --list | release-creator tags "$TAG" --previous)
         printf 'previous=%s\n' "$previous" >>"$GITHUB_OUTPUT"
