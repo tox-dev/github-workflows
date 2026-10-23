@@ -256,11 +256,8 @@ def source_project(repository: Path) -> Path:
 
 
 @pytest.fixture
-def build_repository(
-    source_project: Path, nab_executable: Path, test_package_index: str, monkeypatch: pytest.MonkeyPatch
-) -> Path:
+def build_repository(source_project: Path, nab_executable: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("SSL_CERT_FILE", raising=False)
-    monkeypatch.setenv("UV_INDEX_URL", test_package_index)
     project = source_project / "pyproject.toml"
     release_requirement = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())[
         "dependency-groups"
@@ -269,7 +266,6 @@ def build_repository(
         project.read_text()
         + f"\n[dependency-groups]\nrelease-notes = [{json.dumps(release_requirement)}]\n"
         + '\n[tool.nab]\nbase-group = "project-runtime"\nbuild-group = "build"\n'
-        + f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{test_package_index}"\nserialization = "html"\n'
     )
     run(source_project, str(nab_executable), "lock", "--groups", "release-notes", "--output", "pylock.toml")
     run(source_project, "git", "add", ".")
