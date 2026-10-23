@@ -68,7 +68,7 @@ def test_hook_refresh_uses_seven_day_cutoff_for_hooks_and_dependencies() -> None
 
 
 @pytest.fixture
-def lock_repository(tmp_path: Path, test_package_index: str) -> Path:
+def lock_repository(tmp_path: Path) -> Path:
     repository = tmp_path / "repository"
     repository.mkdir()
     (repository / "pyproject.toml").write_text(
@@ -77,8 +77,7 @@ def lock_repository(tmp_path: Path, test_package_index: str) -> Path:
         '[tool.nab]\nmode = "universal"\nuploaded-prior-to = "P7D"\n'
         'decision-order = "stable"\nbase-group = "project-runtime"\ndefault-groups = []\n'
         '[tool.nab.matrix]\npython = ">=3.15,<3.16"\n'
-        'platforms = ["linux_x86_64", "linux_aarch64", "macos_arm64", "windows_amd64"]\n'
-        f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{test_package_index}"\nserialization = "html"\n',
+        'platforms = ["linux_x86_64", "linux_aarch64", "macos_arm64", "windows_amd64"]\n',
     )
     run(repository, "git", "init", "-b", "main")
     run(repository, "git", "config", "user.name", "Release test")
