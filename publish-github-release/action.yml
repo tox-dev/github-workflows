@@ -136,6 +136,7 @@ runs:
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
+        source "$GITHUB_ACTION_PATH/retry.sh"
         if [[ "$MODE" != publish && -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob
           release_id=$(<"$RUNNER_TEMP/release-id")
@@ -144,31 +145,21 @@ runs:
               gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id" >/dev/null
             done < <(jq -r '.[0].assets[] | select(.state != "uploaded") | .id' "$RUNNER_TEMP/release-existing.json")
           fi
-          for attempt in {1..6}; do
-            if ! gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-current.json"; then
-              if ((attempt == 6)); then
-                echo '::error::draft release could not be read' >&2
-                exit 1
-              fi
-              sleep 2
-              continue
-            fi
-            if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+          read_draft() {
+            gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-current.json" &&
+              jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
               --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
                 length == 1 and .[0].name == $title and .[0].body == $body and
                 .[0].prerelease == $prerelease and
                 all(.[0].assets[]; .state == "uploaded" and
                   (.name as $name | .digest as $digest |
                     any($assets[0][]; .name == $name and .digest == $digest)))
-              ' "$RUNNER_TEMP/release-current.json" >/dev/null; then
-              break
-            fi
-            if ((attempt == 6)); then
-              echo '::error::draft release did not become visible' >&2
-              exit 1
-            fi
-            sleep 2
-          done
+              ' "$RUNNER_TEMP/release-current.json" >/dev/null
+          }
+          if ! retry read_draft; then
+            echo '::error::draft release did not become visible' >&2
+            exit 1
+          fi
           if jq -e '.[0].draft' "$RUNNER_TEMP/release-current.json" >/dev/null; then
             for asset in "$ASSETS_DIRECTORY"/*; do
               name=${asset##*/}
@@ -217,29 +208,22 @@ runs:
         PRERELEASE: ${{ inputs.prerelease }}
       run: |
         set -euo pipefail
+        source "$GITHUB_ACTION_PATH/retry.sh"
         release_id=$(<"$RUNNER_TEMP/release-id")
-        for attempt in {1..6}; do
-          if ! gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-complete.json"; then
-            if ((attempt == 6)); then
-              echo '::error::release could not be read after upload' >&2
-              exit 1
-            fi
-            sleep 2
-            continue
-          fi
-          if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+        read_complete() {
+          gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-complete.json" &&
+            jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
             --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
               length == 1 and .[0].name == $title and .[0].body == $body and
               .[0].prerelease == $prerelease and
               ([.[0].assets[] | select(.state == "uploaded") | {name, digest}] | sort_by(.name)) ==
               ($assets[0] | sort_by(.name))
-            ' "$RUNNER_TEMP/release-complete.json" >/dev/null; then
-            exit 0
-          fi
-          if ((attempt < 6)); then sleep 2; fi
-        done
-        echo '::error::release metadata or assets did not match after publication' >&2
-        exit 1
+            ' "$RUNNER_TEMP/release-complete.json" >/dev/null
+        }
+        if ! retry read_complete; then
+          echo '::error::release metadata or assets did not match after publication' >&2
+          exit 1
+        fi
     - name: Publish the draft
       shell: bash
       env:
@@ -260,16 +244,11 @@ runs:
         ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
       run: |
         set -euo pipefail
+        source "$GITHUB_ACTION_PATH/retry.sh"
         shopt -s nullglob
         for asset in "$ASSETS_DIRECTORY"/*; do
-          for attempt in {1..6}; do
-            if gh release verify-asset "$TAG" "$asset" --repo "$GH_REPO"; then
-              break
-            fi
-            if ((attempt == 6)); then
-              echo "::error::release asset attestation could not be verified: ${asset##*/}" >&2
-              exit 1
-            fi
-            sleep 2
-          done
+          if ! retry gh release verify-asset "$TAG" "$asset" --repo "$GH_REPO"; then
+            echo "::error::release asset attestation could not be verified: ${asset##*/}" >&2
+            exit 1
+          fi
         done
