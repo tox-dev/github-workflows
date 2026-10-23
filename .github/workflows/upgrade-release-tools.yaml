@@ -15,7 +15,7 @@ on:
         type: string
         default: ""
       additional-lock-selection:
-        description: Use project runtime dependencies for the secondary lock
+        description: Select project dependencies and configured groups for the secondary lock
         type: string
         default: build-or-groups
       additional-matrix-python:

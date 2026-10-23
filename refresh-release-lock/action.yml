@@ -11,7 +11,7 @@ inputs:
     description: Groups for the secondary lock; empty selects build requirements
     default: ""
   additional-lock-selection:
-    description: Use project runtime dependencies for the secondary lock
+    description: Select project dependencies and configured groups for the secondary lock
     default: build-or-groups
   additional-matrix-python:
     description: Python range for the secondary lock
