@@ -99,6 +99,33 @@ def test_cooldown_skips_bot_without_hook_changes(
     ]
 
 
+def test_cooldown_trusts_its_generated_update_branch(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    expect_pull(server, author="release-app[bot]", branch="automation/update-release-tools")
+
+    result = run_cooldown(action_scripts, tmp_path, environment)
+
+    assert result.returncode == 0, result.stderr
+    assert [request.path for request, _ in server.log] == ["/api/v3/repos/tox-dev/fixture/pulls/7"]
+
+
+def test_cooldown_rejects_hook_configuration_change(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(server, author="pre-commit-ci[bot]")
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1", hook="      - id: sample\n        entry: untrusted\n")
+
+    result = run_cooldown(action_scripts, tmp_path, environment)
+
+    assert result.returncode != 0
+    assert "changes fields beyond revisions" in result.stderr
+
+
 def test_cooldown_rejects_changed_head(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
@@ -317,21 +344,22 @@ def expect_pull(
     observed_days: int | None = 10,
     updated_days: int = 0,
     hook_update: bool = True,
+    branch: str = "bot-update",
 ) -> None:
     server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7", method="GET").respond_with_json(
         {
             "state": "open",
             "base": {"repo": {"full_name": "tox-dev/fixture"}, "sha": "b" * 40},
-            "head": {"sha": head, "ref": "bot-update"},
+            "head": {"sha": head, "ref": branch, "repo": {"full_name": "tox-dev/fixture"}},
             "user": {"login": author, "type": "Bot" if author.endswith("[bot]") else "User"},
             "updated_at": (datetime.now(UTC) - timedelta(days=updated_days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
     )
-    if author.endswith("[bot]"):
+    if author.endswith("[bot]") and branch != "automation/update-release-tools":
         server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7/files", method="GET").respond_with_json(
             [{"filename": ".pre-commit-config.yaml" if hook_update else "pyproject.toml"}]
         )
-    if author.endswith("[bot]") and hook_update:
+    if author.endswith("[bot]") and hook_update and branch != "automation/update-release-tools":
         server.expect_request(
             "/api/v3/repos/tox-dev/fixture/actions/runs",
             method="GET",
@@ -356,7 +384,14 @@ def expect_pull(
         )
 
 
-def expect_config(server: HTTPServer, sha: str, repository: Path, revision: str | tuple[str, ...]) -> None:
+def expect_config(
+    server: HTTPServer,
+    sha: str,
+    repository: Path,
+    revision: str | tuple[str, ...],
+    *,
+    hook: str = "      - id: sample\n",
+) -> None:
     revisions = (revision,) if isinstance(revision, str) else revision
     server.expect_request(
         "/api/v3/repos/tox-dev/fixture/contents/.pre-commit-config.yaml", method="GET", query_string=f"ref={sha}"
@@ -366,8 +401,7 @@ def expect_config(server: HTTPServer, sha: str, repository: Path, revision: str 
                 (
                     "repos:\n"
                     + "".join(
-                        f"  - repo: {repository.as_uri()}\n    rev: {item}\n    hooks:\n      - id: sample\n"
-                        for item in revisions
+                        f"  - repo: {repository.as_uri()}\n    rev: {item}\n    hooks:\n{hook}" for item in revisions
                     )
                 ).encode()
             ).decode()

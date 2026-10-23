@@ -165,7 +165,8 @@ with `actions: read`, `contents: read`, and `pull-requests: read`, then include 
 its PR number and head SHA from the event, compares them with the live PR, and requires each proposed revision to have
 appeared in a GitHub PR workflow run at least `minimum-days` earlier. The default is seven days. A force push does not
 reset an unchanged revision's age or give a new revision the old one's age. Human PRs pass without installing hook
-tools.
+tools. Bot PRs may change hook revisions only. The repository's `automation/update-release-tools` branch is exempt
+because its separate generator freezes the hook revisions and Python dependencies before opening the PR.
 
 ```yaml
 hook-cooldown:

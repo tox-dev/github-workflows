@@ -31,6 +31,12 @@ runs:
           .head.sha == $head and
           (.user.login | type == "string")
         ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null
+        if jq -e --arg repository "$REPOSITORY" '
+          .user.type == "Bot" and .head.repo.full_name == $repository and
+          .head.ref == "automation/update-release-tools"
+        ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null; then
+          exit 0
+        fi
         if [[ $(jq -r .user.type "$RUNNER_TEMP/hook-update-pr.json") == Bot ]]; then
           gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' \
             >"$RUNNER_TEMP/hook-update-files"
@@ -81,6 +87,20 @@ runs:
           base64 --decode >"$RUNNER_TEMP/proposed-hooks.yaml"
         cp "$RUNNER_TEMP/base-hooks.yaml" "$RUNNER_TEMP/eligible-hooks.yaml"
         git init -q "$RUNNER_TEMP/hook-cooldown"
+    - name: Reject non-revision hook changes
+      if: steps.identity.outputs.bot == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        for config in base proposed; do
+          uv run --no-project --python "$RUNNER_TEMP/hook-tools" yq -c '
+            .repos |= map(if has("rev") then .rev = null else . end)
+          ' "$RUNNER_TEMP/$config-hooks.yaml" | jq -S . >"$RUNNER_TEMP/$config-hook-content.json"
+        done
+        if ! cmp -s "$RUNNER_TEMP/base-hook-content.json" "$RUNNER_TEMP/proposed-hook-content.json"; then
+          echo '::error::hook update changes fields beyond revisions' >&2
+          exit 1
+        fi
     - name: Select eligible hook revisions
       if: steps.identity.outputs.bot == 'true'
       shell: bash
