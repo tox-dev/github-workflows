@@ -10,9 +10,6 @@ inputs:
   working-directory:
     description: Checkout to validate and apply the patch in
     default: .
-  expected-patch-sha:
-    description: Deprecated; artifact IDs already verify downloaded patches
-    default: ""
   checks:
     description: Run release-creator and prek after applying the patch
     default: "true"

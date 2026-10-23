@@ -386,7 +386,6 @@ and mode checks with `checks: "false"`, without installing release tools.
 - `working-directory`: Checkout where the patch is applied; default `.`. Assembly uses a fresh linked worktree here so
   validation cannot pass because of files left by preparation.
 - `checks`: `true` (default) runs `release-creator` and `prek`; `false` only applies and checks the validated patch.
-- `expected-patch-sha`: Accepted for older callers but ignored. Artifact downloads by ID already verify the digest.
 
 **Output:** No named output. **Working-tree effect:** Applies and stages the patch. The Action reads the changelog path,
 fragment directory, and categories from committed Towncrier configuration. Only the changelog and direct fragment
