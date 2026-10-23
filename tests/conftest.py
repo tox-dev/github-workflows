@@ -389,6 +389,7 @@ def _safe_environment() -> dict[str, str]:
             "LANG",
             "PATH",
             "UV_CACHE_DIR",
+            "UV_SYSTEM_CERTS",
             "HTTP_PROXY",
             "HTTPS_PROXY",
             "NO_PROXY",
