@@ -56,6 +56,17 @@ def test_upgrade_pull_request_uses_repository_app() -> None:
             assert step["env"]["GH_TOKEN"] == "${{ steps.token.outputs.token }}"
 
 
+def test_hook_refresh_uses_seven_day_cutoff_for_hooks_and_dependencies() -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/upgrade-release-tools.yaml").read_text()
+    )
+    steps = workflow["jobs"]["generate-hooks"]["steps"]
+    revisions = next(step for step in steps if step.get("name") == "Refresh frozen hook revisions")
+    dependencies = next(step for step in steps if step.get("name") == "Refresh exact hook dependencies")
+    assert "--cooldown-days 7" in revisions["run"]
+    assert "--exclude-newer '7 days'" in dependencies["run"]
+
+
 @pytest.fixture
 def lock_repository(tmp_path: Path, test_package_index: str) -> Path:
     repository = tmp_path / "repository"

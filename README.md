@@ -231,10 +231,9 @@ build:
     contents: read
 ```
 
-The caller needs `release-check` for prek, `pkg-meta` for the distribution checks, and a `build` group for backend
-constraints. `source` defaults to `.`. Use `artifact-prefix` when one tag produces more than one distribution path; each
-call then writes a distinct `python-package-distributions` artifact. A caller pinned to a workflow commit runs that
-commit's local Actions.
+The caller needs `release-check` for prek and a `build` group for backend constraints. `source` defaults to `.`. Use
+`artifact-prefix` when one tag produces more than one distribution path; each call then writes a distinct
+`python-package-distributions` artifact. A caller pinned to a workflow commit runs that commit's local Actions.
 
 Publish only after the reusable workflow succeeds. Download the distribution with pinned `download-artifact`
 [v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
@@ -336,8 +335,8 @@ committed bytes so an untrusted release patch cannot change the allowed paths or
 `prepare-towncrier` chooses the next version, links fragments to their squash PRs, runs Towncrier and the selected
 formatter hook through `prek`, then writes a binary Git patch at `$RUNNER_TEMP/release.patch`. It reads the changelog
 path, fragment directory, categories, and Markdown or RST format from committed Towncrier configuration through
-`read-towncrier-config`. It does not commit or push. It fails if version selection, notes rendering, formatting, or
-checks fail, or if preparation creates untracked files or no patch.
+`read-towncrier-config`. It does not commit or push. Version selection, fragment linking, the Towncrier build, and
+formatting must all succeed.
 
 ```yaml
   - id: prepare

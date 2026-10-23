@@ -26,7 +26,12 @@ def test_validator_isolates_release_tools_from_build() -> None:
     assert workflow["jobs"]["build"]["needs"] == "constraints"
     assert not any(step.get("uses", "").startswith("$/install-") for step in workflow["jobs"]["build"]["steps"])
     assert workflow["jobs"]["validate"]["needs"] == "build"
-    assert any(step.get("uses") == "$/install-locked-tools" for step in workflow["jobs"]["validate"]["steps"])
+    assert not any(step.get("uses") == "$/install-locked-tools" for step in workflow["jobs"]["validate"]["steps"])
+    validator = next(
+        step for step in workflow["jobs"]["validate"]["steps"] if step.get("name") == "Install distribution validators"
+    )
+    assert "twine>=7" in validator["run"]
+    assert "check-wheel-contents>=0.6.3" in validator["run"]
 
 
 @pytest.mark.parametrize(
