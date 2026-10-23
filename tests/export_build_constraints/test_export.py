@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import runpy
 import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import dedent
+from typing import cast
 
 import pytest
 import tomlkit
@@ -155,23 +158,25 @@ def test_export_build_constraints_selects_explicit_targets(tmp_path: Path, platf
         ),
     ],
 )
-def test_export_build_constraints_rejects_invalid_arguments(tmp_path: Path, arguments: list[str], message: str) -> None:
+def test_export_build_constraints_rejects_invalid_arguments(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    arguments: list[str],
+    message: str,
+) -> None:
     source = Path(__file__).resolve().parents[2]
     lock = tmp_path / "pylock.build.toml"
     write_matrix_lock(lock)
     paths = {"output": str(tmp_path / "constraints.txt"), "lock": str(lock), "project": str(source / "pyproject.toml")}
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(source / "tools/build_constraints.py"),
-            *(argument.format_map(paths) for argument in arguments),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode != 0
-    assert message in result.stderr
+    script = source / "tools/build_constraints.py"
+    command = runpy.run_path(str(script), run_name="build_constraints_imported")
+    monkeypatch.setattr(sys, "argv", [str(script), *(argument.format_map(paths) for argument in arguments)])
+
+    with pytest.raises(SystemExit, match="2"):
+        cast("Callable[[], None]", command["main"])()
+
+    assert message in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

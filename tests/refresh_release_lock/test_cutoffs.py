@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import importlib
+import runpy
 import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import pytest
 import tomlkit
@@ -130,6 +133,28 @@ def test_verify_cutoff_patch_rejects_deliberate_hold_removal(cutoff_project: Pat
 
     assert result.returncode != 0
     assert "changes beyond expired Nab cutoffs" in result.stderr
+
+
+def test_verify_cutoff_patch_accepts_only_unchanged_metadata(
+    cutoff_project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = Path(__file__).resolve().parents[2] / "tools"
+    monkeypatch.syspath_prepend(str(source))
+    script = source / "verify_cutoff_patch.py"
+    command = runpy.run_path(str(script), run_name="verify_cutoff_imported")
+    monkeypatch.chdir(cutoff_project.parent)
+    monkeypatch.setattr(sys, "argv", [str(script)])
+    main = cast("Callable[[], None]", command["main"])
+
+    main()
+    cutoff_project.write_text(cutoff_project.read_text().replace('name = "example"', 'name = "intruder"'))
+
+    with pytest.raises(SystemExit, match="2"):
+        main()
+
+    assert "changes beyond expired Nab cutoffs" in capsys.readouterr().err
 
 
 def test_verify_cutoff_patch_rejects_other_metadata(cutoff_project: Path) -> None:
@@ -388,18 +413,30 @@ def test_recent_cutoff_rejects_custom_index() -> None:
     assert "custom Nab indexes" in result.stderr
 
 
-def test_recent_cutoff_rejects_project_nab_toml(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text('[tool.nab]\nuploaded-prior-to = "P7D"\n')
-    (tmp_path / "nab.toml").write_text("[packages.example]\nuploaded-prior-to = false\n")
-    result = subprocess.run(
-        [sys.executable, str(Path(__file__).resolve().parents[2] / "tools/check_recent_cutoffs.py"), "pyproject.toml"],
-        cwd=tmp_path,
-        text=True,
-        capture_output=True,
-        check=False,
+def test_recent_cutoff_rejects_index_settings_without_cutoff() -> None:
+    result = _check_recent_cutoffs(
+        '[tool.nab]\nuploaded-prior-to = "P7D"\n[tool.nab.index.pypi]\nallow-insecure-host = true\n'
     )
     assert result.returncode != 0
-    assert "project nab.toml can override" in result.stderr
+    assert "custom Nab indexes" in result.stderr
+
+
+def test_recent_cutoff_rejects_project_nab_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pyproject.toml").write_text('[tool.nab]\nuploaded-prior-to = "P7D"\n')
+    (tmp_path / "nab.toml").write_text("[packages.example]\nuploaded-prior-to = false\n")
+    source = Path(__file__).resolve().parents[2] / "tools"
+    monkeypatch.syspath_prepend(str(source))
+    script = source / "check_recent_cutoffs.py"
+    command = runpy.run_path(str(script), run_name="recent_cutoffs_imported")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", [str(script), "pyproject.toml"])
+
+    with pytest.raises(SystemExit, match="2"):
+        cast("Callable[[], None]", command["main"])()
+
+    assert "project nab.toml can override" in capsys.readouterr().err
 
 
 def test_verify_cutoff_patch_reports_invalid_boolean(cutoff_project: Path) -> None:
