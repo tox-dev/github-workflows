@@ -9,7 +9,8 @@ from conftest import action, run
 
 
 @pytest.fixture
-def distribution(source_project: Path, nab_executable: Path) -> tuple[Path, Path]:
+def distribution(source_project: Path, nab_executable: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
     project = source_project / "pyproject.toml"
     project.write_text(
         project.read_text() + '\n[dependency-groups]\npkg-meta = ["check-wheel-contents>=0.6.3", "twine>=7"]\n',
