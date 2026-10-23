@@ -77,6 +77,12 @@ jobs:
       - name: Install local release tool wheel
         if: inputs.local-tool-source
         run: uv pip install --python .venv/bin/python --no-deps "$RUNNER_TEMP/local-tool-dist/"*.whl
+      - name: Expose local release command
+        if: inputs.local-tool-source
+        run: |
+          mkdir -p "$RUNNER_TEMP/local-release-cli"
+          ln -s "$GITHUB_WORKSPACE/.venv/bin/release-creator" "$RUNNER_TEMP/local-release-cli/release-creator"
+          echo "$RUNNER_TEMP/local-release-cli" >>"$GITHUB_PATH"
       - id: prepare
         name: Build changelog
         uses: $/prepare-towncrier

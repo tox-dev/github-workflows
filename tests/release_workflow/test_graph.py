@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -63,6 +64,41 @@ def test_prepare_builds_local_tool_once_with_locked_backends() -> None:
     assert any(
         step.get("name") == "Install local release tool wheel" and '"$RUNNER_TEMP/local-tool-dist/"*.whl' in step["run"]
         for step in steps
+    )
+
+
+def test_prepare_exposes_local_command_without_shadowing_python(tmp_path: Path) -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
+    )
+    steps = workflow["jobs"]["assemble"]["steps"]
+    expose = next(step for step in steps if step.get("name") == "Expose local release command")
+    assert expose["if"] == "inputs.local-tool-source"
+    assert steps.index(expose) > next(
+        index for index, step in enumerate(steps) if step.get("name") == "Install local release tool wheel"
+    )
+    assert steps.index(expose) < next(index for index, step in enumerate(steps) if step.get("id") == "prepare")
+    command = tmp_path / ".venv/bin/release-creator"
+    command.parent.mkdir(parents=True)
+    command.symlink_to(sys.executable)
+    output = tmp_path / "github-path"
+
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", expose["run"]],
+        cwd=tmp_path,
+        env={**os.environ, "GITHUB_WORKSPACE": str(tmp_path), "RUNNER_TEMP": str(tmp_path), "GITHUB_PATH": str(output)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    overlay = Path(output.read_text().strip())
+    assert (overlay / "release-creator").resolve() == command.resolve()
+    assert not (overlay / "python").exists()
+    assert (
+        subprocess.run([str(overlay / "release-creator"), "--version"], check=False, capture_output=True).returncode
+        == 0
     )
 
 
