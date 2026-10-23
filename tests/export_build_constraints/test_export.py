@@ -129,6 +129,126 @@ def test_export_build_constraints_selects_explicit_targets(tmp_path: Path, platf
     assert output.read_text() == f"example==1.0 --hash=sha256:{'0' * 64}\n"
 
 
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        pytest.param(["{output}", "{lock}", "{lock}", "{lock}"], "at most one shared", id="three-locks"),
+        pytest.param(
+            ["--shared-policy", "{project}", "{output}", "{lock}"],
+            "shared-policy requires a shared and caller lock",
+            id="policy-without-caller",
+        ),
+        pytest.param(
+            ["--target-platform", "unknown", "--targets", "3.15.0:cpython", "{output}", "{lock}"],
+            "unknown target platform",
+            id="unknown-platform",
+        ),
+        pytest.param(
+            ["--target-platform", "linux_x86_64", "--targets", "3.15:cpython", "{output}", "{lock}"],
+            "invalid target",
+            id="incomplete-python-version",
+        ),
+        pytest.param(
+            ["--target-platform", "linux_x86_64", "--targets", " , ", "{output}", "{lock}"],
+            "at least one target",
+            id="empty-targets",
+        ),
+    ],
+)
+def test_export_build_constraints_rejects_invalid_arguments(tmp_path: Path, arguments: list[str], message: str) -> None:
+    source = Path(__file__).resolve().parents[2]
+    lock = tmp_path / "pylock.build.toml"
+    write_matrix_lock(lock)
+    paths = {"output": str(tmp_path / "constraints.txt"), "lock": str(lock), "project": str(source / "pyproject.toml")}
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(source / "tools/build_constraints.py"),
+            *(argument.format_map(paths) for argument in arguments),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert message in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        pytest.param("missing-build-group", "dependency groups but no build group", id="missing-build-group"),
+        pytest.param("local-package", "must be an index version", id="local-package"),
+        pytest.param("missing-hash", "has no SHA256 hash", id="missing-hash"),
+    ],
+)
+def test_export_build_constraints_rejects_untrusted_build_packages(tmp_path: Path, change: str, message: str) -> None:
+    source = Path(__file__).resolve().parents[2]
+    lock = tmp_path / "pylock.build.toml"
+    write_matrix_lock(lock)
+    content = lock.read_text()
+    if change == "missing-build-group":
+        content = content.replace("[[packages]]", 'dependency-groups = ["release"]\n[[packages]]')
+    elif change == "local-package":
+        content = content.replace('index = "https://pypi.org/simple/"', 'directory = { path = "." }')
+        content = content.replace("[[packages.wheels]]", "")
+        content = (
+            content[: content.index('name = "example-1.0-py3-none-any.whl"')]
+            + "[tool.nab]\ncreated-at = 2026-10-23T00:00:00Z\n"
+        )
+    else:
+        content = content.replace('hashes.sha256 = "' + "0" * 64 + '"', 'hashes.sha512 = "' + "0" * 128 + '"')
+    lock.write_text(content)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(source / "tools/build_constraints.py"),
+            "--target-platform",
+            "macos_arm64",
+            "--targets",
+            "3.15.0:cpython",
+            str(tmp_path / "constraints.txt"),
+            str(lock),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert message in result.stderr
+
+
+def test_export_build_constraints_rejects_conflicting_versions_without_policy(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    shared = source / "pylock.toml"
+    caller = tmp_path / "pylock.toml"
+    document = tomlkit.parse(shared.read_text())
+    package = next(package for package in document["packages"] if package["name"] == "setuptools")
+    package["version"] = "81.0.0"
+    for artifact in [package["sdist"], *package["wheels"]]:
+        artifact["name"] = artifact["name"].replace("84.0.0", "81.0.0")
+        artifact["url"] = artifact["url"].replace("84.0.0", "81.0.0")
+    caller.write_text(tomlkit.dumps(document))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(source / "tools/build_constraints.py"),
+            str(tmp_path / "constraints.txt"),
+            str(shared),
+            str(caller),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "conflicting build dependency versions for setuptools" in result.stderr
+
+
 def test_export_build_constraints_action_selects_secondary_lock(tmp_path: Path, action_scripts: Path) -> None:
     expected = write_published_matrix_lock(tmp_path / "pylock.build.toml")
 

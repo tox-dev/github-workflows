@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import subprocess
 import sys
 import tomllib
@@ -8,6 +9,7 @@ from pathlib import Path
 
 import pytest
 import tomlkit
+from pytest_mock import MockerFixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tools.check_nab_lock import main as check_nab_lock
@@ -431,6 +433,107 @@ def test_expire_cutoffs_preserves_disabled_package(cutoff_project: Path) -> None
     )
     assert result.returncode == 0, result.stderr
     assert tomllib.loads(cutoff_project.read_text())["tool"]["nab"]["packages"]["new"]["uploaded-prior-to"] is False
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        pytest.param("true", "invalid Nab cutoff", id="boolean"),
+        pytest.param('"2026-01-01T00:00:00"', "has no timezone", id="naive-time"),
+    ],
+)
+def test_recent_cutoff_rejects_invalid_package_time(value: str, message: str) -> None:
+    result = _check_recent_cutoffs(
+        f'[tool.nab]\nuploaded-prior-to = "P7D"\n[tool.nab.packages.example]\nuploaded-prior-to = {value}\n'
+    )
+    assert result.returncode != 0
+    assert message in result.stderr
+
+
+def test_recent_cutoff_cli_rejects_missing_project(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[2] / "tools/check_recent_cutoffs.py"),
+            str(tmp_path / "missing"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "No such file" in result.stderr
+
+
+def test_expire_cutoffs_removes_reviewed_rule() -> None:
+    project = (
+        '[tool.nab]\nuploaded-prior-to = "P7D"\n'
+        '[[tool.nab.package-rules]]\nmatch = ["release-creator"]\n'
+        'uploaded-prior-to = "2026-10-23T19:54:50Z"\n'
+    )
+    updated = remove_expired_cutoffs(project, datetime(2026, 11, 1, tzinfo=UTC))
+    assert "package-rules" not in tomllib.loads(updated)["tool"]["nab"]
+
+
+def test_expire_cutoffs_rejects_naive_reviewed_time() -> None:
+    project = "[tool.nab]\n[tool.nab.packages.nab]\nuploaded-prior-to = 2026-10-18T05:45:09\n"
+    with pytest.raises(ValueError, match="has no timezone"):
+        remove_expired_cutoffs(project, datetime(2026, 11, 1, tzinfo=UTC))
+
+
+def test_expire_cutoffs_keeps_disabled_reviewed_package() -> None:
+    project = "[tool.nab]\n[tool.nab.packages.nab]\nuploaded-prior-to = false\n"
+    assert remove_expired_cutoffs(project, datetime(2026, 11, 1, tzinfo=UTC)) == project
+
+
+def test_expire_cutoffs_cli_writes_expired_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture
+) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "tools"))
+    module = importlib.import_module("expire_cutoffs")
+    project = tmp_path / "pyproject.toml"
+    project.write_text(
+        '[tool.nab]\nuploaded-prior-to = "P7D"\n'
+        '[[tool.nab.package-rules]]\nmatch = ["release-creator"]\n'
+        'uploaded-prior-to = "2026-10-23T19:54:50Z"\n'
+    )
+    mocker.patch.object(
+        module, "datetime", mocker.Mock(now=mocker.Mock(return_value=datetime(2026, 11, 1, tzinfo=UTC)))
+    )
+    monkeypatch.setattr(sys, "argv", ["expire_cutoffs", str(project)])
+
+    module.main()
+
+    assert "package-rules" not in tomllib.loads(project.read_text())["tool"]["nab"]
+
+
+def test_expire_cutoffs_cli_rejects_missing_project(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[2] / "tools/expire_cutoffs.py"),
+            str(tmp_path / "missing"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "No such file" in result.stderr
+
+
+def test_expire_cutoffs_retains_other_rule_settings() -> None:
+    project = (
+        '[tool.nab]\nuploaded-prior-to = "P7D"\n'
+        '[tool.nab.packages.nab]\nuploaded-prior-to = "2026-10-18T05:45:09Z"\nindex = "pypi"\n'
+        '[[tool.nab.package-rules]]\nmatch = ["nab-index"]\n'
+        'uploaded-prior-to = "2026-10-18T05:45:09Z"\npriority = 1\n'
+    )
+
+    updated = tomllib.loads(remove_expired_cutoffs(project, datetime(2026, 11, 1, tzinfo=UTC)))
+
+    assert updated["tool"]["nab"]["packages"]["nab"] == {"index": "pypi"}
+    assert updated["tool"]["nab"]["package-rules"] == [{"match": ["nab-index"], "priority": 1}]
 
 
 def _check_recent_cutoffs(project: str) -> subprocess.CompletedProcess[str]:
