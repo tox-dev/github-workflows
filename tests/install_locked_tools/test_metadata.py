@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import runpy
 import sys
+from email.message import Message
 from io import BytesIO
 from pathlib import Path
 from textwrap import dedent
@@ -122,7 +123,7 @@ def test_lock_metadata_retries_transient_http_error(
     request = mocker.patch(
         "urllib.request.urlopen",
         side_effect=[
-            HTTPError("https://pypi.org/simple/six/", status, "transient", None, None),
+            HTTPError("https://pypi.org/simple/six/", status, "transient", Message(), None),
             BytesIO(json.dumps(pypi_listing).encode()),
         ],
     )
@@ -147,7 +148,7 @@ def test_lock_metadata_rejects_http_error(
 ) -> None:
     request = mocker.patch(
         "urllib.request.urlopen",
-        side_effect=HTTPError("https://pypi.org/simple/six/", status, "unavailable", None, None),
+        side_effect=HTTPError("https://pypi.org/simple/six/", status, "unavailable", Message(), None),
     )
     mocker.patch("time.sleep")
 
