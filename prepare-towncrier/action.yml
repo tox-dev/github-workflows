@@ -45,21 +45,18 @@ runs:
         BUMP: ${{ inputs.bump }}
         TAG_PREFIX: ${{ inputs.tag-prefix }}
         VERSION: ${{ inputs.version }}
-        EXPLICIT_VERSION: ${{ inputs.version }}
         FRAGMENTS: ${{ steps.config.outputs.fragments }}
       run: |
         set -euo pipefail
-        if [[ -z "$VERSION" ]]; then
+        if [[ -n "$VERSION" ]]; then
+          git tag --list | release-creator tags --next auto --directory "$FRAGMENTS" >/dev/null
+          git tag --list | release-creator tags "$VERSION" --require-newer
+        else
           args=(--next "$BUMP" --directory "$FRAGMENTS")
           if [[ -n "$TAG_PREFIX" ]]; then
             args+=(--prefix "$TAG_PREFIX")
           fi
           VERSION=$(git tag --list | release-creator tags "${args[@]}")
-        else
-          git tag --list | release-creator tags --next auto --directory "$FRAGMENTS" >/dev/null
-        fi
-        if [[ -n "$EXPLICIT_VERSION" ]]; then
-          git tag --list | release-creator tags "$VERSION" --require-newer
         fi
         printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
     - name: Link fragments and authors

@@ -34,10 +34,9 @@ def main() -> None:
     parser.add_argument("project")
     parser.add_argument("version")
     parser.add_argument("dist", type=Path)
-    parser.add_argument("--wait-seconds", type=int, default=120)
     args = parser.parse_args()
     try:
-        for path in verify_files(args.project, args.version, args.dist, args.wait_seconds):
+        for path in verify_files(args.project, args.version, args.dist, 120):
             print(path)
     except (OSError, TypeError, ValueError, IncompleteRead) as error:
         parser.error(str(error))

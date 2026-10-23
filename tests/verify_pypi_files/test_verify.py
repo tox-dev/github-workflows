@@ -68,7 +68,7 @@ def test_main_prints_distribution_paths(
     distribution: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _serve(mocker, distribution)
-    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution), "--wait-seconds", "0"])
+    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution)])
 
     cast("Callable[[], None]", _MODULE.main)()
 
@@ -94,7 +94,7 @@ def test_script_entrypoint_prints_distribution_paths(
     distribution: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
 ) -> None:
     mocker.patch("urllib.request.urlopen", return_value=_body(_listing(distribution)))
-    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution), "--wait-seconds", "0"])
+    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution)])
 
     runpy.run_path(str(Path(__file__).resolve().parents[2] / "tools/verify_pypi_files.py"), run_name="__main__")
 
@@ -369,7 +369,8 @@ def test_main_reports_exhausted_incomplete_read(
     distribution: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
 ) -> None:
     mocker.patch.object(_MODULE, "urlopen", side_effect=IncompleteRead(b"partial", 10))
-    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution), "--wait-seconds", "0"])
+    mocker.patch.object(_MODULE.time, "monotonic", side_effect=[0, 121])
+    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution)])
 
     with pytest.raises(SystemExit) as raised:
         cast("Callable[[], None]", _MODULE.main)()

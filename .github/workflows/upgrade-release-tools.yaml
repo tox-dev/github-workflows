@@ -111,7 +111,7 @@ jobs:
           uv run --no-project --python "$RUNNER_TEMP/hook-tools" prek update --config .pre-commit-config.yaml --freeze --cooldown-days 7 --no-progress
       - name: Refresh exact hook dependencies
         run: >-
-          uv run --no-project --python "$RUNNER_TEMP/hook-tools" release-creator hooks --exclude-newer '7 days' --python-version 3.15
+          uv run --no-project --python "$RUNNER_TEMP/hook-tools" release-creator hooks
       - id: hooks
         name: Write hook patch
         run: |
