@@ -42,7 +42,7 @@ runs:
           $(cat "$RUNNER_TEMP/lock-tools/.lock-digest") == "${digest%% *}" ]]; then
           exit 0
         fi
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/lock-tools" --group lock-tools \
+        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/lock-tools" --group lock-reader \
           --only-binary :all: --require-hashes "$GITHUB_ACTION_PATH/../pylock.toml"
         printf '%s\n' "${digest%% *}" >"$RUNNER_TEMP/lock-tools/.lock-digest"
     - id: selection

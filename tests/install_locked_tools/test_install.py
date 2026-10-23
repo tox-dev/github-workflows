@@ -93,12 +93,12 @@ def test_backend_constraints_match_shared_lock(tmp_path: Path) -> None:
     assert "--hash=sha256:" in constraints
 
 
-def test_install_lock_tools_rejects_hash_mismatch(tmp_path: Path, action_scripts: Path) -> None:
+def test_install_lock_reader_rejects_hash_mismatch(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     action_root = tmp_path / "install-locked-tools"
     action_root.mkdir()
     lock = (source / "pylock.toml").read_text()
-    package = next(package for package in tomllib.loads(lock)["packages"] if package["name"] == "nab")
+    package = next(package for package in tomllib.loads(lock)["packages"] if package["name"] == "packaging")
     (tmp_path / "pylock.toml").write_text(lock.replace(package["wheels"][0]["hashes"]["sha256"], "0" * 64, 1))
     result = action(
         tmp_path,
@@ -133,6 +133,22 @@ def test_install_locked_tools_exposes_release_commands(tmp_path: Path, action_sc
     assert (overlay / f"prek{suffix}").is_file()
     command = subprocess.run([str(overlay / f"prek{suffix}"), "--version"], capture_output=True, text=True, check=False)
     assert command.returncode == 0, command.stderr
+
+
+def test_install_locked_tools_uses_minimal_reader(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    result = install(source, action_scripts, tmp_path, groups="release-check", venv=tmp_path / "tools")
+
+    assert result.returncode == 0, result.stderr
+    reader = tmp_path / "lock-tools" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    packages = subprocess.run(
+        [str(reader), "-c", "import importlib.util; print(importlib.util.find_spec('nab') is None)"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert packages.returncode == 0, packages.stderr
+    assert packages.stdout.strip() == "True"
 
 
 def test_install_locked_tools_preserves_runner_python(tmp_path: Path, action_scripts: Path) -> None:

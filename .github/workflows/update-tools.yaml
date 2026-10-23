@@ -13,7 +13,7 @@ jobs:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
     with:
       lock-groups: >-
-        build lock-tools release-notes release-news release-prepare release-validate release-check release-attestations release-shell release-hooks release-hook-check
+        build lock-tools lock-reader release-notes release-news release-prepare release-validate release-check release-attestations release-shell release-hooks release-hook-check
       commit-message: "🔧 build: refresh release tool lock"
       pull-request-title: "🔧 build: refresh release tool lock"
       pull-request-body: "Refresh the locked tools used by release preparation and CI."

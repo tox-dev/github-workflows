@@ -34,7 +34,9 @@ runs:
   steps:
     - uses: $/install-locked-tools
       with:
+        groups: lock-tools
         lock-source: shared
+        venv: ${{ runner.temp }}/lock-tools
     - name: Check recent package cutoffs
       shell: bash
       run: uv run --no-project --python "$RUNNER_TEMP/lock-tools" python "$GITHUB_ACTION_PATH/../tools/check_recent_cutoffs.py" pyproject.toml

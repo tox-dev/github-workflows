@@ -102,18 +102,18 @@ jobs:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
     with:
       lock-groups: >-
-        build lock-tools release-notes release-news release-prepare
+        build lock-tools lock-reader release-notes release-news release-prepare
         release-validate release-check release-attestations release-shell
         release-hooks release-hook-check
 ```
 
 The required `lock-groups` input lists the caller's release dependency groups, separated by spaces or newlines. Include
-`build` and `lock-tools` where declared; exclude test, type, and documentation groups. This example lists this
-repository's groups; a caller supplies its own. The project configures its Python and platform targets in `[tool.nab]`.
-Tests install test, type, and documentation groups afresh so they detect upstream dependency changes. The Action tests
-fetch immutable, hash-checked release-tool artifacts from the shared lock; their separate package fixture resolves
-test-only tools afresh. The updater also refreshes a caller's secondary build-matrix lock when `additional-lock` and its
-matrix inputs are set.
+`build`, `lock-tools`, and `lock-reader` where declared; exclude test, type, and documentation groups. This example
+lists this repository's groups; a caller supplies its own. The project configures its Python and platform targets in
+`[tool.nab]`. Tests install test, type, and documentation groups afresh so they detect upstream dependency changes. The
+Action tests fetch immutable, hash-checked release-tool artifacts from the shared lock; their separate package fixture
+resolves test-only tools afresh. The updater also refreshes a caller's secondary build-matrix lock when
+`additional-lock` and its matrix inputs are set.
 
 The optional `commit-message`, `pull-request-title`, and `pull-request-body` inputs retain existing PR wording. The
 workflow does not update `uv.lock` or a checked-in constraints file. Build constraints are generated from the lock's
@@ -149,7 +149,7 @@ release-tools-preview:
     - uses: tox-dev/github-workflows/refresh-release-lock@SHA
       with:
         lock-groups: >-
-          build lock-tools release-notes release-news release-prepare
+          build lock-tools lock-reader release-notes release-news release-prepare
           release-validate release-check release-attestations release-shell
           release-hooks release-hook-check
         mode: check
