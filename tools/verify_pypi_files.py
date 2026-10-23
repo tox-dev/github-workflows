@@ -65,6 +65,7 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
     if not local:
         raise ValueError(f"distribution directory is empty: {dist}")
     deadline = time.monotonic() + wait_seconds
+    delay = 1
     while True:
         remote: dict[str, str] = {}
         try:
@@ -72,19 +73,22 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
         except HTTPError as error:
             if error.code != 429 and not 500 <= error.code < 600:
                 raise
-            if (remaining := deadline - time.monotonic()) <= 0:
+            if deadline - time.monotonic() <= 0:
                 raise
-            time.sleep(min(2, remaining))
-            continue
-        except URLError as error:
-            if not isinstance(error.reason, TimeoutError) or (remaining := deadline - time.monotonic()) <= 0:
+            files = []
+        except TimeoutError, ConnectionError, URLError:
+            if deadline - time.monotonic() <= 0:
                 raise
-            time.sleep(min(2, remaining))
-            continue
+            files = []
         for file in files:
             if (identity := _identity(file["filename"])) is None:
                 prefix, separator, suffix = file["filename"].rpartition(f"-{release}")
-                if separator and (not suffix or suffix[0] in ".-_") and canonicalize_name(prefix) == name:
+                if (
+                    separator
+                    and (not suffix or suffix[0] in ".-_")
+                    and not (suffix.startswith(".") and suffix[1:2].isdigit())
+                    and canonicalize_name(prefix) == name
+                ):
                     raise ValueError(f"PyPI has an unrecognized distribution filename: {file['filename']}")
                 continue
             if identity != (name, release):
@@ -101,7 +105,8 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
             return [dist / filename for filename in sorted(local)]
         if (remaining := deadline - time.monotonic()) <= 0:
             raise ValueError(f"PyPI is missing files: {', '.join(sorted(missing))}")
-        time.sleep(min(2, remaining))
+        time.sleep(min(delay, remaining))
+        delay = min(delay * 2, 30)
 
 
 def _identity(filename: str) -> tuple[str, Version] | None:

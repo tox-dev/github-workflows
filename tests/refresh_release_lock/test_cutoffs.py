@@ -77,17 +77,15 @@ def test_expire_cutoffs_removes_each_reviewed_release_creator_floor(reviewed: st
 
 
 def test_expire_cutoffs_accepts_toml_datetime(cutoff_project: Path) -> None:
-    cutoff_project.write_text(cutoff_project.read_text().replace('"2026-01-01T00:00:00Z"', "2026-01-01T00:00:00Z"))
-    source = Path(__file__).resolve().parents[2] / "tools"
-    result = subprocess.run(
-        [sys.executable, str(source / "expire_cutoffs.py"), str(cutoff_project)],
-        text=True,
-        capture_output=True,
-        check=False,
+    cutoff_project.write_text(
+        cutoff_project.read_text().replace(
+            '[tool.nab.packages.nab]\nuploaded-prior-to = "2026-01-01T00:00:00Z"',
+            "[tool.nab.packages.nab]\nuploaded-prior-to = 2026-10-18T05:45:09Z",
+        ),
     )
+    updated = remove_expired_cutoffs(cutoff_project.read_text(), datetime(2026, 11, 1, tzinfo=UTC))
 
-    assert result.returncode == 0, result.stderr
-    assert "nab" in tomllib.loads(cutoff_project.read_text())["tool"]["nab"]["packages"]
+    assert "nab" not in tomllib.loads(updated)["tool"]["nab"]["packages"]
 
 
 def test_verify_cutoff_patch_rejects_deliberate_hold_removal(cutoff_project: Path) -> None:

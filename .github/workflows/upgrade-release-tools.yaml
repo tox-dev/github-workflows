@@ -165,6 +165,11 @@ jobs:
           ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
         run: |
           set -euo pipefail
+          if [[ -n "$ADDITIONAL_LOCK" &&
+            ( "$ADDITIONAL_LOCK" != pylock.*.toml || "$ADDITIONAL_LOCK" == */* ) ]]; then
+            echo "::error::invalid additional lock: $ADDITIONAL_LOCK" >&2
+            exit 1
+          fi
           git diff --cached --name-only --no-renames -z >"$RUNNER_TEMP/dependency-paths"
           while IFS= read -r -d '' path; do
             if [[ "$path" != pylock.toml && "$path" != pyproject.toml &&

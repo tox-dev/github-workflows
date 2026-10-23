@@ -6,6 +6,7 @@ import io
 import json
 from email.message import Message
 from pathlib import Path
+from socket import gaierror
 from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.error import HTTPError, URLError
 
@@ -56,6 +57,19 @@ def test_verify_files_ignores_legacy_egg_from_older_release(distribution: Path, 
     assert verify_files("fixture", "1.0", distribution, 0) == [
         distribution / "fixture-1.0-py3-none-any.whl",
         distribution / "fixture-1.0.tar.gz",
+    ]
+
+
+def test_verify_files_ignores_legacy_egg_from_longer_version(distribution: Path, mocker: MockerFixture) -> None:
+    for path in distribution.iterdir():
+        path.rename(path.with_name(path.name.replace("1.0", "0.9")))
+    files = _listing(distribution)
+    files.append({"filename": "fixture-0.9.1-py2.7.egg", "hashes": {"sha256": "0" * 64}, "yanked": False})
+    mocker.patch.object(_MODULE, "urlopen", return_value=_body(files))
+
+    assert verify_files("fixture", "0.9", distribution, 0) == [
+        distribution / "fixture-0.9-py3-none-any.whl",
+        distribution / "fixture-0.9.tar.gz",
     ]
 
 
@@ -124,10 +138,13 @@ def test_verify_files_waits_for_incomplete_listing(distribution: Path, mocker: M
             HTTPError("https://pypi.org/simple/fixture/", 503, "unavailable", Message(), None), id="server-error"
         ),
         pytest.param(URLError(TimeoutError("timeout")), id="timeout"),
+        pytest.param(URLError(gaierror("DNS failure")), id="dns"),
+        pytest.param(ConnectionResetError("connection reset"), id="reset"),
+        pytest.param(TimeoutError("read timeout"), id="read-timeout"),
     ],
 )
 def test_verify_files_retries_transient_listing_failure(
-    distribution: Path, mocker: MockerFixture, failure: HTTPError | URLError
+    distribution: Path, mocker: MockerFixture, failure: OSError
 ) -> None:
     response = mocker.patch.object(_MODULE, "urlopen", side_effect=[failure, _body(_listing(distribution))])
     mocker.patch.object(_MODULE.time, "sleep")
@@ -137,6 +154,35 @@ def test_verify_files_retries_transient_listing_failure(
         distribution / "fixture-1.0.tar.gz",
     ]
     assert response.call_count == 2
+
+
+def test_verify_files_retries_response_read_timeout(distribution: Path, mocker: MockerFixture) -> None:
+    response = mocker.MagicMock()
+    response.__enter__.return_value.read.side_effect = TimeoutError("read timeout")
+    mocker.patch.object(_MODULE, "urlopen", side_effect=[response, _body(_listing(distribution))])
+    mocker.patch.object(_MODULE.time, "sleep")
+
+    assert verify_files("fixture", "1.0", distribution, 2) == [
+        distribution / "fixture-1.0-py3-none-any.whl",
+        distribution / "fixture-1.0.tar.gz",
+    ]
+
+
+def test_verify_files_backs_off_between_retries(distribution: Path, mocker: MockerFixture) -> None:
+    mocker.patch.object(
+        _MODULE,
+        "urlopen",
+        side_effect=[
+            URLError(TimeoutError("timeout")),
+            URLError(TimeoutError("timeout")),
+            _body(_listing(distribution)),
+        ],
+    )
+    sleep = mocker.patch.object(_MODULE.time, "sleep")
+
+    verify_files("fixture", "1.0", distribution, 5)
+
+    assert [call.args for call in sleep.call_args_list] == [(1,), (2,)]
 
 
 def _serve(mocker: MockerFixture, distribution: Path, *, change: str = "") -> None:

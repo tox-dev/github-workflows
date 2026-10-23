@@ -147,6 +147,29 @@ def test_export_build_constraints_action_selects_secondary_lock(tmp_path: Path, 
     assert output.read_text() == f"example==1.0 --hash=sha256:{'0' * 64}\n"
 
 
+@pytest.mark.parametrize("groups", ["", "release-check"], ids=["export-only", "with-installed-group"])
+def test_export_build_constraints_rejects_uncooled_secondary_lock(
+    tmp_path: Path, action_scripts: Path, groups: str
+) -> None:
+    lock = tmp_path / "pylock.build.toml"
+    write_matrix_lock(lock)
+    lock.write_text(lock.read_text().replace("2026-10-01T00:00:00Z", "2026-10-22T00:00:00Z"))
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "install-locked-tools" if groups else "export-build-constraints",
+        version="",
+        LOCK="pylock.build.toml",
+        LOCK_SOURCE="shared",
+        CONSTRAINTS_LOCK="pylock.build.toml",
+        GROUPS=groups,
+        VENV=str(tmp_path / "tools"),
+    )
+    assert result.returncode != 0
+    assert "uncooled artifact" in result.stderr
+
+
 def test_export_build_constraints_rejects_different_target_versions(tmp_path: Path, action_scripts: Path) -> None:
     lock = tmp_path / "pylock.build.toml"
     write_matrix_lock(lock)
@@ -162,6 +185,7 @@ def test_export_build_constraints_rejects_different_target_versions(tmp_path: Pa
             [[packages.wheels]]
             name = "example-2.0-py3-none-any.whl"
             url = "https://files.pythonhosted.org/example-2.0-py3-none-any.whl"
+            upload-time = 2026-10-01T00:00:00Z
             hashes.sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
             """,
         ),
@@ -236,7 +260,10 @@ def write_matrix_lock(path: Path) -> None:
             [[packages.wheels]]
             name = "example-1.0-py3-none-any.whl"
             url = "https://files.pythonhosted.org/example-1.0-py3-none-any.whl"
+            upload-time = 2026-10-01T00:00:00Z
             hashes.sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+            [tool.nab]
+            created-at = 2026-10-23T00:00:00Z
             """,
         ),
     )

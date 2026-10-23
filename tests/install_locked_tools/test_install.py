@@ -315,6 +315,26 @@ def test_install_locked_tools_rejects_non_pypi_artifact(tmp_path: Path, source_k
     assert "non-PyPI artifact" in result.stderr
 
 
+def test_install_locked_tools_rejects_artifact_version_mismatch(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    package = next(package for package in document["packages"] if package["name"] == "setuptools")
+    artifact = package["wheels"][0]
+    artifact["url"] = artifact["url"].replace("84.0.0", "0.0.0")
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(tomlkit.dumps(document))
+
+    result = subprocess.run(
+        ["python", str(source / "tools/check_lock_groups.py"), str(lock), "release-news"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "artifact differs from package version" in result.stderr
+
+
 def test_install_locked_tools_rejects_unreviewed_version_under_reviewed_floor(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     document = tomlkit.parse((source / "pylock.toml").read_text())

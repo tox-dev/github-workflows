@@ -89,9 +89,6 @@ runs:
         else
           uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
             "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" --build-constraints
-          uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
-            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" \
-            "$GITHUB_ACTION_PATH/../pylock.toml" build
         fi
         printf 'lock=%s\n' "$lock" >>"$GITHUB_OUTPUT"
     - id: constraints
@@ -104,6 +101,10 @@ runs:
         TARGETS: ${{ inputs.targets }}
       run: |
         set -euo pipefail
+        if [[ -n "$CONSTRAINTS_LOCK" && "$CONSTRAINTS_LOCK" != "$BUILD_LOCK" ]]; then
+          uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
+            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$CONSTRAINTS_LOCK" --build-constraints
+        fi
         if [[ -n "$CONSTRAINTS_LOCK" ]]; then BUILD_LOCK=$CONSTRAINTS_LOCK; fi
         args=()
         if [[ "$BUILD_LOCK" == pylock.toml ]]; then

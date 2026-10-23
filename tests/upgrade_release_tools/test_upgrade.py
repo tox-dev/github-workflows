@@ -252,6 +252,27 @@ def test_upgrade_rejects_unrelated_patch(
     assert ("unexpected dependency path" in result.stderr) == (not accepted)
 
 
+@pytest.mark.parametrize("additional_lock", ["other.txt", "../pylock.other.toml"], ids=["arbitrary", "parent"])
+def test_upgrade_rejects_unsafe_additional_lock(
+    lock_repository: Path, tmp_path: Path, publish_scripts: Path, additional_lock: str
+) -> None:
+    (lock_repository / "pylock.toml").write_text("before\n")
+    run(lock_repository, "git", "add", ".")
+    run(lock_repository, "git", "commit", "-m", "Add lock")
+    (lock_repository / "pylock.toml").write_text("after\n")
+    run(lock_repository, "git", "add", "pylock.toml")
+
+    result = execute(
+        lock_repository,
+        publish_scripts / "publish-check-dependency-patch-paths.sh",
+        tmp_path,
+        ADDITIONAL_LOCK=additional_lock,
+    )
+
+    assert result.returncode != 0
+    assert "invalid additional lock" in result.stderr
+
+
 @pytest.mark.parametrize(
     ("path", "unsafe_mode"),
     [

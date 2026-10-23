@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from nab_cutoffs import reviewed_cutoff
 from packaging.pylock import Pylock, PylockValidationError
+from packaging.utils import canonicalize_name, parse_sdist_filename, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
 
 _COOLDOWN = timedelta(days=7)
@@ -69,6 +70,12 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
             url = urlsplit(artifact.url or "")
             if artifact.path is not None or url.scheme != "https" or url.netloc != "files.pythonhosted.org":
                 raise ValueError(f"release lock has a non-PyPI artifact: {artifact.name}")
+            filename = url.path.rsplit("/", 1)[-1]
+            identity = (
+                parse_wheel_filename(filename)[:2] if filename.endswith(".whl") else parse_sdist_filename(filename)
+            )
+            if identity != (canonicalize_name(package.name), Version(str(package.version))):
+                raise ValueError(f"release lock artifact differs from package version: {filename}")
             if (
                 artifact.upload_time is None
                 or artifact.upload_time.tzinfo is None
