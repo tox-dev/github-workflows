@@ -6,6 +6,7 @@ import argparse
 import tomllib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from nab_cutoffs import reviewed_cutoff
 from packaging.pylock import Pylock, PylockValidationError
@@ -65,6 +66,9 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
             raise ValueError(f"release lock has no dated artifacts: {package.name}")
         cutoff = max(threshold, reviewed_cutoff(package.name, str(package.version)) or threshold)
         for artifact in artifacts:
+            url = urlsplit(artifact.url or "")
+            if artifact.path is not None or url.scheme != "https" or url.netloc != "files.pythonhosted.org":
+                raise ValueError(f"release lock has a non-PyPI artifact: {artifact.name}")
             if (
                 artifact.upload_time is None
                 or artifact.upload_time.tzinfo is None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import tomllib
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -17,6 +18,9 @@ def main() -> None:
         before = args.committed.read_bytes()
         old = tomllib.loads(before.decode())
         new = tomllib.loads(args.regenerated.read_text())
+        created = old["tool"]["nab"].get("created-at")
+        if not isinstance(created, datetime) or created.tzinfo is None or created > datetime.now(UTC):
+            parser.error("committed Nab lock has no valid creation time or was created in the future")
         if args.environments_only:
             if old.get("environments") != new.get("environments"):
                 parser.error("regenerated Nab lock changed its target environments")

@@ -140,8 +140,10 @@ def test_check_nab_lock_rejects_package_change(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[2] / "tools/check_nab_lock.py"
     committed = tmp_path / "committed.toml"
     generated = tmp_path / "generated.toml"
-    committed.write_text('packages = ["safe"]\n[tool.nab]\ncommand-line = ["--upgrade"]\n')
-    generated.write_text('packages = ["changed"]\n[tool.nab]\ncommand-line = []\n')
+    committed.write_text(
+        'packages = ["safe"]\n[tool.nab]\ncreated-at = 2026-10-01T00:00:00Z\ncommand-line = ["--upgrade"]\n'
+    )
+    generated.write_text('packages = ["changed"]\n[tool.nab]\ncreated-at = 2026-10-01T00:00:00Z\ncommand-line = []\n')
     result = subprocess.run(
         [sys.executable, str(source), str(committed), str(generated)],
         text=True,
@@ -150,6 +152,17 @@ def test_check_nab_lock_rejects_package_change(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "regenerated Nab lock differs" in result.stderr
+
+
+def test_check_nab_lock_rejects_future_creation(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2] / "tools/check_nab_lock.py"
+    lock = tmp_path / "pylock.toml"
+    lock.write_text("[tool.nab]\ncreated-at = 2099-01-01T00:00:00Z\n")
+    result = subprocess.run(
+        [sys.executable, str(source), str(lock), str(lock)], text=True, capture_output=True, check=False
+    )
+    assert result.returncode != 0
+    assert "created in the future" in result.stderr
 
 
 @pytest.mark.parametrize(
