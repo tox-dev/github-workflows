@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tomllib
+from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import dedent
 
@@ -13,6 +15,7 @@ from conftest import action
 def test_export_build_constraints_uses_checked_in_locks(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     (tmp_path / "pylock.toml").write_bytes((source / "pylock.toml").read_bytes())
+    (tmp_path / "pyproject.toml").write_bytes((source / "pyproject.toml").read_bytes())
     outputs: dict[str, str] = {}
     result = action(tmp_path, tmp_path, action_scripts, "export-build-constraints", outputs, version="")
     assert result.returncode == 0, result.stderr
@@ -127,7 +130,7 @@ def test_export_build_constraints_selects_explicit_targets(tmp_path: Path, platf
 
 
 def test_export_build_constraints_action_selects_secondary_lock(tmp_path: Path, action_scripts: Path) -> None:
-    write_matrix_lock(tmp_path / "pylock.build.toml")
+    expected = write_published_matrix_lock(tmp_path / "pylock.build.toml")
 
     outputs: dict[str, str] = {}
     result = action(
@@ -144,7 +147,29 @@ def test_export_build_constraints_action_selects_secondary_lock(tmp_path: Path, 
 
     assert result.returncode == 0, result.stderr
     output = Path(outputs["path"])
-    assert output.read_text() == f"example==1.0 --hash=sha256:{'0' * 64}\n"
+    assert output.read_text() == expected
+
+
+def test_export_build_constraints_action_rejects_wrong_pypi_digest(tmp_path: Path, action_scripts: Path) -> None:
+    lock = tmp_path / "pylock.build.toml"
+    write_published_matrix_lock(lock)
+    document = tomlkit.parse(lock.read_text())
+    document["packages"][0]["wheels"][0]["hashes"]["sha256"] = "0" * 64
+    lock.write_text(tomlkit.dumps(document))
+
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "export-build-constraints",
+        version="",
+        LOCK="pylock.build.toml",
+        TARGET_PLATFORM="macos_arm64",
+        TARGETS="3.15.0:cpython",
+    )
+
+    assert result.returncode != 0
+    assert "release lock differs from PyPI metadata: packaging:" in result.stderr
 
 
 @pytest.mark.parametrize("groups", ["", "release-check"], ids=["export-only", "with-installed-group"])
@@ -152,8 +177,10 @@ def test_export_build_constraints_rejects_uncooled_secondary_lock(
     tmp_path: Path, action_scripts: Path, groups: str
 ) -> None:
     lock = tmp_path / "pylock.build.toml"
-    write_matrix_lock(lock)
-    lock.write_text(lock.read_text().replace("2026-10-01T00:00:00Z", "2026-10-22T00:00:00Z"))
+    write_published_matrix_lock(lock)
+    document = tomlkit.parse(lock.read_text())
+    document["packages"][0]["wheels"][0]["upload-time"] = datetime(2099, 1, 1, tzinfo=UTC)
+    lock.write_text(tomlkit.dumps(document))
     result = action(
         tmp_path,
         tmp_path,
@@ -172,21 +199,25 @@ def test_export_build_constraints_rejects_uncooled_secondary_lock(
 
 def test_export_build_constraints_rejects_different_target_versions(tmp_path: Path, action_scripts: Path) -> None:
     lock = tmp_path / "pylock.build.toml"
-    write_matrix_lock(lock)
+    write_published_matrix_lock(lock)
     lock.write_text(
-        lock.read_text().replace('version = "1.0"', 'version = "1.0"\nmarker = \'implementation_name == "pypy"\'')
+        lock.read_text().replace(
+            'index = "https://pypi.org/simple/"',
+            'marker = \'implementation_name == "pypy"\'\nindex = "https://pypi.org/simple/"',
+            1,
+        )
         + dedent(
             """\
             [[packages]]
-            name = "example"
-            version = "2.0"
+            name = "packaging"
+            version = "25.0"
             marker = 'implementation_name == "cpython"'
             index = "https://pypi.org/simple/"
             [[packages.wheels]]
-            name = "example-2.0-py3-none-any.whl"
-            url = "https://files.pythonhosted.org/example-2.0-py3-none-any.whl"
-            upload-time = 2026-10-01T00:00:00Z
-            hashes.sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
+            name = "packaging-25.0-py3-none-any.whl"
+            url = "https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl"
+            upload-time = 2025-04-19T11:48:57.875608Z
+            hashes.sha256 = "29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"
             """,
         ),
     )
@@ -239,6 +270,25 @@ def test_export_build_constraints_uses_full_python_version(tmp_path: Path, versi
     )
     assert result.returncode == 0, result.stderr
     assert ("example==1.0" in output.read_text()) == selected
+
+
+def write_published_matrix_lock(path: Path) -> str:
+    write_matrix_lock(path)
+    source = Path(__file__).resolve().parents[2]
+    (path.parent / "pyproject.toml").write_bytes((source / "pyproject.toml").read_bytes())
+    package = next(
+        package
+        for package in tomllib.loads((source / "pylock.toml").read_text())["packages"]
+        if package["name"] == "packaging"
+    )
+    document = tomlkit.parse(path.read_text())
+    document["packages"][0]["name"] = package["name"]
+    document["packages"][0]["version"] = package["version"]
+    document["packages"][0]["wheels"] = package["wheels"]
+    document["packages"][0]["sdist"] = package["sdist"]
+    path.write_text(tomlkit.dumps(document))
+    hashes = {artifact["hashes"]["sha256"] for artifact in [*package["wheels"], package["sdist"]]}
+    return f"packaging=={package['version']} {' '.join(f'--hash=sha256:{digest}' for digest in sorted(hashes))}\n"
 
 
 def write_matrix_lock(path: Path) -> None:
