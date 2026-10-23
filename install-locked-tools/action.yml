@@ -25,18 +25,18 @@ runs:
         set -euo pipefail
         uv venv --allow-existing --python 3.15 "$VENV"
         case "$LOCK_SOURCE" in
-          caller)
-            lock=pylock.toml
-            lock_check=(--shared-lock "$GITHUB_ACTION_PATH/../pylock.toml")
-            ;;
-          shared)
-            lock="$GITHUB_ACTION_PATH/../pylock.toml"
-            lock_check=()
-            ;;
-          *)
-            echo "::error::unknown lock source: $LOCK_SOURCE" >&2
-            exit 1
-            ;;
+        caller)
+          lock=pylock.toml
+          lock_check=(--shared-lock "$GITHUB_ACTION_PATH/../pylock.toml")
+          ;;
+        shared)
+          lock="$GITHUB_ACTION_PATH/../pylock.toml"
+          lock_check=()
+          ;;
+        *)
+          echo "::error::unknown lock source: $LOCK_SOURCE" >&2
+          exit 1
+          ;;
         esac
         groups=()
         while IFS= read -r line; do
