@@ -166,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$ADDITIONAL_LOCK" &&
-            ( "$ADDITIONAL_LOCK" != pylock.*.toml || "$ADDITIONAL_LOCK" == */* ) ]]; then
+            ("$ADDITIONAL_LOCK" != pylock.*.toml || "$ADDITIONAL_LOCK" == */*) ]]; then
             echo "::error::invalid additional lock: $ADDITIONAL_LOCK" >&2
             exit 1
           fi
