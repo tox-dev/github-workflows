@@ -1,9 +1,5 @@
 name: Build Python distribution
 description: Build a wheel and sdist for a keyless PR check
-inputs:
-  source:
-    description: Distribution source directory
-    default: .
 runs:
   using: composite
   steps:
@@ -23,14 +19,13 @@ runs:
     - name: Build wheel and sdist
       shell: bash
       env:
-        SOURCE: ${{ inputs.source }}
         BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}
       run: |
         set -euo pipefail
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
         build_python=$(uv python find "$RUNNER_TEMP/build-python")
         export SOURCE_DATE_EPOCH
-        SOURCE_DATE_EPOCH=$(git -C "$SOURCE" log -1 --format=%ct)
+        SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
         uv build --python "$build_python" \
           --python-preference only-managed --sdist --wheel \
-          --build-constraints "$BUILD_CONSTRAINTS" --require-build-hashes "$SOURCE" --out-dir dist
+          --build-constraints "$BUILD_CONSTRAINTS" --require-build-hashes . --out-dir dist

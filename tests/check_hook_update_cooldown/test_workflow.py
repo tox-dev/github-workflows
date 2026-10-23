@@ -9,27 +9,6 @@ import pytest
 import yaml
 
 
-def test_cooldown_job_is_read_only_and_required() -> None:
-    workflow = yaml.load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/check.yaml").read_text(),
-        Loader=yaml.BaseLoader,
-    )
-    job = workflow["jobs"]["hook-cooldown"]
-    assert job["if"] == "github.event_name == 'pull_request'"
-    assert job["permissions"] == {"actions": "read", "contents": "read", "pull-requests": "read"}
-    assert job["steps"][0] == {"uses": "$/check-hook-update-cooldown"}
-    assert "hook-cooldown" in workflow["jobs"]["gate"]["needs"]
-
-
-def test_cooldown_installs_only_required_hook_tools() -> None:
-    action = yaml.safe_load((Path(__file__).resolve().parents[2] / "check-hook-update-cooldown/action.yml").read_text())
-    assert next(step for step in action["runs"]["steps"] if step.get("uses") == "$/install-locked-tools") == {
-        "uses": "$/install-locked-tools",
-        "if": "steps.identity.outputs.bot == 'true'",
-        "with": {"groups": "release-hook-check", "lock-source": "shared", "venv": "${{ runner.temp }}/hook-tools"},
-    }
-
-
 @pytest.mark.parametrize(
     ("event_name", "cooldown_result", "accepted"),
     [

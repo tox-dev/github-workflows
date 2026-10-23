@@ -17,7 +17,6 @@ def test_build_python_distribution_creates_wheel_and_sdist(
         action_scripts,
         "build-python-distribution",
         version="0.2.0",
-        SOURCE=".",
         RUNNER_TEMP=str(tmp_path),
     )
     assert result.returncode == 0, result.stderr
@@ -41,7 +40,6 @@ def test_build_python_distribution_repeats_exact_bytes(
             action_scripts,
             "build-python-distribution",
             version="0.2.0",
-            SOURCE=".",
             RUNNER_TEMP=str(temporary),
         )
         assert result.returncode == 0, result.stderr
@@ -65,7 +63,6 @@ def test_build_python_distribution_rejects_existing_artifact(
         action_scripts,
         "build-python-distribution",
         version="0.2.0",
-        SOURCE=".",
         RUNNER_TEMP=str(tmp_path),
     )
     assert result.returncode != 0
@@ -89,7 +86,6 @@ def test_build_python_distribution_rejects_backend_hash_mismatch(
         action_scripts,
         "build-python-distribution",
         version="0.2.0",
-        SOURCE=".",
         RUNNER_TEMP=str(tmp_path),
         UV_CACHE_DIR=str(tmp_path / "uv-cache"),
     )
@@ -110,7 +106,6 @@ def test_build_python_distribution_does_not_run_hooks(
         action_scripts,
         "build-python-distribution",
         version="0.2.0",
-        SOURCE=".",
         RUNNER_TEMP=str(tmp_path),
     )
     assert result.returncode == 0, result.stderr

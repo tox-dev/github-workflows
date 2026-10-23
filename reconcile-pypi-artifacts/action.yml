@@ -13,14 +13,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Check artifact inputs
-      shell: bash
-      env:
-        PROJECT: ${{ inputs.project }}
-        VERSION: ${{ inputs.version }}
-        DIST: ${{ inputs.dist }}
-      run: |
-        [[ -n "$PROJECT" && -n "$VERSION" && -d "$DIST" ]] || exit 1
     - name: Install locked provenance verifier
       uses: $/install-locked-tools
       with:

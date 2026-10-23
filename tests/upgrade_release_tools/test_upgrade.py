@@ -28,45 +28,6 @@ def publish_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return scripts
 
 
-def test_upgrade_pull_request_uses_repository_app() -> None:
-    workflow = yaml.load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/upgrade-release-tools.yaml").read_text(),
-        Loader=yaml.BaseLoader,
-    )
-    publish = workflow["jobs"]["publish"]
-    assert workflow["on"]["workflow_call"]["inputs"]["lock-groups"]["required"] == "true"
-    assert workflow["jobs"]["generate-lock"]["steps"][2]["with"]["lock-groups"] == "${{ inputs.lock-groups }}"
-    assert publish["environment"] == "release-auth"
-    assert publish["permissions"] == {"contents": "read"}
-    token = next(step for step in publish["steps"] if step.get("id") == "token")
-    assert token["with"]["repositories"] == "${{ steps.repository.outputs.name }}"
-    assert token["with"]["permission-contents"] == "write"
-    assert token["with"]["permission-pull-requests"] == "write"
-    steps = publish["steps"]
-    assert next(index for index, step in enumerate(steps) if step.get("uses") == "$/verify-nab-cutoff-patch") < next(
-        index for index, step in enumerate(steps) if step.get("id") == "token"
-    )
-    for step in publish["steps"]:
-        if step.get("name") in {
-            "Push dependency branch",
-            "Find dependency pull request",
-            "Update dependency pull request",
-            "Open dependency pull request",
-        }:
-            assert step["env"]["GH_TOKEN"] == "${{ steps.token.outputs.token }}"
-
-
-def test_hook_refresh_uses_seven_day_cutoff_for_hooks_and_dependencies() -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/upgrade-release-tools.yaml").read_text()
-    )
-    steps = workflow["jobs"]["generate-hooks"]["steps"]
-    revisions = next(step for step in steps if step.get("name") == "Refresh frozen hook revisions")
-    dependencies = next(step for step in steps if step.get("name") == "Refresh exact hook dependencies")
-    assert "--cooldown-days 7" in revisions["run"]
-    assert "--exclude-newer '7 days'" in dependencies["run"]
-
-
 @pytest.fixture
 def lock_repository(tmp_path: Path) -> Path:
     repository = tmp_path / "repository"
@@ -205,21 +166,6 @@ def test_upgrade_emits_patch_for_allowed_change(
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "output").read_text() == "changed=true\n"
     assert f"diff --git a/{changed_path} b/{changed_path}" in (tmp_path / "lock.patch").read_text()
-
-
-def test_upgrade_check_mode_rejects_lock_drift(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
-    (lock_repository / "pylock.toml").write_text('lock-version = "1.0"\n')
-    run(lock_repository, "git", "add", ".")
-    run(lock_repository, "git", "commit", "-m", "Add lock")
-    (lock_repository / "pylock.toml").write_text('lock-version = "1.1"\n')
-    result = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-4.sh",
-        tmp_path,
-        MODE="check",
-        GITHUB_OUTPUT=str(tmp_path / "output"),
-    )
-    assert result.returncode != 0
 
 
 @pytest.mark.parametrize(

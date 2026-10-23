@@ -184,8 +184,8 @@ Run the PR workflow on `opened`, `reopened`, and `synchronize`; the cooldown che
 push. The Action has no output or write side effect. Schedule `recheck-hook-update-cooldown` daily with
 `actions: write`, `contents: read`, and `pull-requests: read`. It reruns eligible failed cooldown jobs at the current
 head. GitHub accepts reruns for 30 days. A failed rerun is retried on the next schedule while eligible. The
-[caller here](.github/workflows/recheck-hook-cooldown.yaml) shows the trigger and permissions. Set `workflow` or
-`job-name` only when the caller uses different names.
+[caller here](.github/workflows/recheck-hook-cooldown.yaml) shows the trigger and permissions. The Action reruns the
+`hook-cooldown` job in `check.yaml`.
 
 ## Start with a caller
 

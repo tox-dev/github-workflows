@@ -1,12 +1,6 @@
 name: Recheck cooled hook updates
 description: Recheck failed bot hook-update cooldown jobs each day
 inputs:
-  workflow:
-    description: Workflow file containing the required hook-cooldown job
-    default: check.yaml
-  job-name:
-    description: Name of the required cooldown job to rerun
-    default: hook-cooldown
   minimum-days:
     description: Minimum age of an eligible hook revision
     default: "7"
@@ -29,8 +23,6 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-        WORKFLOW: ${{ inputs.workflow }}
-        JOB_NAME: ${{ inputs.job-name }}
         MINIMUM_DAYS: ${{ inputs.minimum-days }}
       run: |
         set -euo pipefail
@@ -50,7 +42,7 @@ runs:
           fi
           head=$(jq -r .head <<<"$pull")
           branch=$(jq -r .branch <<<"$pull")
-          runs=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs" \
+          runs=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/check.yaml/runs" \
             -f event=pull_request -f head_sha="$head" -f per_page=100 |
             jq -sc --arg repository "$GITHUB_REPOSITORY" --arg branch "$branch" --arg head "$head" \
               --argjson number "$number" '
@@ -73,8 +65,7 @@ runs:
           fi
           job=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/runs/$(jq -r .id <<<"$run")/jobs" \
             -f filter=latest -f per_page=100 |
-            jq -sc --arg name "$JOB_NAME" \
-              '[.[].jobs[] | select(.name == $name and .conclusion == "failure")] | first // empty')
+            jq -sc '[.[].jobs[] | select(.name == "hook-cooldown" and .conclusion == "failure")] | first // empty')
           if [[ -n "$job" ]]; then
             if ! gh run rerun "$(jq -r .id <<<"$run")" --job "$(jq -r .id <<<"$job")" \
               --repo "$GITHUB_REPOSITORY"; then
