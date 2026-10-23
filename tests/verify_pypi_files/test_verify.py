@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import runpy
 import ssl
 from email.message import Message
 from http.client import IncompleteRead
@@ -26,6 +27,8 @@ assert _SPEC is not None and _SPEC.loader is not None
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 verify_files = cast("Callable[[str, str, Path, int], list[Path]]", _MODULE.verify_files)
+
+type _Json = None | bool | int | float | str | list[_Json] | dict[str, _Json]
 
 
 class _ListingFile(TypedDict):
@@ -58,6 +61,145 @@ def test_verify_files_rejects_unsupported_simple_api(distribution: Path, mocker:
         return_value=io.BytesIO(json.dumps({"meta": {"api-version": "2.0"}, "files": _listing(distribution)}).encode()),
     )
     with pytest.raises(ValueError, match="unsupported PyPI Simple API version"):
+        verify_files("fixture", "1.0", distribution, 0)
+
+
+def test_main_prints_distribution_paths(
+    distribution: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _serve(mocker, distribution)
+    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution), "--wait-seconds", "0"])
+
+    cast("Callable[[], None]", _MODULE.main)()
+
+    assert capsys.readouterr().out.splitlines() == [
+        str(distribution / "fixture-1.0-py3-none-any.whl"),
+        str(distribution / "fixture-1.0.tar.gz"),
+    ]
+
+
+def test_main_reports_invalid_directory(
+    tmp_path: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(tmp_path / "missing")])
+
+    with pytest.raises(SystemExit) as raised:
+        cast("Callable[[], None]", _MODULE.main)()
+
+    assert raised.value.code == 2
+    assert "release files require a directory" in capsys.readouterr().err
+
+
+def test_script_entrypoint_prints_distribution_paths(
+    distribution: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mocker.patch("urllib.request.urlopen", return_value=_body(_listing(distribution)))
+    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution), "--wait-seconds", "0"])
+
+    runpy.run_path(str(Path(__file__).resolve().parents[2] / "tools/verify_pypi_files.py"), run_name="__main__")
+
+    assert capsys.readouterr().out.splitlines() == [
+        str(distribution / "fixture-1.0-py3-none-any.whl"),
+        str(distribution / "fixture-1.0.tar.gz"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "change", [pytest.param("negative-wait", id="negative-wait"), pytest.param("missing-dir", id="missing-dir")]
+)
+def test_verify_files_rejects_invalid_arguments(tmp_path: Path, change: str) -> None:
+    directory = tmp_path if change == "negative-wait" else tmp_path / "missing"
+
+    with pytest.raises(ValueError, match="release files require a directory and nonnegative wait"):
+        verify_files("fixture", "1.0", directory, -1 if change == "negative-wait" else 0)
+
+
+def test_verify_files_rejects_empty_directory(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="distribution directory is empty"):
+        verify_files("fixture", "1.0", tmp_path, 0)
+
+
+def test_verify_files_rejects_directory_entry(distribution: Path) -> None:
+    (distribution / "nested").mkdir()
+
+    with pytest.raises(ValueError, match="invalid distribution path"):
+        verify_files("fixture", "1.0", distribution, 0)
+
+
+def test_verify_files_ignores_other_release_wheel(distribution: Path, mocker: MockerFixture) -> None:
+    files = _listing(distribution)
+    files.append({"filename": "fixture-0.9-py3-none-any.whl", "hashes": {"sha256": "0" * 64}, "yanked": False})
+    mocker.patch.object(_MODULE, "urlopen", return_value=_body(files))
+
+    assert verify_files("fixture", "1.0", distribution, 0) == [
+        distribution / "fixture-1.0-py3-none-any.whl",
+        distribution / "fixture-1.0.tar.gz",
+    ]
+
+
+@pytest.mark.parametrize("status", [pytest.param(400, id="client-error"), pytest.param(503, id="server-timeout")])
+def test_verify_files_propagates_http_error(distribution: Path, mocker: MockerFixture, status: int) -> None:
+    mocker.patch.object(
+        _MODULE, "urlopen", side_effect=HTTPError("https://pypi.org/simple/fixture/", status, "error", Message(), None)
+    )
+
+    with pytest.raises(HTTPError) as raised:
+        verify_files("fixture", "1.0", distribution, 0)
+
+    assert raised.value.code == status
+
+
+def test_verify_files_propagates_exhausted_connection_error(distribution: Path, mocker: MockerFixture) -> None:
+    mocker.patch.object(_MODULE, "urlopen", side_effect=URLError("offline"))
+
+    with pytest.raises(URLError, match="offline"):
+        verify_files("fixture", "1.0", distribution, 0)
+
+
+def test_verify_files_reports_missing_release_after_404(distribution: Path, mocker: MockerFixture) -> None:
+    mocker.patch.object(
+        _MODULE, "urlopen", side_effect=HTTPError("https://pypi.org/simple/fixture/", 404, "missing", Message(), None)
+    )
+
+    with pytest.raises(ValueError, match="PyPI is missing files"):
+        verify_files("fixture", "1.0", distribution, 0)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param([], id="not-object"),
+        pytest.param({"meta": {"api-version": "1.0"}, "files": {}}, id="files-not-list"),
+        pytest.param({"meta": None, "files": []}, id="missing-metadata"),
+        pytest.param({"meta": {"api-version": "2.0"}, "files": []}, id="unsupported-version"),
+    ],
+)
+def test_verify_files_rejects_invalid_listing(distribution: Path, mocker: MockerFixture, payload: _Json) -> None:
+    mocker.patch.object(_MODULE, "urlopen", return_value=io.BytesIO(json.dumps(payload).encode()))
+
+    with pytest.raises(
+        (TypeError, ValueError), match="invalid Simple API response|unsupported PyPI Simple API version"
+    ):
+        verify_files("fixture", "1.0", distribution, 0)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param(None, id="not-object"),
+        pytest.param({"hashes": {"sha256": "0" * 64}}, id="missing-filename"),
+        pytest.param({"filename": "fixture-1.0.tar.gz", "hashes": None}, id="missing-hashes"),
+        pytest.param({"filename": "fixture-1.0.tar.gz", "hashes": {"sha256": None}}, id="missing-sha256"),
+    ],
+)
+def test_verify_files_rejects_invalid_file_entry(distribution: Path, mocker: MockerFixture, entry: _Json) -> None:
+    mocker.patch.object(
+        _MODULE,
+        "urlopen",
+        return_value=io.BytesIO(json.dumps({"meta": {"api-version": "1.0"}, "files": [entry]}).encode()),
+    )
+
+    with pytest.raises(TypeError, match="invalid file entry"):
         verify_files("fixture", "1.0", distribution, 0)
 
 
