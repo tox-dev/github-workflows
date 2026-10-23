@@ -246,8 +246,10 @@ The caller needs `release-check` for prek and a `build` group for backend constr
 
 Publish only after the reusable workflow succeeds. Download the distribution with pinned `download-artifact`
 [v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
-which checks the artifact digest. Render GitHub notes in the caller's tag workflow after fetching GitHub's contributor
-metadata; this reusable workflow does not render notes. Keep PyPI OIDC in the caller's `release` environment job.
+using `artifact-ids: ${{ needs.build.outputs.distributions-artifact-id }}`. The download checks the artifact digest and
+selects the wheel and sdist from that build run. Render GitHub notes in the caller's tag workflow after fetching
+GitHub's contributor metadata; this reusable workflow does not render notes. Keep PyPI OIDC in the caller's `release`
+environment job.
 
 ## Build a distribution for a pull request
 

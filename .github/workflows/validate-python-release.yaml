@@ -1,6 +1,10 @@
 name: Validate Python release
 on:
   workflow_call:
+    outputs:
+      distributions-artifact-id:
+        description: Upload ID for the validated wheel and sdist artifact
+        value: ${{ jobs.build.outputs.artifact-id }}
     inputs:
       source:
         description: Package source directory
