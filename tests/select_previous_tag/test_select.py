@@ -52,3 +52,13 @@ def test_select_previous_tag_requires_current_tag(repository: Path, tmp_path: Pa
 
     assert result.returncode != 0
     assert not (tmp_path / "output").exists()
+
+
+def test_select_previous_tag_rejects_nested_namespace(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    run(repository, "git", "tag", "a/b/1.0")
+
+    result = action(repository, tmp_path, action_scripts, "select-previous-tag", version="a/b/1.0", TAG="a/b/1.0")
+
+    assert result.returncode != 0
+    assert "at most one namespace separator" in result.stderr
+    assert not (tmp_path / "output").exists()
