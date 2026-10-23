@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import tomllib
 from collections import defaultdict
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from http.client import IncompleteRead
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
@@ -57,7 +60,7 @@ def main() -> None:
                 installed = _selected_release_creator(lock, groups)
                 if installed is None or installed < required:
                     parser.error(f"relock: release-creator {required} required")
-    except (InvalidVersion, KeyError, OSError, PylockValidationError, TypeError, ValueError) as error:
+    except (IncompleteRead, InvalidVersion, KeyError, OSError, PylockValidationError, TypeError, ValueError) as error:
         parser.error(str(error))
 
 
@@ -127,8 +130,20 @@ def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None,
         f"https://pypi.org/simple/{name}/",
         headers={"Accept": "application/vnd.pypi.simple.v1+json", "Cache-Control": "no-cache"},
     )
-    with urlopen(request, timeout=30) as response:
-        listing = json.load(response)
+    attempt = 0
+    while True:
+        try:
+            with urlopen(request, timeout=10) as response:
+                listing = json.load(response)
+            break
+        except HTTPError as error:
+            if (error.code != 429 and error.code < 500) or attempt == 2:
+                raise
+        except IncompleteRead, TimeoutError, URLError:
+            if attempt == 2:
+                raise
+        time.sleep(2**attempt)
+        attempt += 1
     if (
         not str(listing.get("meta", {}).get("api-version", "")).startswith("1.")
         or canonicalize_name(listing.get("name", "")) != name

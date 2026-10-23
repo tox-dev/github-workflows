@@ -7,6 +7,7 @@ from io import BytesIO
 from pathlib import Path
 from textwrap import dedent
 from typing import NotRequired, TypedDict
+from urllib.error import URLError
 
 import pytest
 from pytest_mock import MockerFixture
@@ -77,6 +78,37 @@ def test_lock_metadata_matches_pypi(
     _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
 
     assert request.call_args.args[0].full_url == "https://pypi.org/simple/six/"
+
+
+def test_lock_metadata_retries_transient_network_error(
+    lock_case: tuple[Path, Path], pypi_listing: _PyPIListing, mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = mocker.patch(
+        "urllib.request.urlopen",
+        side_effect=[URLError("handshake timed out"), BytesIO(json.dumps(pypi_listing).encode())],
+    )
+    sleep = mocker.patch("time.sleep")
+
+    _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert request.call_count == 2
+    sleep.assert_called_once_with(1)
+
+
+def test_lock_metadata_stops_after_three_network_errors(
+    lock_case: tuple[Path, Path],
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    request = mocker.patch("urllib.request.urlopen", side_effect=URLError("handshake timed out"))
+    mocker.patch("time.sleep")
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert request.call_count == 3
+    assert "handshake timed out" in capsys.readouterr().err
 
 
 def test_lock_metadata_requires_group(
