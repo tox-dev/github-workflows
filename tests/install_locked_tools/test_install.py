@@ -245,25 +245,29 @@ def test_local_tool_source_only_accepts_release_creator(tmp_path: Path, package_
 
 
 @pytest.mark.parametrize(
-    ("replace", "message"),
+    ("kind", "message"),
     [
         pytest.param(
-            ("created-at = 2026-10-23", "created-at = 2099-10-23"),
+            "future-creation",
             "created in the future",
             id="future-creation",
         ),
         pytest.param(
-            ("upload-time = 2026-", "upload-time = 2099-"),
+            "recent-artifact",
             "uncooled artifact",
             id="recent-artifact",
         ),
     ],
 )
-def test_install_locked_tools_rejects_uncooled_lock(tmp_path: Path, replace: tuple[str, str], message: str) -> None:
+def test_install_locked_tools_rejects_uncooled_lock(tmp_path: Path, kind: str, message: str) -> None:
     source = Path(__file__).resolve().parents[2]
-    lock = (source / "pylock.toml").read_text()
-    assert replace[0] in lock
-    (tmp_path / "pylock.toml").write_text(lock.replace(*replace))
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    if kind == "future-creation":
+        document["tool"]["nab"]["created-at"] = datetime(2099, 10, 23, tzinfo=UTC)
+    else:
+        package = next(package for package in document["packages"] if package["name"] == "cython")
+        package["wheels"][0]["upload-time"] = datetime(2099, 10, 23, tzinfo=UTC)
+    (tmp_path / "pylock.toml").write_text(tomlkit.dumps(document))
 
     result = subprocess.run(
         ["python", str(source / "tools/check_lock_groups.py"), str(tmp_path / "pylock.toml"), "release-check"],
@@ -390,7 +394,7 @@ def test_install_locked_tools_rejects_artifact_version_mismatch(tmp_path: Path) 
     document = tomlkit.parse((source / "pylock.toml").read_text())
     package = next(package for package in document["packages"] if package["name"] == "setuptools")
     artifact = package["wheels"][0]
-    artifact["url"] = artifact["url"].replace("84.0.0", "0.0.0")
+    artifact["url"] = artifact["url"].replace(str(package["version"]), "0.0.0")
     lock = tmp_path / "pylock.toml"
     lock.write_text(tomlkit.dumps(document))
 
@@ -432,10 +436,11 @@ def test_install_locked_tools_rejects_caller_below_shared_floor(tmp_path: Path, 
     source = Path(__file__).resolve().parents[2]
     document = tomlkit.parse((source / "pylock.toml").read_text())
     package = next(package for package in document["packages"] if package["name"] == "release-creator")
+    current_version = str(package["version"])
     package["version"] = version
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = artifact["name"].replace("0.6.7", version)
-        artifact["url"] = artifact["url"].replace("0.6.7", version)
+        artifact["name"] = artifact["name"].replace(current_version, version)
+        artifact["url"] = artifact["url"].replace(current_version, version)
         artifact["upload-time"] = datetime(2026, 10, 15, tzinfo=UTC)
     lock = tmp_path / "pylock.toml"
     lock.write_text(tomlkit.dumps(document))
@@ -455,15 +460,15 @@ def test_install_locked_tools_rejects_caller_below_shared_floor(tmp_path: Path, 
     )
 
     assert result.returncode != 0
-    assert "relock: release-creator 0.6.7 required" in result.stderr
+    assert f"relock: release-creator {current_version} required" in result.stderr
 
 
 def test_install_locked_tools_constraints_only_checks_lock_age(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     (tmp_path / "pyproject.toml").write_bytes((source / "pyproject.toml").read_bytes())
-    (tmp_path / "pylock.toml").write_text(
-        (source / "pylock.toml").read_text().replace("created-at = 2026-10-23", "created-at = 2099-10-23", 1)
-    )
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    document["tool"]["nab"]["created-at"] = datetime(2099, 10, 23, tzinfo=UTC)
+    (tmp_path / "pylock.toml").write_text(tomlkit.dumps(document))
     result = action(tmp_path, tmp_path, action_scripts, "install-locked-tools", version="")
     assert result.returncode != 0
     assert "created in the future" in result.stderr

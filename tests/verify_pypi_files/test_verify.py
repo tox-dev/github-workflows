@@ -137,7 +137,14 @@ def test_verify_files_ignores_other_release_wheel(distribution: Path, mocker: Mo
     ]
 
 
-@pytest.mark.parametrize("status", [pytest.param(400, id="client-error"), pytest.param(503, id="server-timeout")])
+@pytest.mark.parametrize(
+    "status",
+    [
+        pytest.param(400, id="client-error"),
+        pytest.param(403, id="forbidden"),
+        pytest.param(503, id="server-timeout"),
+    ],
+)
 def test_verify_files_propagates_http_error(distribution: Path, mocker: MockerFixture, status: int) -> None:
     mocker.patch.object(
         _MODULE, "urlopen", side_effect=HTTPError("https://pypi.org/simple/fixture/", status, "error", Message(), None)
