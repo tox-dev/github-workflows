@@ -1,44 +1,11 @@
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import tomllib
 from pathlib import Path
 
-import pytest
 from conftest import action, run
-
-
-@pytest.fixture
-def build_repository(
-    source_project: Path, nab_executable: Path, test_package_index: str, monkeypatch: pytest.MonkeyPatch
-) -> Path:
-    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
-    monkeypatch.setenv("UV_INDEX_URL", test_package_index)
-    project = source_project / "pyproject.toml"
-    release_requirement = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text())[
-        "dependency-groups"
-    ]["release-notes"][0]
-    project.write_text(
-        project.read_text()
-        + f"\n[dependency-groups]\nrelease-notes = [{json.dumps(release_requirement)}]\n"
-        + '\n[tool.nab]\nbase-group = "project-runtime"\nbuild-group = "build"\n'
-        + f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{test_package_index}"\nserialization = "html"\n'
-    )
-    run(
-        source_project,
-        str(nab_executable),
-        "lock",
-        "--groups",
-        "release-notes",
-        "--output",
-        "pylock.toml",
-    )
-    run(source_project, "git", "add", ".")
-    run(source_project, "git", "commit", "-m", "Add package source")
-    run(source_project, "git", "push", "origin", "main")
-    return source_project
 
 
 def test_build_python_distribution_creates_wheel_and_sdist(

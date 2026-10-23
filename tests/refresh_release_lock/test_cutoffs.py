@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import tomlkit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tools.nab_cutoffs import remove_expired_cutoffs
@@ -163,6 +164,33 @@ def test_check_nab_lock_rejects_future_creation(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "created in the future" in result.stderr
+
+
+def test_check_nab_lock_rejects_forged_upload_time(
+    build_repository: Path, nab_executable: Path, tmp_path: Path
+) -> None:
+    source = Path(__file__).resolve().parents[2] / "tools/check_nab_lock.py"
+    lock = build_repository / "pylock.toml"
+    document = tomlkit.parse(lock.read_text())
+    package = next(item for item in document["packages"] if item["name"] == "hatchling")
+    package["wheels"][0]["upload-time"] = "2020-01-01T00:00:00Z"
+    lock.write_text(tomlkit.dumps(document))
+    committed = tmp_path / "committed.toml"
+    committed.write_bytes(lock.read_bytes())
+
+    regenerated = subprocess.run(
+        [str(nab_executable), "lock", "--groups", "release-notes", "--output", "pylock.toml"],
+        cwd=build_repository,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert regenerated.returncode == 0, regenerated.stderr
+    result = subprocess.run(
+        [sys.executable, str(source), str(committed), str(lock)], text=True, capture_output=True, check=False
+    )
+    assert result.returncode != 0
+    assert "regenerated Nab lock differs" in result.stderr
 
 
 @pytest.mark.parametrize(
