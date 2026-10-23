@@ -19,7 +19,7 @@ def main() -> None:
         updated = remove_expired_cutoffs(source, datetime.now(UTC) - timedelta(days=7))
         if source != updated:
             args.project.write_text(updated)
-    except (OSError, KeyError, ValueError, ParseError) as error:
+    except (OSError, KeyError, TypeError, ValueError, ParseError) as error:
         parser.error(str(error))
 
 

@@ -163,7 +163,59 @@ def test_recent_cutoff_requires_review(package: str, timestamp: str, accepted: b
     project = (
         f'[tool.nab]\nuploaded-prior-to = "P7D"\n[tool.nab.packages.{package}]\nuploaded-prior-to = "{timestamp}"\n'
     )
+    result = _check_recent_cutoffs(project)
+    assert (result.returncode == 0) == accepted
+    if not accepted:
+        assert "unreviewed recent Nab cutoff" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("cutoff", "message"),
+    [
+        pytest.param('uploaded-prior-to = "P0D"', "global Nab cutoff", id="zero-days"),
+        pytest.param('uploaded-prior-to = "P6D"', "global Nab cutoff", id="six-days"),
+        pytest.param("uploaded-prior-to = false", "global Nab cutoff", id="disabled"),
+    ],
+)
+def test_recent_cutoff_rejects_weak_global_policy(cutoff: str, message: str) -> None:
+    result = _check_recent_cutoffs(f"[tool.nab]\n{cutoff}\n")
+    assert result.returncode != 0
+    assert message in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("value", "accepted"),
+    [
+        pytest.param('"P0D"', False, id="zero-days"),
+        pytest.param('"P6D"', False, id="six-days"),
+        pytest.param("false", False, id="disabled"),
+        pytest.param('"P7D"', True, id="seven-days"),
+        pytest.param('"P14D"', True, id="fourteen-days"),
+    ],
+)
+def test_recent_cutoff_checks_package_duration(value: str, accepted: bool) -> None:
+    project = f'[tool.nab]\nuploaded-prior-to = "P7D"\n[tool.nab.packages.example]\nuploaded-prior-to = {value}\n'
+    result = _check_recent_cutoffs(project)
+    assert (result.returncode == 0) is accepted
+    if not accepted:
+        assert "weakens the seven-day policy" in result.stderr
+
+
+def test_expire_cutoffs_preserves_disabled_package(cutoff_project: Path) -> None:
+    cutoff_project.write_text(cutoff_project.read_text().replace('"2999-01-01T00:00:00Z"', "false"))
+    source = Path(__file__).resolve().parents[2] / "tools"
     result = subprocess.run(
+        [sys.executable, str(source / "expire_cutoffs.py"), str(cutoff_project)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert tomllib.loads(cutoff_project.read_text())["tool"]["nab"]["packages"]["new"]["uploaded-prior-to"] is False
+
+
+def _check_recent_cutoffs(project: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [
             sys.executable,
             "-c",
@@ -178,6 +230,3 @@ def test_recent_cutoff_requires_review(package: str, timestamp: str, accepted: b
         text=True,
         check=False,
     )
-    assert (result.returncode == 0) == accepted
-    if not accepted:
-        assert "unreviewed recent Nab cutoff" in result.stderr

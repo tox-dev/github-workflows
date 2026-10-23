@@ -22,14 +22,16 @@ def test_recheck_schedule_has_only_required_permissions() -> None:
 
 
 @pytest.mark.parametrize(
-    ("observed_age", "job_age", "job_conclusion", "job_name", "reruns"),
+    ("observed_age", "job_age", "job_conclusion", "job_name", "minimum_days", "reruns"),
     [
-        pytest.param(8, 8, "failure", "hook-cooldown", 1, id="matured-failure"),
-        pytest.param(8, 8, "failure", "Hook update cooldown", 1, id="named-job"),
-        pytest.param(6, 6, "failure", "hook-cooldown", 0, id="recent-pull"),
-        pytest.param(8, 0, "failure", "hook-cooldown", 1, id="failed-rerun"),
-        pytest.param(31, 31, "failure", "hook-cooldown", 0, id="expired-run"),
-        pytest.param(8, 8, "success", "hook-cooldown", 0, id="successful-job"),
+        pytest.param(8, 8, "failure", "hook-cooldown", 7, 1, id="matured-failure"),
+        pytest.param(8, 8, "failure", "Hook update cooldown", 7, 1, id="named-job"),
+        pytest.param(6, 6, "failure", "hook-cooldown", 7, 0, id="recent-pull"),
+        pytest.param(8, 8, "failure", "hook-cooldown", 7, 1, id="failed-rerun"),
+        pytest.param(31, 31, "failure", "hook-cooldown", 7, 0, id="expired-run"),
+        pytest.param(8, 8, "success", "hook-cooldown", 7, 0, id="successful-job"),
+        pytest.param(8, 8, "failure", "hook-cooldown", 14, 0, id="custom-cooldown-pending"),
+        pytest.param(15, 15, "failure", "hook-cooldown", 14, 1, id="custom-cooldown-matured"),
     ],
 )
 @pytest.mark.parametrize(
@@ -44,6 +46,7 @@ def test_recheck_reruns_failed_job(
     job_age: int,
     job_conclusion: str,
     job_name: str,
+    minimum_days: int,
     reruns: int,
     bot_login: str,
 ) -> None:
@@ -85,7 +88,7 @@ def test_recheck_reruns_failed_job(
             ]
         }
     )
-    if 7 <= observed_age < 30:
+    if minimum_days <= observed_age < 30:
         server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/42/jobs", method="GET").respond_with_json(
             {
                 "jobs": [
@@ -114,6 +117,7 @@ def test_recheck_reruns_failed_job(
         version="",
         GH_TOKEN=environment["GH_ENTERPRISE_TOKEN"],
         JOB_NAME=job_name,
+        MINIMUM_DAYS=str(minimum_days),
         **environment,
     )
     assert result.returncode == 0, result.stderr

@@ -14,6 +14,10 @@ on:
         description: Groups for the secondary lock; empty selects build requirements
         type: string
         default: ""
+      additional-lock-selection:
+        description: Use project runtime dependencies for the secondary lock
+        type: string
+        default: build-or-groups
       additional-matrix-python:
         description: Python range for the secondary lock
         type: string
@@ -67,6 +71,7 @@ jobs:
           lock-groups: ${{ inputs.lock-groups }}
           additional-lock: ${{ inputs.additional-lock }}
           additional-lock-groups: ${{ inputs.additional-lock-groups }}
+          additional-lock-selection: ${{ inputs.additional-lock-selection }}
           additional-matrix-python: ${{ inputs.additional-matrix-python }}
           additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
           additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}

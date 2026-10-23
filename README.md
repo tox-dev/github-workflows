@@ -161,8 +161,9 @@ For a separately checked-in build matrix lock, also pass `additional-lock` with 
 `additional-matrix-python` with its Python range, and `additional-matrix-platforms` and
 `additional-matrix-implementations` as space-separated Nab values. The secondary lock keeps its specified environment
 matrix during refresh. `additional-lock-groups` selects dependency groups for it; when empty, Nab locks the project's
-build requirements. These inputs have no effect when `additional-lock` is absent, and matrix inputs without that lock
-fail. The writer accepts only the named secondary lock path.
+build requirements. Set `additional-lock-selection: project` to lock only the project's runtime dependencies. That
+selection cannot be combined with `additional-lock-groups`. Secondary-lock inputs without `additional-lock` fail. The
+writer accepts only the named secondary lock path.
 
 For a repository that already commits `pylock.build.toml`, the complete caller is:
 

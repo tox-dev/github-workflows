@@ -10,6 +10,9 @@ inputs:
   additional-lock-groups:
     description: Groups for the secondary lock; empty selects build requirements
     default: ""
+  additional-lock-selection:
+    description: Use project runtime dependencies for the secondary lock
+    default: build-or-groups
   additional-matrix-python:
     description: Python range for the secondary lock
     default: ""
@@ -48,6 +51,7 @@ runs:
         MODE: ${{ inputs.mode }}
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
         ADDITIONAL_GROUPS: ${{ inputs.additional-lock-groups }}
+        ADDITIONAL_SELECTION: ${{ inputs.additional-lock-selection }}
         MATRIX_PYTHON: ${{ inputs.additional-matrix-python }}
         MATRIX_PLATFORMS: ${{ inputs.additional-matrix-platforms }}
         MATRIX_IMPLEMENTATIONS: ${{ inputs.additional-matrix-implementations }}
@@ -80,7 +84,8 @@ runs:
             "$RUNNER_TEMP/pylock-before-check.toml" pylock.toml
         fi
         if [[ -z "$ADDITIONAL_LOCK" ]]; then
-          if [[ -n "$ADDITIONAL_GROUPS$MATRIX_PYTHON$MATRIX_PLATFORMS$MATRIX_IMPLEMENTATIONS" ]]; then
+          if [[ "$ADDITIONAL_SELECTION" != build-or-groups ||
+            -n "$ADDITIONAL_GROUPS$MATRIX_PYTHON$MATRIX_PLATFORMS$MATRIX_IMPLEMENTATIONS" ]]; then
             echo '::error::secondary matrix inputs require additional-lock' >&2
             exit 1
           fi
@@ -111,8 +116,23 @@ runs:
           echo '::error::secondary matrix needs platforms and implementations' >&2
           exit 1
         fi
-        selection=(--build-requirements)
-        if ((${#selected_groups[@]})); then selection=(--groups "${selected_groups[@]}"); fi
+        case "$ADDITIONAL_SELECTION" in
+        build-or-groups)
+          selection=(--build-requirements)
+          if ((${#selected_groups[@]})); then selection=(--groups "${selected_groups[@]}"); fi
+          ;;
+        project)
+          if ((${#selected_groups[@]})); then
+            echo '::error::project secondary lock cannot select dependency groups' >&2
+            exit 1
+          fi
+          selection=()
+          ;;
+        *)
+          echo '::error::unknown secondary lock selection' >&2
+          exit 1
+          ;;
+        esac
         cp "$ADDITIONAL_LOCK" "$RUNNER_TEMP/additional-lock-before.toml"
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock pyproject.toml "${selection[@]}" \
           --project-matrix-python "$MATRIX_PYTHON" \

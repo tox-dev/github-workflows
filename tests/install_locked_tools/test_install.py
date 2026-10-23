@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tomllib
@@ -110,6 +111,15 @@ def test_install_lock_tools_rejects_hash_mismatch(tmp_path: Path, action_scripts
     assert "Hash mismatch" in result.stderr
 
 
+def test_install_nab_reuses_existing_environment(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    environment = {"GITHUB_ACTION_PATH": str(source / "install-nab")}
+    first = action(source, tmp_path, action_scripts, "install-nab", version="", **environment)
+    second = action(source, tmp_path, action_scripts, "install-nab", version="", **environment)
+    assert first.returncode == second.returncode == 0, first.stderr + second.stderr
+    assert (tmp_path / "lock-tools" / ("Scripts/nab.exe" if os.name == "nt" else "bin/nab")).is_file()
+
+
 def test_install_locked_tools_rejects_empty_groups(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     result = install(
@@ -156,6 +166,36 @@ def test_install_locked_tools_checks_caller_release_creator(tmp_path: Path, loca
         command.append("--local-tool-source")
     result = subprocess.run(command, text=True, capture_output=True, check=False)
     assert (result.returncode == 0) is local_source, result.stderr
+
+
+def test_caller_version_check_uses_shared_package_marker(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    shared = tmp_path / "shared.toml"
+    lock = (source / "pylock.toml").read_text()
+    marker = next(
+        package["marker"] for package in tomllib.loads(lock)["packages"] if package["name"] == "release-creator"
+    )
+    shared.write_text(lock.replace(marker.replace('"', '\\"'), '\\"release-shell\\" in dependency_groups'))
+    caller = tmp_path / "caller.toml"
+    caller.write_text(
+        'lock-version = "1.0"\nrequires-python = ">=3.15"\n'
+        'dependency-groups = ["release-shell"]\ncreated-by = "test"\npackages = []\n'
+    )
+    result = subprocess.run(
+        [
+            "python",
+            str(source / "tools/check_lock_groups.py"),
+            str(caller),
+            "release-shell",
+            "--shared-lock",
+            str(shared),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "relock: release-creator" in result.stderr
 
 
 def test_install_locked_tools_shared_group_ignores_missing_caller_group(tmp_path: Path, action_scripts: Path) -> None:
@@ -270,12 +310,13 @@ hashes.sha256 = """
 
 
 def test_install_locked_tools_accepts_lock_without_build_group(
-    tmp_path: Path, action_scripts: Path, nab_executable: Path
+    tmp_path: Path, action_scripts: Path, nab_executable: Path, locked_release_index: str
 ) -> None:
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "tool-only"\nversion = "0.1.0"\nrequires-python = ">=3.15"\n'
         '[dependency-groups]\nrelease-check = ["prek>=0.2"]\n'
-        '[tool.nab]\nbase-group = "project-runtime"\ndefault-groups = []\n',
+        '[tool.nab]\nbase-group = "project-runtime"\ndefault-groups = []\n'
+        f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{locked_release_index}"\nserialization = "html"\n',
     )
     generated = subprocess.run(
         [str(nab_executable), "lock", "--groups", "release-check", "--output", "pylock.toml"],

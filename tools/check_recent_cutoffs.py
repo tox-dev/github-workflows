@@ -15,7 +15,7 @@ def main() -> None:
     args = parser.parse_args()
     try:
         validate_recent_cutoffs(args.project.read_text(), datetime.now(UTC) - timedelta(days=7))
-    except (OSError, KeyError, ValueError) as error:
+    except (OSError, KeyError, TypeError, ValueError) as error:
         parser.error(str(error))
 
 

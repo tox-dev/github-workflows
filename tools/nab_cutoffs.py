@@ -1,7 +1,19 @@
 from __future__ import annotations
 
+import re
 import tomllib
 from datetime import UTC, datetime
+from typing import Final
+
+_DURATION: Final = re.compile(
+    r"""
+    ^P                  # ISO duration prefix
+    (?P<days>[0-9]+)     # Nab supports whole days
+    D$                  # Day unit and end
+    """,
+    re.VERBOSE,
+)
+_MINIMUM_DAYS: Final = 7
 
 _REVIEWED_EXCEPTIONS = {
     **dict.fromkeys(
@@ -9,11 +21,17 @@ _REVIEWED_EXCEPTIONS = {
         datetime(2026, 10, 19, tzinfo=UTC),
     ),
     "release-creator": datetime(2026, 10, 23, 2, 44, 40, tzinfo=UTC),
+    "uv-build": datetime(2026, 10, 21, tzinfo=UTC),  # toml-fmt requires 0.13.4 until the cutoff matures.
 }
 
 
 def validate_recent_cutoffs(project: str, threshold: datetime) -> None:
     nab = tomllib.loads(project)["tool"]["nab"]
+    global_cutoff = nab.get("uploaded-prior-to")
+    if not isinstance(global_cutoff, str) or (match := _DURATION.fullmatch(global_cutoff)) is None:
+        raise ValueError("global Nab cutoff must be a duration of at least P7D")
+    if int(match["days"]) < _MINIMUM_DAYS:
+        raise ValueError("global Nab cutoff must be a duration of at least P7D")
     candidates = [
         (name, settings["uploaded-prior-to"])
         for name, settings in nab.get("packages", {}).items()
@@ -26,8 +44,16 @@ def validate_recent_cutoffs(project: str, threshold: datetime) -> None:
         for name in rule["match"]
     )
     for name, value in candidates:
-        if isinstance(value, str) and value.startswith("P"):
+        if value is False:
+            if name not in _REVIEWED_EXCEPTIONS:
+                raise ValueError(f"Nab cutoff for {name} weakens the seven-day policy: {value}")
             continue
+        if isinstance(value, str) and (match := _DURATION.fullmatch(value)) is not None:
+            if name not in _REVIEWED_EXCEPTIONS and int(match["days"]) < _MINIMUM_DAYS:
+                raise ValueError(f"Nab cutoff for {name} weakens the seven-day policy: {value}")
+            continue
+        if isinstance(value, bool):
+            raise TypeError(f"invalid Nab cutoff for {name}: {value}")
         timestamp = datetime.fromisoformat(value) if isinstance(value, str) else value
         if timestamp.tzinfo is None:
             raise ValueError(f"Nab package cutoff has no timezone: {value}")
@@ -66,7 +92,7 @@ def remove_cutoffs(nab: dict, names: set[str], positions: set[int]) -> None:
 def expired_cutoffs(project: str, threshold: datetime) -> tuple[set[str], set[int]]:
     nab = tomllib.loads(project)["tool"]["nab"]
     packages = {
-        name
+        str(name)
         for name, settings in nab.get("packages", {}).items()
         if (value := settings.get("uploaded-prior-to")) is not None and _expired(value, threshold)
     }
@@ -78,9 +104,11 @@ def expired_cutoffs(project: str, threshold: datetime) -> tuple[set[str], set[in
     return packages, rules
 
 
-def _expired(value: str | datetime, threshold: datetime) -> bool:
-    if isinstance(value, str) and value.startswith("P"):
+def _expired(value: str | datetime | bool, threshold: datetime) -> bool:
+    if value is False or isinstance(value, str) and _DURATION.fullmatch(value) is not None:
         return False
+    if isinstance(value, bool):
+        raise TypeError(f"invalid Nab cutoff: {value}")
     timestamp = datetime.fromisoformat(value) if isinstance(value, str) else value
     if timestamp.tzinfo is None:
         raise ValueError(f"Nab package cutoff has no timezone: {value}")

@@ -436,6 +436,63 @@ def test_draft_release_replaces_incomplete_asset(
     assert [request.method for request, _ in server.log] == ["GET", "GET", "DELETE", "GET", "GET", "GET"]
 
 
+def test_failed_upload_deletes_partial_asset_before_retry(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    release_cli: dict[str, str],
+) -> None:
+    server, environment = github_api
+    notes, commit = _notes_and_commit(repository, tmp_path)
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    asset_path = assets / "fixture.zip"
+    asset_path.write_bytes(b"release archive")
+    draft = _release(notes, draft=True)
+    partial = _release(
+        notes, draft=True, assets=[{"id": "21", "name": asset_path.name, "digest": "", "state": "starter"}]
+    )
+    complete = _release(
+        notes,
+        draft=True,
+        assets=[
+            {
+                "name": asset_path.name,
+                "digest": f"sha256:{sha256(asset_path.read_bytes()).hexdigest()}",
+                "state": "uploaded",
+            }
+        ],
+    )
+    prefix = "/api/v3/repos/tox-dev/fixture"
+    server.expect_ordered_request(f"{prefix}/commits/refs/tags/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
+        [draft]
+    )
+    for release in (draft, partial, partial):
+        server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(release)
+    server.expect_ordered_request(f"{prefix}/releases/assets/21", method="DELETE").respond_with_json({})
+    for _ in range(3):
+        server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(complete)
+
+    result = _request(
+        repository,
+        tmp_path,
+        action_scripts,
+        notes,
+        commit,
+        environment | release_cli | {"GH_UPLOAD_FAILURE": "once"},
+        assets=assets,
+        mode="stage",
+    )
+    assert result.returncode == 0, result.stderr
+    assert [request.method for request, _ in server.log] == ["GET"] * 5 + ["DELETE"] + ["GET"] * 2
+    assert _release_calls(tmp_path) == [
+        ("release", "upload", "0.1.0", str(asset_path), "--repo", "tox-dev/fixture"),
+        ("release", "upload", "0.1.0", str(asset_path), "--repo", "tox-dev/fixture"),
+    ]
+
+
 def test_failed_asset_upload_leaves_draft_unpublished(
     repository: Path,
     tmp_path: Path,
@@ -454,7 +511,7 @@ def test_failed_asset_upload_leaves_draft_unpublished(
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
         [draft]
     )
-    for _ in range(7):
+    for _ in range(14):
         server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(draft)
     result = _request(
         repository,
@@ -466,7 +523,7 @@ def test_failed_asset_upload_leaves_draft_unpublished(
         assets=assets,
     )
     assert result.returncode != 0
-    assert [request.method for request, _ in server.log] == ["GET"] * 9
+    assert [request.method for request, _ in server.log] == ["GET"] * 14
     assert (
         _release_calls(tmp_path)
         == [("release", "upload", "0.1.0", str(assets / "fixture.zip"), "--repo", "tox-dev/fixture")] * 6

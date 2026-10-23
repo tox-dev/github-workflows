@@ -5,14 +5,20 @@ import os
 import ssl
 import subprocess
 import sys
+import tomllib
 from collections.abc import Iterator, Mapping
+from hashlib import sha256
+from html import escape
 from pathlib import Path
 from textwrap import dedent
 from typing import Final
+from urllib.parse import urlsplit
+from urllib.request import urlopen
 
 import pytest
 import trustme
 import yaml
+from packaging.utils import canonicalize_name
 from pytest_httpserver import HTTPServer
 from werkzeug.wrappers import Request, Response
 
@@ -27,7 +33,7 @@ def github_api(tmp_path: Path) -> Iterator[tuple[HTTPServer, dict[str, str]]]:
     server.start()
     bundle = tmp_path / "ca.pem"
     authority.cert_pem.write_to_path(bundle)
-    if system_certs := ssl.get_default_verify_paths().cafile:
+    if (system_certs := ssl.get_default_verify_paths().cafile) and Path(system_certs).is_file():
         bundle.write_bytes(bundle.read_bytes() + Path(system_certs).read_bytes())
     yield (
         server,
@@ -78,6 +84,35 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
             path.write_text(f"#!/usr/bin/env bash\n{step['run']}")
             path.chmod(0o755)
     return scripts
+
+
+@pytest.fixture
+def locked_release_index(httpserver: HTTPServer) -> str:
+    packages = tomllib.loads((Path(__file__).resolve().parents[1] / "pylock.toml").read_text())["packages"]
+    listings: dict[str, list[str]] = {}
+    artifacts: dict[str, tuple[str, str]] = {}
+    for package in packages:
+        links = listings.setdefault(canonicalize_name(package["name"]), [])
+        for artifact in [*package.get("wheels", []), *([package["sdist"]] if "sdist" in package else [])]:
+            filename = artifact.get("name") or urlsplit(artifact["url"]).path.rsplit("/", 1)[-1]
+            digest = artifact["hashes"]["sha256"]
+            artifacts[filename] = artifact["url"], digest
+            links.append(
+                f'<a href="{escape(httpserver.url_for(f"/files/{filename}"))}#sha256={digest}" '
+                f'data-upload-time="{artifact["upload-time"].isoformat()}">{escape(filename)}</a>'
+            )
+    for name, links in listings.items():
+        httpserver.expect_request(f"/simple/{name}/").respond_with_data("\n".join(links), content_type="text/html")
+    for filename, (url, digest) in artifacts.items():
+
+        def serve(_request: Request, *, source: str = url, expected: str = digest) -> Response:
+            with urlopen(source, timeout=30) as stream:
+                content = stream.read()
+            assert sha256(content).hexdigest() == expected
+            return Response(content, mimetype="application/octet-stream")
+
+        httpserver.expect_request(f"/files/{filename}").respond_with_handler(serve)
+    return httpserver.url_for("/simple/")
 
 
 @pytest.fixture(scope="session")

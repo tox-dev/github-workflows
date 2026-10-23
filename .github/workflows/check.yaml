@@ -29,6 +29,7 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
+          cache-suffix: ${{ github.job }}
           cache-dependency-glob: |
             pylock.toml
             pyproject.toml
@@ -58,6 +59,7 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
+          cache-suffix: ${{ github.job }}
           cache-dependency-glob: |
             pylock.toml
             pyproject.toml
@@ -99,6 +101,7 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
+          cache-suffix: ${{ github.job }}
           cache-dependency-glob: |
             pylock.toml
             pyproject.toml
@@ -127,6 +130,7 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
+          cache-suffix: ${{ github.job }}
           cache-dependency-glob: |
             pylock.toml
             pyproject.toml
@@ -145,6 +149,7 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
+          cache-suffix: ${{ github.job }}
           cache-dependency-glob: |
             pylock.toml
             pyproject.toml
@@ -178,13 +183,14 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
+          cache-suffix: ${{ github.job }}
           cache-dependency-glob: |
             pylock.toml
             pyproject.toml
       - uses: $/refresh-release-lock
         with:
           lock-groups: >-
-            build lock-tools release-notes release-news release-prepare release-validate release-check release-attestations release-shell release-hooks release-hook-check
+            build lock-tools release-notes release-news release-prepare release-validate release-check release-attestations release-shell release-hooks release-hook-check release-fixture
           mode: check
   gate:
     name: ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Required checks pass (non-PR)' }}

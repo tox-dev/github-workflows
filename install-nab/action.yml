@@ -5,10 +5,7 @@ runs:
   steps:
     - name: Create lock-tool environment
       shell: bash
-      run: |
-        if [[ ! -x "$RUNNER_TEMP/lock-tools/bin/python" ]]; then
-          uv venv --python 3.15 "$RUNNER_TEMP/lock-tools"
-        fi
+      run: uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/lock-tools"
     - name: Install lock reader
       shell: bash
       run: |
