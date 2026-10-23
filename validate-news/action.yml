@@ -24,7 +24,7 @@ runs:
         BOT_AUTHOR: ${{ github.event.pull_request.user.type == 'Bot' }}
       run: |
         read -r fragments <"$RUNNER_TEMP/news-fragment-count"
-        if ((!fragments)) && [[ "$SKIP_NEWS" != true && "$BOT_AUTHOR" != true ]]; then
+        if ((! fragments)) && [[ "$SKIP_NEWS" != true && "$BOT_AUTHOR" != true ]]; then
           echo '::error::add a changelog fragment or apply the skip news label' >&2
           exit 1
         fi
