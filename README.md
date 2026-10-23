@@ -506,7 +506,9 @@ file and the tag's commit SHA. A retry resumes a matching draft, or succeeds wit
 already matches. Run it in a Contents-write job that downloads the notes and optional assets; it needs no checkout or
 tool installation. For a repository that must upload GitHub assets before PyPI, call it with `mode: stage`, verify
 PyPI's exact artifact set, then call it with `mode: publish` and the same `assets-directory`. The draft stays private
-until the second call succeeds.
+until the second call succeeds. Enable immutable releases in the repository before using this Action. Drafts can still
+be edited, so the Action checks them again before upload and publication. A matching published release whose API record
+is immutable needs no write or second metadata fetch. Older mutable releases retain the recheck.
 
 ```yaml
   - uses: tox-dev/github-workflows/publish-github-release@SHA
@@ -523,8 +525,7 @@ until the second call succeeds.
   the existing tag must resolve to. `title` and the file bytes must match an existing Release exactly.
 - `assets-directory`: Optional directory containing only the assets to attach. The Action compares each filename and
   SHA256 digest with GitHub's Release asset metadata, uploads missing draft assets, and rejects extra or changed assets.
-  After publication it verifies GitHub's release attestation for each local asset. Enable immutable releases in the
-  repository before using this option.
+  After publication it verifies GitHub's release attestation for each local asset.
 - `prerelease`: `true` or `false`; default `false`. It must match an existing Release.
 - `mode`: `complete` (default) creates or resumes a draft and publishes it in one call. `stage` creates or resumes a
   draft and uploads assets without publishing. `publish` requires an existing draft and publishes it after checking the
