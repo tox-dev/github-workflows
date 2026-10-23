@@ -29,6 +29,7 @@ runs:
       with:
         groups: release-notes${{ inputs.local-tool-source == 'true' && ' project-runtime' || '' }}
         venv: ${{ runner.temp }}/pypi-reconcile
+        local-tool-source: ${{ inputs.local-tool-source }}
     - name: Install tagged release tool
       if: inputs.local-tool-source == 'true'
       shell: bash
