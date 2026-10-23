@@ -1,3 +1,4 @@
 Remove the `install-nab`, `label-bot-news`, `refresh-hook-pins`, `resolve-pr-from-run`, and
-`validate-python-distribution` Actions. Callers must use the remaining shared Actions and update retired workflow
-inputs.
+`validate-python-distribution` Actions. `select-previous-tag` no longer accepts `package`, `executable`, or
+`stable-only`; `validate-release-patch` no longer accepts `expected-patch-sha`; and `render-release-notes` no longer
+emits `previous`.
