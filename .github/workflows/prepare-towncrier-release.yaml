@@ -76,7 +76,6 @@ jobs:
         if: inputs.local-tool-source
         env:
           BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}
-          UV_SYSTEM_CERTS: "true"
         run: |
           uv build --wheel --build-constraints "$BUILD_CONSTRAINTS" \
             --require-build-hashes --out-dir "$RUNNER_TEMP/local-tool-dist" .

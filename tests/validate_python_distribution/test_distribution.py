@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -23,7 +24,18 @@ def distribution(source_project: Path, nab_executable: Path) -> tuple[Path, Path
         "pkg-meta",
     )
     output = source_project / "dist"
-    run(source_project, "uv", "build", "--python", "3.15", "--sdist", "--wheel", "--out-dir", str(output))
+    run(
+        source_project,
+        "uv",
+        "build",
+        "--no-build-isolation",
+        "--python",
+        sys.executable,
+        "--sdist",
+        "--wheel",
+        "--out-dir",
+        str(output),
+    )
     return source_project, output
 
 

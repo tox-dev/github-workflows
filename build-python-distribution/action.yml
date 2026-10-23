@@ -32,7 +32,6 @@ runs:
       env:
         SOURCE: ${{ inputs.source }}
         BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}
-        UV_SYSTEM_CERTS: "true"
       run: |
         set -euo pipefail
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
