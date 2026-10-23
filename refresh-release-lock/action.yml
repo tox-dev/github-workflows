@@ -78,7 +78,7 @@ runs:
           exit 1
           ;;
         esac
-        uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --groups "${groups[@]}" \
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --no-cache --groups "${groups[@]}" \
           --output pylock.toml "${refresh[@]}"
         if [[ "$MODE" == check ]]; then
           python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" \
@@ -135,7 +135,7 @@ runs:
           ;;
         esac
         cp "$ADDITIONAL_LOCK" "$RUNNER_TEMP/additional-lock-before.toml"
-        uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock pyproject.toml "${selection[@]}" \
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --no-cache pyproject.toml "${selection[@]}" \
           --project-matrix-python "$MATRIX_PYTHON" \
           --project-matrix-platforms "${platforms[@]}" \
           --project-matrix-implementations "${implementations[@]}" \

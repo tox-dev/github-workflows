@@ -382,8 +382,8 @@ def test_install_locked_tools_rejects_unreviewed_version_under_reviewed_floor(tm
     package = next(package for package in document["packages"] if package["name"] == "release-creator")
     package["version"] = "0.6.3"
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = artifact["name"].replace("0.6.5", "0.6.3")
-        artifact["url"] = artifact["url"].replace("0.6.5", "0.6.3")
+        artifact["name"] = artifact["name"].replace("0.6.7", "0.6.3")
+        artifact["url"] = artifact["url"].replace("0.6.7", "0.6.3")
     lock = tmp_path / "pylock.toml"
     lock.write_text(tomlkit.dumps(document))
 
@@ -405,8 +405,8 @@ def test_install_locked_tools_rejects_caller_below_shared_floor(tmp_path: Path, 
     package = next(package for package in document["packages"] if package["name"] == "release-creator")
     package["version"] = version
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = artifact["name"].replace("0.6.5", version)
-        artifact["url"] = artifact["url"].replace("0.6.5", version)
+        artifact["name"] = artifact["name"].replace("0.6.7", version)
+        artifact["url"] = artifact["url"].replace("0.6.7", version)
         artifact["upload-time"] = datetime(2026, 10, 15, tzinfo=UTC)
     lock = tmp_path / "pylock.toml"
     lock.write_text(tomlkit.dumps(document))
@@ -426,7 +426,7 @@ def test_install_locked_tools_rejects_caller_below_shared_floor(tmp_path: Path, 
     )
 
     assert result.returncode != 0
-    assert "relock: release-creator 0.6.5 required" in result.stderr
+    assert "relock: release-creator 0.6.7 required" in result.stderr
 
 
 def test_install_locked_tools_constraints_only_checks_lock_age(tmp_path: Path, action_scripts: Path) -> None:
