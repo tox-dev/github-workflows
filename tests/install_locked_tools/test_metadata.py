@@ -93,6 +93,23 @@ def test_lock_metadata_requires_group(
     assert "at least one dependency group is required" in capsys.readouterr().err
 
 
+def test_lock_metadata_checks_base_selection_without_groups(
+    lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lock = lock_case[0]
+    lock.write_text(
+        lock.read_text()
+        .replace('dependency-groups = ["release-check"]\n', "")
+        .replace('"release-check" in dependency_groups', '"build" not in dependency_groups')
+        .replace("files.pythonhosted.org", "example.org")
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--build-constraints")
+
+    assert "non-PyPI artifact" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "change", [pytest.param("api-version", id="api-version"), pytest.param("project-name", id="project-name")]
 )

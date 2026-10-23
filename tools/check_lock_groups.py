@@ -44,6 +44,8 @@ def main() -> None:
             args.build_constraints and missing == {"build"}
         ):
             parser.error(f"missing lock dependency groups: {', '.join(sorted(missing))}")
+        if args.build_constraints and not lock.dependency_groups:
+            groups.clear()
         _check_cooling(lock, groups, local_tool_source=args.local_tool_source)
         if args.verify_pypi:
             _verify_pypi(lock, groups, local_tool_source=args.local_tool_source)
@@ -110,10 +112,10 @@ def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> 
 
 
 def _selected_packages(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> Iterator[Package]:
+    selections = (groups, {"build"}) if "build" in (lock.dependency_groups or ()) else (groups,)
     for package in lock.packages:
         if package.marker is not None and not any(
-            package.marker.evaluate({"dependency_groups": selection}, context="lock_file")
-            for selection in (groups, {"build"})
+            package.marker.evaluate({"dependency_groups": selection}, context="lock_file") for selection in selections
         ):
             continue
         if local_tool_source and package.name == "release-creator" and package.index is None:
