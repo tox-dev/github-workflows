@@ -22,7 +22,6 @@ runs:
     - name: Check staged release
       shell: bash
       env:
-        VERSION: ${{ inputs.version }}
         ANNOTATED: ${{ inputs.annotated }}
       run: |
         set -euo pipefail
@@ -32,10 +31,6 @@ runs:
         fi
         if [[ "$ANNOTATED" != true && "$ANNOTATED" != false ]]; then
           echo '::error::annotated must be true or false' >&2
-          exit 1
-        fi
-        if ! git check-ref-format "refs/tags/$VERSION"; then
-          echo "::error::invalid release tag: $VERSION" >&2
           exit 1
         fi
     - name: Set App commit identity

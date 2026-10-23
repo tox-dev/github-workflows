@@ -13,14 +13,14 @@ from conftest import action
 def test_export_build_constraints_uses_checked_in_locks(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     (tmp_path / "pylock.toml").write_bytes((source / "pylock.toml").read_bytes())
-    result = action(tmp_path, tmp_path, action_scripts, "export-build-constraints", version="")
+    result = action(tmp_path, tmp_path, action_scripts, "install-locked-tools", version="")
     assert result.returncode == 0, result.stderr
     output = next(tmp_path.glob("build-constraints-*.txt"))
     constraints = output.read_text()
     assert "cython==" in constraints
     assert "setuptools==" in constraints
     assert "pytest==" not in constraints
-    assert (tmp_path / "output").read_text() == f"path={output}\n"
+    assert f"path={output}\n" in (tmp_path / "output").read_text()
 
 
 @pytest.mark.parametrize(

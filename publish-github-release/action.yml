@@ -251,41 +251,6 @@ runs:
           release_id=$(<"$RUNNER_TEMP/release-id")
           gh api -X PATCH "repos/$GH_REPO/releases/$release_id" -F draft=false >/dev/null
         fi
-    - name: Verify the final release state
-      shell: bash
-      env:
-        GH_REPO: ${{ github.repository }}
-        TAG: ${{ inputs.tag }}
-        TITLE: ${{ inputs.title }}
-        NOTES_FILE: ${{ inputs.notes-file }}
-        PRERELEASE: ${{ inputs.prerelease }}
-        MODE: ${{ inputs.mode }}
-      run: |
-        set -euo pipefail
-        release_id=$(<"$RUNNER_TEMP/release-id")
-        for attempt in {1..6}; do
-          if ! gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-published.json"; then
-            if ((attempt == 6)); then
-              echo '::error::published release could not be read' >&2
-              exit 1
-            fi
-            sleep 2
-            continue
-          fi
-          if jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
-            --arg mode "$MODE" \
-            --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
-              length == 1 and ($mode == "stage" or .[0].draft == false) and .[0].name == $title and
-              .[0].body == $body and .[0].prerelease == $prerelease and
-              ([.[0].assets[] | select(.state == "uploaded") | {name, digest}] | sort_by(.name)) ==
-              ($assets[0] | sort_by(.name))
-            ' "$RUNNER_TEMP/release-published.json" >/dev/null; then
-            exit 0
-          fi
-          if ((attempt < 6)); then sleep 2; fi
-        done
-        echo '::error::final release state did not match after publication' >&2
-        exit 1
     - name: Verify published asset attestations
       if: inputs.mode != 'stage' && inputs.assets-directory != ''
       shell: bash

@@ -93,7 +93,7 @@ def test_backend_constraints_match_shared_lock(tmp_path: Path) -> None:
 
 def test_install_lock_tools_rejects_hash_mismatch(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    action_root = tmp_path / "install-nab"
+    action_root = tmp_path / "install-locked-tools"
     action_root.mkdir()
     lock = (source / "pylock.toml").read_text()
     package = next(package for package in tomllib.loads(lock)["packages"] if package["name"] == "nab")
@@ -102,7 +102,7 @@ def test_install_lock_tools_rejects_hash_mismatch(tmp_path: Path, action_scripts
         tmp_path,
         tmp_path,
         action_scripts,
-        "install-nab",
+        "install-locked-tools",
         version="0.2.0",
         GITHUB_ACTION_PATH=str(action_root),
         UV_CACHE_DIR=str(tmp_path / "cache"),
@@ -111,20 +111,20 @@ def test_install_lock_tools_rejects_hash_mismatch(tmp_path: Path, action_scripts
     assert "Hash mismatch" in result.stderr
 
 
-def test_install_nab_reuses_existing_environment(tmp_path: Path, action_scripts: Path) -> None:
+def test_install_locked_tools_reuses_existing_environment(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    environment = {"GITHUB_ACTION_PATH": str(source / "install-nab")}
-    first = action(source, tmp_path, action_scripts, "install-nab", version="", **environment)
-    second = action(source, tmp_path, action_scripts, "install-nab", version="", **environment)
+    environment = {"GROUPS": "lock-tools", "VENV": str(tmp_path / "lock-tools"), "LOCK_SOURCE": "shared"}
+    first = action(source, tmp_path, action_scripts, "install-locked-tools", version="", **environment)
+    second = action(source, tmp_path, action_scripts, "install-locked-tools", version="", **environment)
     assert first.returncode == second.returncode == 0, first.stderr + second.stderr
     assert (tmp_path / "lock-tools" / ("Scripts/nab.exe" if os.name == "nt" else "bin/nab")).is_file()
 
 
-def test_install_nab_reuses_windows_shaped_environment(tmp_path: Path, action_scripts: Path) -> None:
+def test_install_locked_tools_reuses_windows_shaped_environment(tmp_path: Path, action_scripts: Path) -> None:
     subprocess.run(["uv", "venv", "--python", "3.15", str(tmp_path / "lock-tools")], check=True, capture_output=True)
     (tmp_path / "lock-tools" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")).unlink()
     result = subprocess.run(
-        ["bash", str(action_scripts / "install-nab-0.sh")],
+        ["bash", str(action_scripts / "install-locked-tools-0.sh")],
         env=os.environ | {"RUNNER_TEMP": str(tmp_path)},
         text=True,
         capture_output=True,
@@ -132,19 +132,6 @@ def test_install_nab_reuses_windows_shaped_environment(tmp_path: Path, action_sc
     )
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "lock-tools/pyvenv.cfg").is_file()
-
-
-def test_install_locked_tools_rejects_empty_groups(tmp_path: Path, action_scripts: Path) -> None:
-    source = Path(__file__).resolve().parents[2]
-    result = install(
-        source,
-        action_scripts,
-        tmp_path,
-        groups="",
-        venv=tmp_path / "tools",
-    )
-    assert result.returncode != 0
-    assert "at least one dependency group is required" in result.stderr
 
 
 def test_install_locked_tools_rejects_missing_group(tmp_path: Path, action_scripts: Path) -> None:
@@ -166,6 +153,7 @@ def test_install_locked_tools_checks_caller_release_creator(tmp_path: Path, loca
     lock.write_text(
         'lock-version = "1.0"\nrequires-python = ">=3.15"\n'
         'dependency-groups = ["release-prepare"]\ncreated-by = "test"\npackages = []\n'
+        "[tool.nab]\ncreated-at = 2026-10-19T00:00:00Z\n"
     )
     source = Path(__file__).resolve().parents[2]
     command = [
@@ -205,6 +193,59 @@ def test_local_tool_source_accepts_versionless_package(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.parametrize(
+    ("replace", "message"),
+    [
+        pytest.param(
+            ("created-at = 2026-10-23", "created-at = 2099-10-23"),
+            "created in the future",
+            id="future-creation",
+        ),
+        pytest.param(
+            ("upload-time = 2026-", "upload-time = 2099-"),
+            "uncooled artifact",
+            id="recent-artifact",
+        ),
+    ],
+)
+def test_install_locked_tools_rejects_uncooled_lock(tmp_path: Path, replace: tuple[str, str], message: str) -> None:
+    source = Path(__file__).resolve().parents[2]
+    lock = (source / "pylock.toml").read_text()
+    assert replace[0] in lock
+    (tmp_path / "pylock.toml").write_text(lock.replace(*replace))
+
+    result = subprocess.run(
+        ["python", str(source / "tools/check_lock_groups.py"), str(tmp_path / "pylock.toml"), "release-check"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert message in result.stderr
+
+
+def test_install_locked_tools_constraints_only_checks_lock_age(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    (tmp_path / "pylock.toml").write_text(
+        (source / "pylock.toml").read_text().replace("created-at = 2026-10-23", "created-at = 2099-10-23", 1)
+    )
+    result = action(tmp_path, tmp_path, action_scripts, "install-locked-tools", version="")
+    assert result.returncode != 0
+    assert "created in the future" in result.stderr
+
+
+def test_install_locked_tools_constraints_only_accepts_no_build_group(tmp_path: Path, action_scripts: Path) -> None:
+    (tmp_path / "pylock.toml").write_text(
+        'lock-version = "1.0"\nrequires-python = ">=3.15"\ncreated-by = "test"\n'
+        'dependency-groups = ["project-runtime"]\npackages = []\n'
+        "[tool.nab]\ncreated-at = 2026-10-19T00:00:00Z\n"
+    )
+    result = action(tmp_path, tmp_path, action_scripts, "install-locked-tools", version="")
+    assert result.returncode == 0, result.stderr
+    assert "setuptools==" in next(tmp_path.glob("build-constraints-*.txt")).read_text()
+
+
 def test_caller_version_check_uses_shared_package_marker(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     shared = tmp_path / "shared.toml"
@@ -217,6 +258,7 @@ def test_caller_version_check_uses_shared_package_marker(tmp_path: Path) -> None
     caller.write_text(
         'lock-version = "1.0"\nrequires-python = ">=3.15"\n'
         'dependency-groups = ["release-shell"]\ncreated-by = "test"\npackages = []\n'
+        "[tool.nab]\ncreated-at = 2026-10-19T00:00:00Z\n"
     )
     result = subprocess.run(
         [

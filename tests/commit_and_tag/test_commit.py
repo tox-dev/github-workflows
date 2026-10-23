@@ -54,11 +54,24 @@ def test_commit_and_tag_pushes_atomically(
 def test_commit_and_tag_rejects_invalid_tag(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     run(repository, "git", "add", "CHANGELOG.md")
-    original_head = run(repository, "git", "rev-parse", "HEAD").stdout
-    result = action(repository, tmp_path, action_scripts, "commit-and-tag", version="bad tag")
+    original_remote = run(repository, "git", "ls-remote", "origin", "refs/heads/main").stdout
+    gh = tmp_path / "gh"
+    gh.write_text('#!/usr/bin/env bash\nif [[ "$1" == api ]]; then echo 123; fi\n')
+    gh.chmod(0o755)
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "commit-and-tag",
+        version="bad tag",
+        APP_SLUG="release-test",
+        TOKEN="test-token",  # ruff: ignore[hardcoded-password-func-arg]  # Local fixture never sends this token.
+        MESSAGE="release bad tag",
+        PATH=f"{tmp_path}:{os.environ['PATH']}",
+    )
     assert result.returncode != 0
-    assert "invalid release tag" in result.stderr
-    assert run(repository, "git", "rev-parse", "HEAD").stdout == original_head
+    assert "not a valid tag name" in result.stderr
+    assert run(repository, "git", "ls-remote", "origin", "refs/heads/main").stdout == original_remote
 
 
 def test_commit_and_tag_rejects_empty_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:

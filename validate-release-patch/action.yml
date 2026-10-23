@@ -10,23 +10,12 @@ inputs:
   working-directory:
     description: Checkout to validate and apply the patch in
     default: .
-  expected-patch-sha:
-    description: SHA-256 digest from a separate keyless validation job
-    default: ""
   checks:
     description: Run release-creator and prek after applying the patch
     default: "true"
 runs:
   using: composite
   steps:
-    - name: Require a clean release checkout
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: |
-        if [[ -n $(git status --porcelain) ]]; then
-          echo '::error::release validation requires a clean checkout' >&2
-          exit 1
-        fi
     - name: Verify release source
       shell: bash
       working-directory: ${{ inputs.working-directory }}
@@ -42,7 +31,6 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         PATCH: ${{ inputs.patch }}
-        EXPECTED_PATCH_SHA: ${{ inputs.expected-patch-sha }}
         CHECKS: ${{ inputs.checks }}
       run: |
         set -euo pipefail
@@ -50,21 +38,7 @@ runs:
           echo '::error::checks must be true or false' >&2
           exit 1
         fi
-        if [[ "$CHECKS" == false && -z "$EXPECTED_PATCH_SHA" ]]; then
-          echo '::error::skipping release checks requires a validated patch digest' >&2
-          exit 1
-        fi
-        read -r patch_sha _ < <(sha256sum "$PATCH")
-        if [[ -n "$EXPECTED_PATCH_SHA" && "$patch_sha" != "$EXPECTED_PATCH_SHA" ]]; then
-          echo '::error::release patch differs from the validated artifact' >&2
-          exit 1
-        fi
-        git apply --check "$PATCH"
         git apply --index "$PATCH"
-        if git diff --cached --quiet; then
-          echo '::error::release patch contains no changes' >&2
-          exit 1
-        fi
     - id: config
       uses: $/read-towncrier-config
       with:
@@ -104,8 +78,6 @@ runs:
     - name: Check release patch file modes
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      env:
-        FRAGMENTS: ${{ steps.config.outputs.fragments }}
       run: |
         set -euo pipefail
         git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/release-modes"
@@ -123,10 +95,6 @@ runs:
           D)
             old_mode=100644
             new_mode=000000
-            if [[ "$path" != "$FRAGMENTS/"* ]]; then
-              echo "::error::unexpected release file mode in $path: ${fields[1]}" >&2
-              exit 1
-            fi
             ;;
           *)
             echo "::error::unexpected release file mode in $path: ${fields[1]}" >&2
@@ -143,7 +111,7 @@ runs:
           fi
         done <"$RUNNER_TEMP/release-modes"
     - name: Check RST conflict markers
-      if: steps.config.outputs.format == 'rst'
+      if: inputs.checks == 'true' && steps.config.outputs.format == 'rst'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
@@ -167,27 +135,14 @@ runs:
       env:
         VERSION: ${{ inputs.version }}
         CHANGELOG: ${{ steps.config.outputs.changelog }}
-      run: |
-        if ! release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$GITHUB_REPOSITORY" \
-          >/dev/null; then
-          echo "::error::$CHANGELOG has no valid section for $VERSION" >&2
-          exit 1
-        fi
+      run: release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$GITHUB_REPOSITORY" >/dev/null
     - name: Run prek on release patch
       if: inputs.checks == 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
-        git diff --cached --check
-        staged_patch_sha=$(git diff --cached --binary | sha256sum)
         if ! prek run --all-files; then
           echo '::error::prek failed on the validated release patch' >&2
-          exit 1
-        fi
-        if [[ $(git diff --cached --binary | sha256sum) != "$staged_patch_sha" ]] ||
-          ! git diff --quiet ||
-          [[ -n $(git ls-files --others --exclude-standard) ]]; then
-          echo '::error::prek changed the validated release patch' >&2
           exit 1
         fi

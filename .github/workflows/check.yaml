@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, reopened, synchronize, labeled, unlabeled]
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,8 +37,6 @@ jobs:
         with:
           groups: release-check
           venv: .release-tools
-      - name: Add locked tools to PATH
-        run: echo "$PWD/.release-tools/bin" >>"$GITHUB_PATH"
       - name: Check repository formatting
         run: prek run --all-files
   shell:
@@ -67,8 +65,6 @@ jobs:
         with:
           groups: release-shell
           venv: .release-tools
-      - name: Add locked tools to PATH
-        run: echo "$PWD/.release-tools/bin" >>"$GITHUB_PATH"
       - name: Check inline shell
         run: |
           set -euo pipefail
@@ -109,8 +105,6 @@ jobs:
         with:
           groups: release-news release-shell
           venv: .release-tools
-      - name: Add locked tools to PATH
-        run: echo "$PWD/.release-tools/bin" >>"$GITHUB_PATH"
       - name: Install current test tools
         run: |
           uv venv --python 3.15 .venv
@@ -136,30 +130,6 @@ jobs:
             pyproject.toml
       - name: Check Python types
         run: uvx --with tox-uv tox run -e type
-  changelog:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: latest-known
-          python-version: "3.15"
-          enable-cache: true
-          cache-suffix: ${{ github.job }}
-          cache-dependency-glob: |
-            pylock.toml
-            pyproject.toml
-      - uses: $/install-locked-tools
-        with:
-          groups: release-news
-          venv: ${{ runner.temp }}/release-tools
-      - name: Add locked tools to PATH
-        run: echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
-      - uses: $/validate-news
   hook-cooldown:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
@@ -195,7 +165,7 @@ jobs:
   gate:
     name: ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Required checks pass (non-PR)' }}
     if: ${{ !cancelled() }}
-    needs: [check, shell, test, type, changelog, hook-cooldown, release-tools-preview]
+    needs: [check, shell, test, type, hook-cooldown, release-tools-preview]
     runs-on: ubuntu-26.04
     steps:
       - env:
@@ -207,6 +177,6 @@ jobs:
               to_entries[];
               .value.result == "success" or
               ($ENV.EVENT_NAME != "pull_request" and .value.result == "skipped" and
-                (.key == "changelog" or .key == "hook-cooldown" or .key == "release-tools-preview"))
+                (.key == "hook-cooldown" or .key == "release-tools-preview"))
             )
           ' <<<"$NEEDS_JSON"

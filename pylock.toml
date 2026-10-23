@@ -1703,7 +1703,7 @@ sha256 = "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
 
 [[packages]]
 name = "release-creator"
-version = "0.6.0"
+version = "0.6.4"
 marker = "\"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
 requires-python = ">=3.15"
 dependencies = [
@@ -1717,22 +1717,22 @@ dependencies = [
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "release_creator-0.6.0.tar.gz"
-upload-time = 2026-10-23 02:44:39.588714+00:00
-url = "https://files.pythonhosted.org/packages/17/11/c0126b406a17370db72d8a08afa1a5823204e69c44938de796cc98df0d02/release_creator-0.6.0.tar.gz"
-size = 135957
+name = "release_creator-0.6.4.tar.gz"
+upload-time = 2026-10-23 16:52:05.496598+00:00
+url = "https://files.pythonhosted.org/packages/97/91/9e1cac72d6bac1b0c5bce41a9231340c9d8640063102461c0fd33817ca50/release_creator-0.6.4.tar.gz"
+size = 133464
 
 [packages.sdist.hashes]
-sha256 = "58afd3cd0fc0b0e47ded23a735a1ba9189a7b0adad410628c90c96cf74457ed6"
+sha256 = "801c15dfc79e862298037fe1f02b52f3b2c3035acc02bebff9fa916c3b3fdce0"
 
 [[packages.wheels]]
-name = "release_creator-0.6.0-py3-none-any.whl"
-upload-time = 2026-10-23 02:44:37.874747+00:00
-url = "https://files.pythonhosted.org/packages/ef/91/ad1ce7d5c65892866893879fb0f407898f2d5c808bbd266ca0a82513a205/release_creator-0.6.0-py3-none-any.whl"
-size = 49478
+name = "release_creator-0.6.4-py3-none-any.whl"
+upload-time = 2026-10-23 16:52:04.227467+00:00
+url = "https://files.pythonhosted.org/packages/fb/86/fb3fb2b9b5cf3f6ea6d67b711c9d7915a2cec5ed1542bcf6bde51e85cd77/release_creator-0.6.4-py3-none-any.whl"
+size = 46339
 
 [packages.wheels.hashes]
-sha256 = "4b9cd6187c87fcb7bf3aca5f58c67c90703e58875643af633661a0448756d45f"
+sha256 = "cf41e5d6d50b489fbc666a82790463f810caff4f91f18c9da02ec72dc96223a0"
 
 [[packages]]
 name = "requests"
@@ -2162,28 +2162,28 @@ sha256 = "188306098d013b691fcadc011abd66727d3c414c571bb01b1a174ba8c983cf90"
 
 [[packages]]
 name = "tomlkit"
-version = "0.15.1"
+version = "0.15.2"
 marker = "\"lock-tools\" in dependency_groups or \"release-hook-check\" in dependency_groups or \"release-shell\" in dependency_groups"
 requires-python = ">=3.9"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "tomlkit-0.15.1.tar.gz"
-upload-time = 2026-07-17 01:48:04.562015+00:00
-url = "https://files.pythonhosted.org/packages/94/96/e07752635b98536177fa1f37671c8f3cdde2e724c6bcf6034b2cfb571565/tomlkit-0.15.1.tar.gz"
-size = 180129
+name = "tomlkit-0.15.2.tar.gz"
+upload-time = 2026-10-16 04:07:08.166827+00:00
+url = "https://files.pythonhosted.org/packages/08/72/fc01563df95c189a9f65850096bdc205bc2fe37da6c740cd64afaf18d07e/tomlkit-0.15.2.tar.gz"
+size = 190522
 
 [packages.sdist.hashes]
-sha256 = "e25bbf38843005246210a12982776f27f99cb9be67160e14434d0c0d21ee1e97"
+sha256 = "83e32755ba1d20d9340bd069ee97e9f6232ba2346b63ffcba425de01f7e327a6"
 
 [[packages.wheels]]
-name = "tomlkit-0.15.1-py3-none-any.whl"
-upload-time = 2026-07-17 01:48:05.728578+00:00
-url = "https://files.pythonhosted.org/packages/13/bc/8c13eb66537dce1d2bd3a57132902f38d0e7f5bb46fa9f4daed9fe9d76ee/tomlkit-0.15.1-py3-none-any.whl"
-size = 49449
+name = "tomlkit-0.15.2-py3-none-any.whl"
+upload-time = 2026-10-16 04:07:09.216014+00:00
+url = "https://files.pythonhosted.org/packages/da/46/7d84138a60a8bd796825b2d38ebe92d0d16501ca57d501b7c5d677401bbc/tomlkit-0.15.2-py3-none-any.whl"
+size = 52225
 
 [packages.wheels.hashes]
-sha256 = "177a05aece5a8ca5266fd3c448abb47b8d352f09d477d3ca8332db4d89b24304"
+sha256 = "05562412163a3037b94497385fb7f9204c637bc605af7a48199e41cf2272f437"
 
 [[packages]]
 name = "towncrier"
@@ -2483,24 +2483,25 @@ sha256 = "4e8b4e54979b26554c72a7e669009017a7fdd3fb00bbae0b26f82a86636c289f"
 
 [tool.nab]
 nab-version = "0.0.22"
-created-at = 2026-10-23 02:46:01.225053+00:00
+created-at = 2026-10-23 16:58:48.863323+00:00
 command-line = [
     "nab",
     "lock",
     "--groups",
     "build",
     "lock-tools",
-    "release-attestations",
-    "release-check",
-    "release-hook-check",
-    "release-hooks",
-    "release-news",
     "release-notes",
+    "release-news",
     "release-prepare",
-    "release-shell",
     "release-validate",
+    "release-check",
+    "release-attestations",
+    "release-shell",
+    "release-hooks",
+    "release-hook-check",
     "--output",
     "pylock.toml",
+    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"

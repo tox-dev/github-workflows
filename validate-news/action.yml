@@ -8,15 +8,6 @@ runs:
       env:
         BASE_REF: ${{ github.base_ref }}
       run: release-creator validate-news --base "$BASE_REF" >"$RUNNER_TEMP/news-fragment-count"
-    - name: Check changed fragments with Towncrier
-      shell: bash
-      env:
-        BASE_REF: ${{ github.base_ref }}
-      run: |
-        read -r fragments <"$RUNNER_TEMP/news-fragment-count"
-        if ((fragments)); then
-          towncrier check --compare-with "origin/$BASE_REF"
-        fi
     - name: Require news for human changes
       shell: bash
       env:

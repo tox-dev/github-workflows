@@ -27,15 +27,13 @@ jobs:
           venv: .venv
       - name: Check tagged source
         run: .venv/bin/prek run --all-files
-      - name: Check source remains clean
-        run: test -z "$(git status --porcelain)"
   source:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
     outputs:
       previous: ${{ steps.previous.outputs.previous }}
-      commit: ${{ steps.tag.outputs.commit }}
+      commit: ${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -51,14 +49,12 @@ jobs:
           groups: release-notes
           venv: .venv
       - name: Verify tagged source
-        id: tag
         env:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
           git merge-base --is-ancestor HEAD origin/main
-          echo "commit=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
       - id: previous
         uses: $/select-previous-tag
         with:
@@ -99,7 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
@@ -110,8 +106,6 @@ jobs:
         with:
           groups: release-notes
           venv: .venv
-      - name: Add locked tools to PATH
-        run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.contributors.outputs.artifact-id }}

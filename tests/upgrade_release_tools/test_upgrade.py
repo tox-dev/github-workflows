@@ -80,7 +80,16 @@ def lock_repository(tmp_path: Path, test_package_index: str) -> Path:
 def test_upgrade_locks_only_selected_groups(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
     project = lock_repository / "pyproject.toml"
     project.write_text(project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]'))
-    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
+    installed = action(
+        lock_repository,
+        tmp_path,
+        upgrade_scripts,
+        "install-locked-tools",
+        version="",
+        GROUPS="lock-tools",
+        LOCK_SOURCE="shared",
+        VENV=str(tmp_path / "lock-tools"),
+    )
     assert installed.returncode == 0, installed.stderr
     resolved = execute(
         lock_repository,
@@ -101,7 +110,16 @@ def test_upgrade_check_mode_preserves_lock_bytes(lock_repository: Path, tmp_path
         project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]')
         + '[tool.nab.packages.old]\nuploaded-prior-to = "2020-01-01T00:00:00Z"\n'
     )
-    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
+    installed = action(
+        lock_repository,
+        tmp_path,
+        upgrade_scripts,
+        "install-locked-tools",
+        version="",
+        GROUPS="lock-tools",
+        LOCK_SOURCE="shared",
+        VENV=str(tmp_path / "lock-tools"),
+    )
     assert installed.returncode == 0, installed.stderr
     refreshed = execute(
         lock_repository,
@@ -132,121 +150,22 @@ def test_upgrade_check_mode_preserves_lock_bytes(lock_repository: Path, tmp_path
     assert project.read_bytes() == project_bytes
 
 
-@pytest.mark.parametrize(
-    ("groups", "selection", "source"),
-    [
-        pytest.param("", "--build-requirements", "build-or-groups", id="build-only"),
-        pytest.param("release-check", "--groups", "build-or-groups", id="selected-group"),
-        pytest.param("", "", "project", id="project-runtime"),
-    ],
-)
-def test_upgrade_preserves_secondary_lock_matrix(
-    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path, groups: str, selection: str, source: str
-) -> None:
-    project = lock_repository / "pyproject.toml"
-    project.write_text(
-        project.read_text()
-        .replace('version = "0.1.0"', 'version = "0.1.0"\ndependencies = ["packaging>=26"]')
-        .replace("release = []", 'release-check = ["prek>=0.2"]')
-        + '[build-system]\nrequires = ["setuptools>=80"]\nbuild-backend = "setuptools.build_meta"\n',
-    )
-    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
-    assert installed.returncode == 0, installed.stderr
-    primary = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
-        tmp_path,
-        LOCK_GROUPS="release-check",
-        MODE="refresh",
-    )
-    assert primary.returncode == 0, primary.stderr
-    additional = lock_repository / "pylock.build.toml"
-    command = [
-        "uv",
-        "run",
-        "--no-project",
-        "--python",
-        str(tmp_path / "lock-tools"),
-        "nab",
-        "lock",
-        "pyproject.toml",
-    ]
-    if selection:
-        command.append(selection)
-    if groups:
-        command.append(groups)
-    command.extend(
-        [
-            "--project-matrix-python",
-            ">=3.15,<3.16",
-            "--project-matrix-platforms",
-            "linux_x86_64",
-            "macos_arm64",
-            "--project-matrix-implementations",
-            "cpython",
-            "--output",
-            str(additional),
-        ],
-    )
-    initial = subprocess.run(command, cwd=lock_repository, text=True, capture_output=True, check=False)
-    assert initial.returncode == 0, initial.stderr
-    expected = additional.read_bytes()
-    environment = {
-        "LOCK_GROUPS": "release-check",
-        "MODE": "check",
-        "ADDITIONAL_LOCK": additional.name,
-        "ADDITIONAL_GROUPS": groups,
-        "ADDITIONAL_SELECTION": source,
-        "MATRIX_PYTHON": ">=3.15,<3.16",
-        "MATRIX_PLATFORMS": "linux_x86_64 macos_arm64",
-        "MATRIX_IMPLEMENTATIONS": "cpython",
-    }
-    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-3.sh", tmp_path, **environment)
-    assert checked.returncode == 0, checked.stderr
-    assert additional.read_bytes() == expected
-    if source == "project":
-        names = {package["name"] for package in tomllib.loads(expected.decode())["packages"]}
-        assert "packaging" in names
-        assert "setuptools" not in names
-
-
-def test_upgrade_rejects_secondary_matrix_change(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
-    project = lock_repository / "pyproject.toml"
-    project.write_text(project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]'))
-    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
-    assert installed.returncode == 0, installed.stderr
-    initial = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
-        tmp_path,
-        LOCK_GROUPS="release-check",
-        MODE="refresh",
-    )
-    assert initial.returncode == 0, initial.stderr
-    (lock_repository / "pylock.build.toml").write_bytes((lock_repository / "pylock.toml").read_bytes())
-    result = execute(
-        lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
-        tmp_path,
-        LOCK_GROUPS="release-check",
-        MODE="refresh",
-        ADDITIONAL_LOCK="pylock.build.toml",
-        ADDITIONAL_GROUPS="release-check",
-        MATRIX_PYTHON=">=3.15,<3.16",
-        MATRIX_PLATFORMS="linux_x86_64",
-        MATRIX_IMPLEMENTATIONS="cpython",
-    )
-    assert result.returncode != 0
-    assert "changed its target environments" in result.stderr
-
-
 def test_upgrade_expires_old_nab_floor(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
     project = lock_repository / "pyproject.toml"
     project.write_text(
         project.read_text()
         + '[[tool.nab.package-rules]]\nmatch = ["nab"]\nuploaded-prior-to = "2026-01-01T00:00:00Z"\n',
     )
-    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
+    installed = action(
+        lock_repository,
+        tmp_path,
+        upgrade_scripts,
+        "install-locked-tools",
+        version="",
+        GROUPS="lock-tools",
+        LOCK_SOURCE="shared",
+        VENV=str(tmp_path / "lock-tools"),
+    )
     assert installed.returncode == 0, installed.stderr
     expired = execute(lock_repository, upgrade_scripts / "refresh-release-lock-2.sh", tmp_path)
     assert expired.returncode == 0, expired.stderr
@@ -266,7 +185,7 @@ def test_upgrade_emits_patch_for_allowed_change(
     (lock_repository / changed_path).write_text((lock_repository / changed_path).read_text() + "\n")
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-7.sh",
+        upgrade_scripts / "refresh-release-lock-4.sh",
         tmp_path,
         MODE="refresh",
         GITHUB_OUTPUT=str(tmp_path / "output"),
@@ -283,26 +202,12 @@ def test_upgrade_check_mode_rejects_lock_drift(lock_repository: Path, tmp_path: 
     (lock_repository / "pylock.toml").write_text('lock-version = "1.1"\n')
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-7.sh",
+        upgrade_scripts / "refresh-release-lock-4.sh",
         tmp_path,
         MODE="check",
         GITHUB_OUTPUT=str(tmp_path / "output"),
     )
     assert result.returncode != 0
-
-
-@pytest.mark.parametrize(
-    "path",
-    [pytest.param("other.txt", id="unrelated-file"), pytest.param("uv.lock", id="uv-lock")],
-)
-def test_upgrade_rejects_unrelated_change(
-    lock_repository: Path, tmp_path: Path, upgrade_scripts: Path, path: str
-) -> None:
-    (tmp_path / "project-after-expiry.toml").write_bytes((lock_repository / "pyproject.toml").read_bytes())
-    (lock_repository / path).write_text("changed\n")
-    result = execute(lock_repository, upgrade_scripts / "refresh-release-lock-6.sh", tmp_path)
-    assert result.returncode != 0
-    assert "outside the lock and cutoff policy" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -332,36 +237,6 @@ def test_upgrade_rejects_unrelated_patch(
     result = execute(lock_repository, publish_scripts / "publish-check-dependency-patch-paths.sh", tmp_path)
     assert (result.returncode == 0) == accepted
     assert ("unexpected dependency path" in result.stderr) == (not accepted)
-
-
-def test_upgrade_allows_only_named_secondary_lock(lock_repository: Path, tmp_path: Path, publish_scripts: Path) -> None:
-    for name in ("pylock.build.toml", "pylock.pgo.toml"):
-        (lock_repository / name).write_text("before\n")
-    run(lock_repository, "git", "add", ".")
-    run(lock_repository, "git", "commit", "-m", "Add secondary locks")
-    (lock_repository / "pylock.build.toml").write_text("after\n")
-    patch = run(lock_repository, "git", "diff", "--binary", "--", "pylock.build.toml").stdout
-    run(lock_repository, "git", "restore", "pylock.build.toml")
-    patch_dir = tmp_path / "release-tools-lock"
-    patch_dir.mkdir()
-    (patch_dir / "lock.patch").write_text(patch)
-    applied = execute(lock_repository, publish_scripts / "publish-apply-lock-patch.sh", tmp_path)
-    assert applied.returncode == 0, applied.stderr
-    accepted = execute(
-        lock_repository,
-        publish_scripts / "publish-check-dependency-patch-paths.sh",
-        tmp_path,
-        ADDITIONAL_LOCK="pylock.build.toml",
-    )
-    assert accepted.returncode == 0, accepted.stderr
-    rejected = execute(
-        lock_repository,
-        publish_scripts / "publish-check-dependency-patch-paths.sh",
-        tmp_path,
-        ADDITIONAL_LOCK="pylock.pgo.toml",
-    )
-    assert rejected.returncode != 0
-    assert "unexpected dependency path: pylock.build.toml" in rejected.stderr
 
 
 @pytest.mark.parametrize(

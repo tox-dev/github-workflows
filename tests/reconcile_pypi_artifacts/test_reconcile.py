@@ -144,4 +144,6 @@ def test_reconcile_checks_complete_release_before_attestations(
     assert result.returncode != 0
     assert expected_error in result.stderr
     if not remote_extra and not wrong_digest:
-        assert (tmp_path / "pypi-file-urls").read_text() == f"{url}\n{sdist_url}\n"
+        assert (
+            tmp_path / "pypi-local-files"
+        ).read_text() == f"{distribution / wheel_name}\n{distribution / sdist_name}\n"

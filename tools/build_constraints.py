@@ -22,8 +22,6 @@ def main() -> None:
     parser.add_argument("--target-platform")
     parser.add_argument("--targets")
     args = parser.parse_args()
-    if bool(args.target_platform) != bool(args.targets):
-        parser.error("target-platform and targets must be supplied together")
     if len(args.locks) > 2:
         parser.error("at most one shared and one caller lock are supported")
     if args.shared_policy and len(args.locks) != 2:

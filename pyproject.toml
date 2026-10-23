@@ -10,14 +10,14 @@ license-files = [ "LICENSE" ]
 [dependency-groups]
 build = [ "Cython>=3.0", "setuptools>=80" ]
 lock-tools = [ "nab==0.0.22", "tomlkit>=0.13" ]
-release-notes = [ "release-creator>=0.6.0" ]
-release-news = [ "release-creator>=0.6.0", "towncrier>=26.9" ]
-release-prepare = [ "release-creator>=0.6.0", "towncrier>=26.9", "prek>=0.2" ]
-release-validate = [ "release-creator>=0.6.0", "prek>=0.2" ]
+release-notes = [ "release-creator>=0.6.4" ]
+release-news = [ "release-creator>=0.6.4", "towncrier>=26.9" ]
+release-prepare = [ "release-creator>=0.6.4", "towncrier>=26.9", "prek>=0.2" ]
+release-validate = [ "release-creator>=0.6.4", "prek>=0.2" ]
 release-check = [ "prek>=0.2" ]
 release-attestations = [ "pypi-attestations>=0.0.30" ]
 release-shell = [ "prek>=0.2", "yq>=4.4.5" ]
-release-hooks = [ "release-creator>=0.6.0", "prek>=0.2" ]
+release-hooks = [ "release-creator>=0.6.4", "prek>=0.2" ]
 release-hook-check = [ "prek>=0.2", "yq>=4.4.5" ]
 test = [
   "certifi",
@@ -25,6 +25,7 @@ test = [
   "hatchling>=1.28",
   "pytest>=9",
   "pytest-httpserver",
+  "pytest-mock>=3.17",
   "pytest-xdist>=3",
   "pyyaml>=6",
   "tomlkit>=0.13",
@@ -65,7 +66,7 @@ uploaded-prior-to = "2026-10-18T05:45:09Z"
 uploaded-prior-to = "2026-10-18T05:45:09Z"
 
 [tool.nab.packages.release-creator]
-uploaded-prior-to = "2026-10-23T02:44:40Z"
+uploaded-prior-to = "2026-10-23T16:52:06Z"
 
 [tool.ruff]
 line-length = 120

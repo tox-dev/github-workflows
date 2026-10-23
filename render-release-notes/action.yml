@@ -22,10 +22,6 @@ inputs:
   previous:
     description: Previous tag, or auto to calculate it from Git history
     default: auto
-outputs:
-  previous:
-    description: Previous version tag, or an empty string for the first release
-    value: ${{ steps.previous.outputs.previous }}
 runs:
   using: composite
   steps:

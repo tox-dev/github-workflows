@@ -59,7 +59,7 @@ def test_render_release_notes_uses_tagged_changelog(
 
         [PyPI release](https://pypi.org/project/fixture/0.2.0/)
 
-        **Full Changelog**: https://github.com/tox-dev/fixture/compare/0.1.0...0.2.0
+        [Full Changelog](https://github.com/tox-dev/fixture/compare/0.1.0...0.2.0)
         """,
     )
     assert "previous=0.1.0" in (tmp_path / "output").read_text()

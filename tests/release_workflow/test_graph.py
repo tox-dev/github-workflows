@@ -23,7 +23,6 @@ def test_prepare_jobs_transfer_the_uploaded_patch() -> None:
     jobs = workflow["jobs"]
     assert list(jobs) == ["assemble", "push"]
     assert jobs["assemble"]["outputs"]["artifact-id"] == "${{ steps.patch.outputs.artifact-id }}"
-    assert jobs["assemble"]["outputs"]["patch-sha"] == "${{ steps.digest.outputs.sha }}"
     assert (
         next(step for step in jobs["assemble"]["steps"] if step.get("id") == "patch")["with"]["name"] == "release-patch"
     )
@@ -58,7 +57,7 @@ def test_prepare_builds_local_tool_once_with_locked_backends() -> None:
     steps = workflow["jobs"]["assemble"]["steps"]
     builds = [step for step in steps if step.get("name") == "Build local release tool wheel"]
     assert len(builds) == 1
-    assert builds[0]["env"]["BUILD_CONSTRAINTS"] == "${{ steps.constraints.outputs.path }}"
+    assert builds[0]["env"]["BUILD_CONSTRAINTS"] == "${{ steps.tools.outputs.build-constraints }}"
     assert '--build-constraints "$BUILD_CONSTRAINTS"' in builds[0]["run"]
     assert "--require-build-hashes" in builds[0]["run"]
     assert any(
@@ -83,7 +82,7 @@ def test_prepare_installs_hooks_while_building_changelog() -> None:
 
 
 def test_changelog_checkout_fetches_the_base_branch() -> None:
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/check.yaml").read_text())
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/news.yaml").read_text())
     checkout = next(step for step in workflow["jobs"]["changelog"]["steps"] if "checkout" in step.get("uses", ""))
     assert checkout["with"]["fetch-depth"] == 0
 
@@ -105,7 +104,7 @@ def test_release_notes_run_without_write_access() -> None:
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
     notes = workflow["jobs"]["notes"]
     assert notes["permissions"] == {"contents": "read"}
-    assert notes["steps"][0]["with"]["fetch-depth"] == 0
+    assert notes["steps"][0]["with"]["fetch-depth"] == 1
     assert "$/render-release-notes" in [step.get("uses") for step in notes["steps"]]
     assert notes["outputs"]["artifact-id"] == "${{ steps.artifact.outputs.artifact-id }}"
     assert (

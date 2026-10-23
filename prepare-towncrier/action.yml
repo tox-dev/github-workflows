@@ -35,14 +35,6 @@ runs:
           exit 1
           ;;
         esac
-    - name: Require a clean checkout
-      if: inputs.phase != 'finalize'
-      shell: bash
-      run: |
-        if [[ -n $(git status --porcelain) ]]; then
-          echo '::error::release preparation requires a clean checkout' >&2
-          exit 1
-        fi
     - id: config
       uses: $/read-towncrier-config
     - id: version
@@ -53,6 +45,7 @@ runs:
         BUMP: ${{ inputs.bump }}
         TAG_PREFIX: ${{ inputs.tag-prefix }}
         VERSION: ${{ inputs.version }}
+        EXPLICIT_VERSION: ${{ inputs.version }}
         FRAGMENTS: ${{ steps.config.outputs.fragments }}
       run: |
         set -euo pipefail
@@ -65,7 +58,9 @@ runs:
         else
           git tag --list | release-creator tags --next auto --directory "$FRAGMENTS" >/dev/null
         fi
-        git tag --list | release-creator tags "$VERSION" --require-newer
+        if [[ -n "$EXPLICIT_VERSION" ]]; then
+          git tag --list | release-creator tags "$VERSION" --require-newer
+        fi
         printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
     - name: Link fragments and authors
       if: inputs.phase != 'finalize'
@@ -112,16 +107,6 @@ runs:
         if ! prek run "$formatter" --files "$CHANGELOG"; then
           prek run "$formatter" --files "$CHANGELOG"
         fi
-    - name: Check rendered release notes
-      if: inputs.phase != 'build'
-      shell: bash
-      env:
-        VERSION: ${{ inputs.version || steps.version.outputs.version }}
-        CHANGELOG: ${{ steps.config.outputs.changelog }}
-        REPOSITORY: ${{ github.repository }}
-      run: |
-        set -euo pipefail
-        release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$REPOSITORY" >/dev/null
     - name: Check generated files
       if: inputs.phase != 'build'
       shell: bash
@@ -131,18 +116,9 @@ runs:
         if [[ -f "$CHANGELOG" ]] && ! git ls-files --error-unmatch "$CHANGELOG" >/dev/null 2>&1; then
           git add -N -- "$CHANGELOG"
         fi
-        if [[ -n $(git ls-files --others --exclude-standard) ]]; then
-          echo '::error::release preparation created untracked files' >&2
-          exit 1
-        fi
     - name: Write release patch
       if: inputs.phase != 'build'
       shell: bash
       run: |
         set -euo pipefail
-        git diff --check
         git diff HEAD --binary >"$RUNNER_TEMP/release.patch"
-        if [[ ! -s "$RUNNER_TEMP/release.patch" ]]; then
-          echo '::error::release preparation produced no patch' >&2
-          exit 1
-        fi

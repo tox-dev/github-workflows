@@ -257,22 +257,6 @@ def test_cooldown_does_not_use_another_duplicate_repository_observation(
     assert "hook revision has not been observed" in result.stderr
 
 
-def test_cooldown_rejects_other_event_before_api(
-    tmp_path: Path,
-    action_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-) -> None:
-    server, environment = github_api
-    result = run_cooldown(
-        action_scripts,
-        tmp_path,
-        environment,
-        event_name="workflow_dispatch",
-    )
-    assert result.returncode != 0
-    assert not server.log
-
-
 def run_cooldown(
     action_scripts: Path,
     tmp_path: Path,

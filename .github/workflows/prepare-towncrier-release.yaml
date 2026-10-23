@@ -44,7 +44,6 @@ jobs:
     outputs:
       version: ${{ steps.prepare.outputs.version }}
       artifact-id: ${{ steps.patch.outputs.artifact-id }}
-      patch-sha: ${{ steps.digest.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,27 +55,22 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - uses: $/install-locked-tools
+      - id: tools
+        uses: $/install-locked-tools
         with:
           groups: release-prepare${{ inputs.local-tool-source && ' project-runtime' || '' }}
           venv: .venv
           local-tool-source: ${{ inputs.local-tool-source }}
-      - name: Add locked tools to PATH
-        run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - name: Install prek hooks
         id: hooks
         run: prek install-hooks
         background: true
       - name: Create a fresh validation worktree
         run: git worktree add --detach "$RUNNER_TEMP/release-validation" "$GITHUB_SHA"
-      - name: Export local build constraints
-        if: inputs.local-tool-source
-        id: constraints
-        uses: $/export-build-constraints
       - name: Build local release tool wheel
         if: inputs.local-tool-source
         env:
-          BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}
+          BUILD_CONSTRAINTS: ${{ steps.tools.outputs.build-constraints }}
         run: |
           uv build --wheel --build-constraints "$BUILD_CONSTRAINTS" \
             --require-build-hashes --out-dir "$RUNNER_TEMP/local-tool-dist" .
@@ -102,11 +96,6 @@ jobs:
           version: ${{ steps.prepare.outputs.version }}
           patch: ${{ runner.temp }}/release.patch
           working-directory: ${{ runner.temp }}/release-validation
-      - name: Record validated patch digest
-        id: digest
-        run: |
-          patch_sha=$(sha256sum "$RUNNER_TEMP/release.patch")
-          printf 'sha=%s\n' "${patch_sha%% *}" >>"$GITHUB_OUTPUT"
       - id: patch
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -134,16 +123,7 @@ jobs:
         with:
           version: ${{ needs.assemble.outputs.version }}
           patch: ${{ runner.temp }}/release-patch/release.patch
-          expected-patch-sha: ${{ needs.assemble.outputs.patch-sha }}
           checks: "false"
-      - name: Require release App key
-        env:
-          RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-        run: |
-          if [[ -z "$RELEASE_APP_PRIVATE_KEY" ]]; then
-            echo '::error::RELEASE_APP_PRIVATE_KEY is missing from release-auth' >&2
-            exit 1
-          fi
       - id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:

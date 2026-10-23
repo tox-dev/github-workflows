@@ -128,7 +128,7 @@ def test_existing_published_release_is_verified_without_writes(
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
         [release]
     )
-    for _ in range(2 + int(with_asset)):
+    for _ in range(1 + int(with_asset)):
         server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(release)
     result = _request(
         repository,
@@ -140,7 +140,7 @@ def test_existing_published_release_is_verified_without_writes(
         assets=assets if with_asset else None,
     )
     assert result.returncode == 0, result.stderr
-    assert [request.method for request, _ in server.log] == ["GET"] * (4 + int(with_asset))
+    assert [request.method for request, _ in server.log] == ["GET"] * (3 + int(with_asset))
     assert _release_calls(tmp_path) == (
         [("release", "verify-asset", "0.1.0", str(assets / "fixture.zip"), "--repo", "tox-dev/fixture")]
         if with_asset
@@ -288,9 +288,6 @@ def test_missing_release_is_created_then_optionally_published(
         server.expect_ordered_request(f"{prefix}/releases/42", method="PATCH").respond_with_json(
             draft | {"draft": False}
         )
-    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(
-        draft | {"draft": mode == "stage"}
-    )
     result = _request(repository, tmp_path, action_scripts, notes, commit, environment | release_cli, mode=mode)
     assert result.returncode == 0, result.stderr
     assert [request.method for request, _ in server.log] == [
@@ -299,7 +296,6 @@ def test_missing_release_is_created_then_optionally_published(
         "POST",
         "GET",
         *(["PATCH"] if mode == "complete" else []),
-        "GET",
     ]
     assert not _release_calls(tmp_path)
     request = next(request for request, _ in server.log if request.method == "POST")
@@ -351,9 +347,6 @@ def test_draft_release_uploads_missing_asset(
         server.expect_ordered_request(f"{prefix}/releases/42", method="PATCH").respond_with_json(
             complete | {"draft": False}
         )
-    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(
-        complete | {"draft": mode == "stage"}
-    )
     result = _request(
         repository,
         tmp_path,
@@ -379,7 +372,6 @@ def test_draft_release_uploads_missing_asset(
         "GET",
         "GET",
         *(["PATCH"] if mode == "complete" else []),
-        "GET",
     ]
 
 
@@ -420,7 +412,6 @@ def test_draft_release_replaces_incomplete_asset(
     server.expect_ordered_request(f"{prefix}/releases/assets/21", method="DELETE").respond_with_json({})
     server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(incomplete | {"assets": []})
     server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(uploaded)
-    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(uploaded)
     result = _request(
         repository,
         tmp_path,
@@ -433,7 +424,7 @@ def test_draft_release_replaces_incomplete_asset(
     )
     assert result.returncode == 0, result.stderr
     assert ("release", "upload", "0.1.0", str(asset_path), "--repo", "tox-dev/fixture") in _release_calls(tmp_path)
-    assert [request.method for request, _ in server.log] == ["GET", "GET", "DELETE", "GET", "GET", "GET"]
+    assert [request.method for request, _ in server.log] == ["GET", "GET", "DELETE", "GET", "GET"]
 
 
 def test_failed_upload_deletes_partial_asset_before_retry(
@@ -472,7 +463,7 @@ def test_failed_upload_deletes_partial_asset_before_retry(
     for release in (draft, partial, partial):
         server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(release)
     server.expect_ordered_request(f"{prefix}/releases/assets/21", method="DELETE").respond_with_json({})
-    for _ in range(3):
+    for _ in range(2):
         server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(complete)
 
     result = _request(
@@ -486,7 +477,7 @@ def test_failed_upload_deletes_partial_asset_before_retry(
         mode="stage",
     )
     assert result.returncode == 0, result.stderr
-    assert [request.method for request, _ in server.log] == ["GET"] * 5 + ["DELETE"] + ["GET"] * 2
+    assert [request.method for request, _ in server.log] == ["GET"] * 5 + ["DELETE", "GET"]
     assert _release_calls(tmp_path) == [
         ("release", "upload", "0.1.0", str(asset_path), "--repo", "tox-dev/fixture"),
         ("release", "upload", "0.1.0", str(asset_path), "--repo", "tox-dev/fixture"),

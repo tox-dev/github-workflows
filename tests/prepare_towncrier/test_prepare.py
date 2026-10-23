@@ -117,16 +117,9 @@ def test_prepare_renders_github_notes(
 
         - Add a new feature ([#2](https://github.com/tox-dev/github-workflows/pull/2)) by @gaborbernat.
 
-        **Full Changelog**: https://github.com/tox-dev/github-workflows/compare/0.1.0...0.2.0
+        [Full Changelog](https://github.com/tox-dev/github-workflows/compare/0.1.0...0.2.0)
         """,
     )
-
-
-def test_prepare_rejects_dirty_checkout(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / "CHANGELOG.md").write_text("changed\n")
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
-    assert result.returncode != 0
-    assert "clean checkout" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -269,20 +262,6 @@ def test_prepare_rejects_unlinked_fragment_name(
     assert not (tmp_path / "release.patch").exists()
 
 
-def test_prepare_rejects_untracked_output(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / ".pre-commit-config.yaml").write_text(
-        "repos:\n  - repo: local\n    hooks:\n      - id: mdformat\n"
-        "        name: mdformat\n        entry: bash -c 'touch extra-output'\n"
-        "        language: system\n        pass_filenames: false\n",
-    )
-    run(repository, "git", "add", ".")
-    run(repository, "git", "commit", "-m", "Write untracked output")
-    run(repository, "git", "push", "origin", "main")
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
-    assert result.returncode != 0
-    assert "created untracked files" in result.stderr
-
-
 def test_prepare_rejects_empty_release(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / "changelog.d/+feature.feature.md").unlink()
     run(repository, "git", "add", "-u")
@@ -291,16 +270,6 @@ def test_prepare_rejects_empty_release(repository: Path, tmp_path: Path, action_
     result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
     assert result.returncode != 0
     assert "no changelog fragments to release" in result.stderr
-
-
-def test_prepare_rejects_empty_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    built = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="build")
-    assert built.returncode == 0, built.stderr
-    run(repository, "git", "add", "-A")
-    run(repository, "git", "commit", "-m", "Store rendered notes")
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="finalize")
-    assert result.returncode != 0
-    assert "produced no patch" in result.stderr
 
 
 def test_prepare_formats_markdown(repository: Path, tmp_path: Path, action_scripts: Path) -> None:

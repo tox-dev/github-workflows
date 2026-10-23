@@ -20,9 +20,13 @@ _REVIEWED_EXCEPTIONS = {
         ("nab", "nab-index", "nab-markersets", "nab-project", "nab-provider", "nab-resolver"),
         datetime(2026, 10, 19, tzinfo=UTC),
     ),
-    "release-creator": datetime(2026, 10, 23, 2, 44, 40, tzinfo=UTC),
+    "release-creator": datetime(2026, 10, 23, 16, 52, 6, tzinfo=UTC),
     "uv-build": datetime(2026, 10, 21, tzinfo=UTC),  # toml-fmt requires 0.13.4 until the cutoff matures.
 }
+
+
+def reviewed_cutoff(name: str) -> datetime | None:
+    return _REVIEWED_EXCEPTIONS.get(name)
 
 
 def validate_recent_cutoffs(project: str, threshold: datetime) -> None:
@@ -95,12 +99,16 @@ def expired_cutoffs(project: str, threshold: datetime) -> tuple[set[str], set[in
     packages = {
         str(name)
         for name, settings in nab.get("packages", {}).items()
-        if (value := settings.get("uploaded-prior-to")) is not None and _expired(value, threshold)
+        if name in _REVIEWED_EXCEPTIONS
+        and (value := settings.get("uploaded-prior-to")) is not None
+        and _expired(value, threshold)
     }
     rules = {
         index
         for index, rule in enumerate(nab.get("package-rules", []))
-        if (value := rule.get("uploaded-prior-to")) is not None and _expired(value, threshold)
+        if set(rule["match"]) <= _REVIEWED_EXCEPTIONS.keys()
+        and (value := rule.get("uploaded-prior-to")) is not None
+        and _expired(value, threshold)
     }
     return packages, rules
 
@@ -120,5 +128,6 @@ __all__ = [
     "expired_cutoffs",
     "remove_cutoffs",
     "remove_expired_cutoffs",
+    "reviewed_cutoff",
     "validate_recent_cutoffs",
 ]
