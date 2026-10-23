@@ -13,7 +13,7 @@ if "GW_PYPI_METADATA_FILE" in os.environ and Path(sys.argv[0]).name == "check_lo
 
     _LISTINGS = json.loads(Path(os.environ["GW_PYPI_METADATA_FILE"]).read_text())
 
-    def _pypi_urlopen(request: Request, **_options: object) -> BytesIO:
+    def _pypi_urlopen(request: Request, **_options: float) -> BytesIO:
         url = urlsplit(request.full_url)
         if url.scheme != "https" or url.netloc != "pypi.org" or not url.path.startswith("/simple/"):
             raise ValueError(f"unexpected PyPI metadata request: {request.full_url}")
