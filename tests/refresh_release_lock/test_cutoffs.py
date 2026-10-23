@@ -277,6 +277,15 @@ def test_recent_cutoff_rejects_index_override() -> None:
     assert "Nab index cutoff for pypi" in result.stderr
 
 
+def test_recent_cutoff_rejects_custom_index() -> None:
+    result = _check_recent_cutoffs(
+        '[tool.nab]\nuploaded-prior-to = "P7D"\n'
+        '[[tool.nab.indexes]]\nname = "other"\nurl = "https://example.org/simple/"\n'
+    )
+    assert result.returncode != 0
+    assert "custom Nab indexes" in result.stderr
+
+
 def test_recent_cutoff_rejects_project_nab_toml(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text('[tool.nab]\nuploaded-prior-to = "P7D"\n')
     (tmp_path / "nab.toml").write_text("[packages.example]\nuploaded-prior-to = false\n")

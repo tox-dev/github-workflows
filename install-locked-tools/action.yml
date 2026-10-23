@@ -58,7 +58,7 @@ runs:
         case "$LOCK_SOURCE" in
         caller)
           lock=pylock.toml
-          lock_check=(--shared-lock "$GITHUB_ACTION_PATH/../pylock.toml")
+          lock_check=(--shared-lock "$GITHUB_ACTION_PATH/../pylock.toml" --verify-pypi --project pyproject.toml)
           ;;
         shared)
           lock="$GITHUB_ACTION_PATH/../pylock.toml"
@@ -88,7 +88,8 @@ runs:
           printf '%s\n' "${groups[@]}" >"$RUNNER_TEMP/selected-lock-groups"
         else
           uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
-            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" --build-constraints
+            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" --build-constraints \
+            "${lock_check[@]}"
         fi
         printf 'lock=%s\n' "$lock" >>"$GITHUB_OUTPUT"
     - id: constraints
@@ -102,8 +103,13 @@ runs:
       run: |
         set -euo pipefail
         if [[ -n "$CONSTRAINTS_LOCK" && "$CONSTRAINTS_LOCK" != "$BUILD_LOCK" ]]; then
+          lock_check=()
+          if [[ "$CONSTRAINTS_LOCK" != "$GITHUB_ACTION_PATH/../pylock.toml" ]]; then
+            lock_check=(--verify-pypi --project pyproject.toml)
+          fi
           uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
-            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$CONSTRAINTS_LOCK" --build-constraints
+            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$CONSTRAINTS_LOCK" --build-constraints \
+            "${lock_check[@]}"
         fi
         if [[ -n "$CONSTRAINTS_LOCK" ]]; then BUILD_LOCK=$CONSTRAINTS_LOCK; fi
         args=()

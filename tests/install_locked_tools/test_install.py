@@ -451,6 +451,7 @@ def test_install_locked_tools_rejects_caller_below_shared_floor(tmp_path: Path, 
 
 def test_install_locked_tools_constraints_only_checks_lock_age(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
+    (tmp_path / "pyproject.toml").write_bytes((source / "pyproject.toml").read_bytes())
     (tmp_path / "pylock.toml").write_text(
         (source / "pylock.toml").read_text().replace("created-at = 2026-10-23", "created-at = 2099-10-23", 1)
     )
@@ -586,21 +587,22 @@ def test_install_locked_tools_exporter_does_not_build_pyyaml(tmp_path: Path, act
 
 def test_install_locked_tools_merges_shared_and_caller_build_constraints(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
+    (tmp_path / "pyproject.toml").write_bytes((source / "pyproject.toml").read_bytes())
     (tmp_path / "pylock.toml").write_bytes((source / "pylock.toml").read_bytes())
     (tmp_path / "pylock.toml").write_text(
         (tmp_path / "pylock.toml").read_text()
         + """
 [[packages]]
-name = "probe-only"
-version = "1.0"
+name = "six"
+version = "1.16.0"
 marker = '\"build\" in dependency_groups'
 index = "https://pypi.org/simple/"
 [[packages.wheels]]
-name = "probe_only-1.0-py3-none-any.whl"
-url = "https://files.pythonhosted.org/probe_only-1.0-py3-none-any.whl"
-upload-time = 2026-10-01T00:00:00Z
-hashes.sha256 = """
-        + f'"{"0" * 64}"\n',
+name = "six-1.16.0-py2.py3-none-any.whl"
+url = "https://files.pythonhosted.org/packages/d9/5a/e7c31adbe875f2abbb91bd84cf2dc52d792b5a01506781dbcf25c91daf11/six-1.16.0-py2.py3-none-any.whl"
+upload-time = 2021-05-05T14:18:17.237677Z
+hashes.sha256 = "8abb2f1d86890a2dfb989f9a77cfcfd3e47c2a354b01111771326f8aa26e0254"
+""",
     )
     result = install(
         tmp_path,
@@ -610,11 +612,12 @@ hashes.sha256 = """
         venv=tmp_path / "tools",
     )
     assert result.returncode == 0, result.stderr
-    assert "probe-only==1.0 " in next(tmp_path.glob("build-constraints-*.txt")).read_text()
+    assert "six==1.16.0 " in next(tmp_path.glob("build-constraints-*.txt")).read_text()
 
 
 def test_install_locked_tools_accepts_lock_without_build_group(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
+    (tmp_path / "pyproject.toml").write_bytes((source / "pyproject.toml").read_bytes())
     document = tomlkit.parse((source / "pylock.toml").read_text())
     document["dependency-groups"].remove("build")
     (tmp_path / "pylock.toml").write_text(tomlkit.dumps(document))

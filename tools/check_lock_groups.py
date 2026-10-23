@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import json
 import tomllib
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
-from nab_cutoffs import reviewed_cutoff
+from nab_cutoffs import reviewed_cutoff, validate_indexes
 from packaging.pylock import Pylock, PylockValidationError
 from packaging.utils import canonicalize_name, parse_sdist_filename, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
@@ -23,6 +27,8 @@ def main() -> None:
     parser.add_argument("--shared-lock", type=Path)
     parser.add_argument("--local-tool-source", action="store_true")
     parser.add_argument("--build-constraints", action="store_true")
+    parser.add_argument("--verify-pypi", action="store_true")
+    parser.add_argument("--project", type=Path)
     args = parser.parse_args()
     try:
         groups = {"build"} if args.build_constraints else set(args.groups)
@@ -30,11 +36,18 @@ def main() -> None:
             parser.error("at least one dependency group is required")
         with args.lock.open("rb") as stream:
             lock = Pylock.from_dict(tomllib.load(stream))
+        if args.project:
+            if (args.project.parent / "nab.toml").exists():
+                raise ValueError("project nab.toml can override the reviewed index policy")
+            with args.project.open("rb") as stream:
+                validate_indexes(tomllib.load(stream)["tool"]["nab"])
         if (missing := groups - set(lock.dependency_groups or ())) and not (
             args.build_constraints and missing == {"build"}
         ):
             parser.error(f"missing lock dependency groups: {', '.join(sorted(missing))}")
         _check_cooling(lock, groups, local_tool_source=args.local_tool_source)
+        if args.verify_pypi:
+            _verify_pypi(lock, groups, local_tool_source=args.local_tool_source)
         if args.shared_lock:
             with args.shared_lock.open("rb") as stream:
                 shared = Pylock.from_dict(tomllib.load(stream))
@@ -44,7 +57,7 @@ def main() -> None:
                 installed = _selected_release_creator(lock, groups)
                 if installed is None or installed < required:
                     parser.error(f"relock: release-creator {required} required")
-    except (InvalidVersion, OSError, PylockValidationError, ValueError) as error:
+    except (InvalidVersion, KeyError, OSError, PylockValidationError, TypeError, ValueError) as error:
         parser.error(str(error))
 
 
@@ -61,8 +74,8 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
             continue
         if local_tool_source and package.name == "release-creator" and package.index is None:
             continue
-        if package.index is None:
-            raise ValueError(f"release lock has an uncooled non-index package: {package.name}")
+        if package.index != "https://pypi.org/simple/":
+            raise ValueError(f"release lock has an unapproved index: {package.name}: {package.index}")
         artifacts = ([package.sdist] if package.sdist is not None else []) + list(package.wheels or ())
         if not artifacts:
             raise ValueError(f"release lock has no dated artifacts: {package.name}")
@@ -83,6 +96,51 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
                 or artifact.upload_time > min(cutoff, created)
             ):
                 raise ValueError(f"release lock has an uncooled artifact: {artifact.name}")
+
+
+def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> None:
+    expected: dict[str, dict[str, tuple[str | None, str, datetime | None]]] = defaultdict(dict)
+    for package in lock.packages:
+        if package.marker is not None and not any(
+            package.marker.evaluate({"dependency_groups": selection}, context="lock_file")
+            for selection in (groups, {"build"})
+        ):
+            continue
+        if local_tool_source and package.name == "release-creator" and package.index is None:
+            continue
+        for artifact in ([package.sdist] if package.sdist is not None else []) + list(package.wheels or ()):
+            expected[canonicalize_name(package.name)][urlsplit(artifact.url or "").path.rsplit("/", 1)[-1]] = (
+                artifact.url,
+                artifact.hashes["sha256"],
+                artifact.upload_time,
+            )
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for name, actual in pool.map(_pypi_files, expected):
+            for filename, metadata in expected[name].items():
+                if actual.get(filename) != metadata:
+                    raise ValueError(f"release lock differs from PyPI metadata: {name}: {filename}")
+
+
+def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None, datetime | None]]]:
+    request = Request(
+        f"https://pypi.org/simple/{name}/",
+        headers={"Accept": "application/vnd.pypi.simple.v1+json", "Cache-Control": "no-cache"},
+    )
+    with urlopen(request, timeout=30) as response:
+        listing = json.load(response)
+    if (
+        not str(listing.get("meta", {}).get("api-version", "")).startswith("1.")
+        or canonicalize_name(listing.get("name", "")) != name
+    ):
+        raise ValueError(f"invalid PyPI listing for {name}")
+    files: dict[str, tuple[str | None, str | None, datetime | None]] = {}
+    for file in listing["files"]:
+        files[file["filename"]] = (
+            file.get("url"),
+            file.get("hashes", {}).get("sha256"),
+            datetime.fromisoformat(file["upload-time"]) if "upload-time" in file else None,
+        )
+    return name, files
 
 
 def _selected_release_creator(lock: Pylock, groups: set[str]) -> Version | None:
