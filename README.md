@@ -214,7 +214,7 @@ The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-
 read-only job alongside the tagged-source build, and make publishing depend on both. Repositories with the standard `uv`
 wheel and sdist build can call `validate-python-release.yaml` in the tag publisher. The
 [self-release workflow](.github/workflows/release.yaml) shows the GitHub Release path; callers keep their ecosystem
-uploads. The read-only build workflow checks the tagged source and renders the Release body. The tag caller alone has a
+uploads. The read-only build workflow checks the tagged source. The tag caller renders the Release body and has the only
 Contents write job that creates the GitHub Release.
 
 ## Validate a Python release
@@ -474,9 +474,9 @@ checkout or GitHub state.
       tag: ${{ github.ref_name }}
 ```
 
-`tag` is required. `executable` defaults to `release-creator` on `PATH` and accepts a path to a locked installation. The
-`previous` output is empty when this is the first matching release. Pass it as `previous_tag_name` to GitHub's
-generated-notes endpoint only when nonempty.
+`tag` is required. Install `release-creator` on `PATH` before calling the Action. The `previous` output is empty when
+this is the first matching release. Pass it as `previous_tag_name` to GitHub's generated-notes endpoint only when
+nonempty.
 
 ## Reconcile PyPI artifacts
 

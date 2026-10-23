@@ -64,7 +64,15 @@ def test_expire_cutoffs_removes_empty_package_table(cutoff_project: Path) -> Non
     assert "packages" not in tomllib.loads(updated)["tool"]["nab"]
 
 
-@pytest.mark.parametrize("reviewed", ["2026-10-23T02:44:40Z", "2026-10-23T16:52:06Z"])
+@pytest.mark.parametrize(
+    "reviewed",
+    [
+        pytest.param("2026-10-23T02:44:40Z", id="0.6.0"),
+        pytest.param("2026-10-23T16:52:06Z", id="0.6.4"),
+        pytest.param("2026-10-23T19:54:50Z", id="0.6.5"),
+        pytest.param("2026-10-23T20:48:24Z", id="0.6.6"),
+    ],
+)
 def test_expire_cutoffs_removes_each_reviewed_release_creator_floor(reviewed: str) -> None:
     project = (
         '[tool.nab]\nuploaded-prior-to = "P7D"\n'
@@ -202,6 +210,8 @@ def test_check_nab_lock_rejects_forged_upload_time(
         pytest.param("release-creator", "2026-10-23T16:52:07Z", False, id="extended-release-creator"),
         pytest.param("release-creator", "2026-10-23T19:54:50Z", True, id="reviewed-release-creator-0.6.5"),
         pytest.param("release-creator", "2026-10-23T19:54:51Z", False, id="extended-release-creator-0.6.5"),
+        pytest.param("release-creator", "2026-10-23T20:48:24Z", True, id="reviewed-release-creator-0.6.6"),
+        pytest.param("release-creator", "2026-10-23T20:48:25Z", False, id="extended-release-creator-0.6.6"),
         pytest.param("unreviewed", "2026-10-22T00:00:00Z", False, id="new-package"),
     ],
 )
