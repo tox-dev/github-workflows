@@ -472,7 +472,7 @@ def _condition(
 
 
 def _safe_environment() -> dict[str, str]:
-    return {
+    environment = {
         name: os.environ[name]
         for name in (
             "HOME",
@@ -486,9 +486,17 @@ def _safe_environment() -> dict[str, str]:
             "SSL_CERT_FILE",
             "GH_HOST",
             "GH_ENTERPRISE_TOKEN",
+            "COVERAGE_PROCESS_START",
+            "COVERAGE_PROCESS_CONFIG",
         )
         if name in os.environ
     }
+    if "COVERAGE_PROCESS_CONFIG" in environment or "COVERAGE_PROCESS_START" in environment:
+        import coverage
+
+        environment["GW_COVERAGE_SITE_PACKAGES"] = str(Path(coverage.__file__).parent.parent)
+        environment["PYTHONPATH"] = str(Path(__file__).parent / "coverage_bootstrap")
+    return environment
 
 
 def _inputs(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import tomllib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -81,6 +81,23 @@ def test_expire_cutoffs_removes_each_reviewed_release_creator_floor(reviewed: st
     updated = remove_expired_cutoffs(project, datetime(2026, 11, 1, tzinfo=UTC))
 
     assert "packages" not in tomllib.loads(updated)["tool"]["nab"]
+
+
+@pytest.mark.parametrize(
+    ("seconds_before", "expired"),
+    [
+        pytest.param(1, False, id="before-threshold"),
+        pytest.param(0, True, id="at-threshold"),
+    ],
+)
+def test_expire_cutoffs_uses_reviewed_threshold(seconds_before: int, expired: bool) -> None:
+    project = (
+        '[tool.nab]\nuploaded-prior-to = "P7D"\n'
+        '[tool.nab.packages.release-creator]\nuploaded-prior-to = "2026-10-23T19:54:50Z"\n'
+    )
+    threshold = datetime(2026, 10, 23, 19, 54, 50, tzinfo=UTC) - timedelta(seconds=seconds_before)
+    updated = remove_expired_cutoffs(project, threshold)
+    assert ("packages" not in tomllib.loads(updated)["tool"]["nab"]) is expired
 
 
 def test_expire_cutoffs_accepts_toml_datetime(cutoff_project: Path) -> None:

@@ -210,10 +210,17 @@ def test_install_locked_tools_checks_caller_release_creator(tmp_path: Path, loca
     assert (result.returncode == 0) is local_source, result.stderr
 
 
-def test_local_tool_source_accepts_versionless_package(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("package_name", "accepted"),
+    [
+        pytest.param("release-creator", True, id="local-release-creator"),
+        pytest.param("towncrier", False, id="other-local-package"),
+    ],
+)
+def test_local_tool_source_only_accepts_release_creator(tmp_path: Path, package_name: str, accepted: bool) -> None:
     source = Path(__file__).resolve().parents[2]
     document = tomlkit.parse((source / "pylock.toml").read_text())
-    package = next(item for item in document["packages"] if item["name"] == "release-creator")
+    package = next(item for item in document["packages"] if item["name"] == package_name)
     for field in ("version", "index", "sdist", "wheels"):
         package.pop(field)
     package["directory"] = {"path": "."}
@@ -232,7 +239,9 @@ def test_local_tool_source_accepts_versionless_package(tmp_path: Path) -> None:
         capture_output=True,
         check=False,
     )
-    assert result.returncode == 0, result.stderr
+    assert (result.returncode == 0) is accepted, result.stderr
+    if not accepted:
+        assert f"uncooled non-index package: {package_name}" in result.stderr
 
 
 @pytest.mark.parametrize(

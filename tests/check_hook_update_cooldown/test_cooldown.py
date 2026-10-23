@@ -109,6 +109,30 @@ def test_cooldown_rejects_changed_head(
     assert len(server.log) == 1
 
 
+def test_cooldown_rejects_short_minimum(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    result = run_cooldown(action_scripts, tmp_path, environment, minimum_days="6")
+    assert result.returncode != 0
+    assert "hook cooldown must be at least seven days" in result.stderr
+    assert not server.log
+
+
+def test_cooldown_rejects_bot_without_observed_run(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(server, author="pre-commit-ci[bot]", observed_days=None)
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1")
+    expect_historical_runs(server, older_head=None)
+    result = run_cooldown(action_scripts, tmp_path, environment)
+    assert result.returncode != 0
+    assert "hook revision has not been observed" in result.stderr
+
+
 def test_cooldown_rejects_backdated_tag_on_recent_pull_request(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
@@ -264,6 +288,7 @@ def run_cooldown(
     *,
     event_name: str = "pull_request",
     event_head: str = "a" * 40,
+    minimum_days: str = "7",
 ) -> subprocess.CompletedProcess[str]:
     path = tmp_path / "event.json"
     path.write_text(json.dumps({"number": 7, "pull_request": {"head": {"sha": event_head}}}))
@@ -276,7 +301,7 @@ def run_cooldown(
         action_scripts,
         "check-hook-update-cooldown",
         version="",
-        MINIMUM_DAYS="7",
+        MINIMUM_DAYS=minimum_days,
         GITHUB_EVENT_NAME=event_name,
         GITHUB_EVENT_PATH=str(path),
         GITHUB_OUTPUT=str(tmp_path / "outputs"),
@@ -289,7 +314,7 @@ def expect_pull(
     *,
     author: str,
     head: str = "a" * 40,
-    observed_days: int = 10,
+    observed_days: int | None = 10,
     updated_days: int = 0,
     hook_update: bool = True,
 ) -> None:
@@ -313,7 +338,9 @@ def expect_pull(
             query_string=f"event=pull_request&head_sha={head}&per_page=100",
         ).respond_with_json(
             {
-                "workflow_runs": [
+                "workflow_runs": []
+                if observed_days is None
+                else [
                     {
                         "event": "pull_request",
                         "head_repository": {"full_name": "tox-dev/fixture"},

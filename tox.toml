@@ -1,5 +1,17 @@
 requires = ["tox>=4.64.7", "tox-uv>=1.36.1"]
-env_list = ["type"]
+env_list = ["test", "type"]
+
+[env.test]
+description = "test Actions and measure Python tools"
+base_python = "3.15"
+skip_install = true
+dependency_groups = ["test"]
+commands = [
+  ["coverage", "erase"],
+  ["coverage", "run", "-m", "pytest", "-q", "-n", "auto"],
+  ["coverage", "combine"],
+  ["coverage", "report", "-m"],
+]
 
 [env.type]
 description = "type-check Action tests"

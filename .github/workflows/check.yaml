@@ -105,12 +105,8 @@ jobs:
         with:
           groups: release-news release-shell
           venv: .release-tools
-      - name: Install current test tools
-        run: |
-          uv venv --python 3.15 .venv
-          uv pip install --python .venv/bin/python --group test
       - name: Run Action tests
-        run: .venv/bin/pytest -q -n auto
+        run: uvx --with tox-uv tox run -e test
   type:
     runs-on: ubuntu-26.04
     permissions:

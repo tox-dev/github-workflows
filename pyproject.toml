@@ -22,6 +22,7 @@ release-hook-check = [ "prek>=0.2", "yq>=4.4.5" ]
 test = [
   "certifi",
   "check-wheel-contents>=0.6.3",
+  "coverage[toml]>=7.10",
   "hatchling>=1.28",
   "pytest>=9",
   "pytest-httpserver",
@@ -70,6 +71,15 @@ uploaded-prior-to = "2026-10-23T21:40:06Z"
 
 [tool.ruff]
 line-length = 120
+
+[tool.coverage.run]
+branch = true
+patch = [ "subprocess" ]
+source_dirs = [ "tools" ]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [ "INP001" ] # Test modules intentionally have no package marker.
