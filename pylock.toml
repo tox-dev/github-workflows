@@ -285,7 +285,7 @@ sha256 = "b6b751274acb69d77b3323d6b7dbaa3c7fdfc1eb829b7eb61d262f32e1af9685"
 [[packages]]
 name = "click"
 version = "8.5.0"
-marker = "\"release-news\" in dependency_groups or \"release-prepare\" in dependency_groups"
+marker = "\"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
 requires-python = ">=3.10"
 index = "https://pypi.org/simple/"
 
@@ -654,6 +654,31 @@ size = 354822
 sha256 = "9a4aedb833c3c1b49214d04d44d3032ab7a9135f7c1d29a549b4ff78fd82fda9"
 
 [[packages]]
+name = "docutils"
+version = "0.23"
+marker = "\"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
+requires-python = ">=3.9"
+index = "https://pypi.org/simple/"
+
+[packages.sdist]
+name = "docutils-0.23.tar.gz"
+upload-time = 2026-05-27 17:41:06.934109+00:00
+url = "https://files.pythonhosted.org/packages/39/a4/5180d9afc57e8fca05601dd652bdff19604c218814037fe90ffc7625a50a/docutils-0.23.tar.gz"
+size = 2303823
+
+[packages.sdist.hashes]
+sha256 = "746f5060322511280a1e50eb76846ed6bf2342984b2ac04dc42caa1a8d78799e"
+
+[[packages.wheels]]
+name = "docutils-0.23-py3-none-any.whl"
+upload-time = 2026-05-27 17:40:58.442528+00:00
+url = "https://files.pythonhosted.org/packages/32/91/30151a39f7570f448ed84529390628a651d7f27c87d73c9b887f8189695e/docutils-0.23-py3-none-any.whl"
+size = 634701
+
+[packages.wheels.hashes]
+sha256 = "25d013af9bf23bc1c7b2b093dff4208166c53a94786c9e447808335ef1185fea"
+
+[[packages]]
 name = "email-validator"
 version = "2.3.0"
 marker = "\"release-attestations\" in dependency_groups"
@@ -763,7 +788,7 @@ sha256 = "f55f5728ff61d3dd54dbc5a397cf3f7307cb64b180c20b72afbebf01c9e2c8a0"
 [[packages]]
 name = "jinja2"
 version = "3.1.6"
-marker = "\"release-news\" in dependency_groups or \"release-prepare\" in dependency_groups"
+marker = "\"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
 requires-python = ">=3.7"
 dependencies = [
     { name = "markupsafe" },
@@ -819,7 +844,7 @@ sha256 = "9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a"
 [[packages]]
 name = "markupsafe"
 version = "3.0.4"
-marker = "\"release-news\" in dependency_groups or \"release-prepare\" in dependency_groups"
+marker = "\"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
 requires-python = ">=3.9"
 index = "https://pypi.org/simple/"
 
@@ -1191,28 +1216,28 @@ sha256 = "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c"
 
 [[packages]]
 name = "platformdirs"
-version = "4.13.1"
+version = "4.13.3"
 marker = "\"release-attestations\" in dependency_groups"
 requires-python = ">=3.11"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "platformdirs-4.13.1.tar.gz"
-upload-time = 2026-10-15 21:56:08.441933+00:00
-url = "https://files.pythonhosted.org/packages/16/35/146546aa5b9286a83248d29c51781476bbb4b0a608523361120059e0f7ed/platformdirs-4.13.1.tar.gz"
-size = 61458
+name = "platformdirs-4.13.3.tar.gz"
+upload-time = 2026-10-16 01:16:16.573321+00:00
+url = "https://files.pythonhosted.org/packages/da/91/4a03cfdb03314cfca262921797fff04ff4054bd86a160aed76eddf8aa12b/platformdirs-4.13.3.tar.gz"
+size = 61559
 
 [packages.sdist.hashes]
-sha256 = "ee77cf2d36d5a515b2acf68ede6434cf3a8fc70b822bb6b3264d01b96c69a8e0"
+sha256 = "5e567f664eb087ab8521c0179cd8d1bd60857d271136567a39719e28e2d383ce"
 
 [[packages.wheels]]
-name = "platformdirs-4.13.1-py3-none-any.whl"
-upload-time = 2026-10-15 21:56:07.059862+00:00
-url = "https://files.pythonhosted.org/packages/aa/0f/ac79a4e8394193bb228abaaf1c520f629b6ada7fcb75e58cdc8c6acce321/platformdirs-4.13.1-py3-none-any.whl"
-size = 32737
+name = "platformdirs-4.13.3-py3-none-any.whl"
+upload-time = 2026-10-16 01:16:15.051988+00:00
+url = "https://files.pythonhosted.org/packages/45/b8/fd1af06b079af236f5423f7c1821264419cc8f6b4803f79353acbb8bfa53/platformdirs-4.13.3-py3-none-any.whl"
+size = 32762
 
 [packages.wheels.hashes]
-sha256 = "4902b4ad355cb0b202c746b29580ab67c5c2d918e30e3d006353465b82ec3ecc"
+sha256 = "f6ad7f447f24f8a3b82cce5976387428bff894a0eca6c3488f4a17f153c130c4"
 
 [[packages]]
 name = "prek"
@@ -1568,35 +1593,36 @@ sha256 = "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
 
 [[packages]]
 name = "release-creator"
-version = "0.5.1"
+version = "0.6.0"
 marker = "\"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
 requires-python = ">=3.15"
 dependencies = [
+    { name = "docutils" },
     { name = "mdformat" },
     { name = "mdformat-gfm" },
     { name = "packaging" },
     { name = "pyyaml" },
-    { name = "tomli-w" },
+    { name = "towncrier" },
 ]
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "release_creator-0.5.1.tar.gz"
-upload-time = 2026-10-22 13:51:55.787829+00:00
-url = "https://files.pythonhosted.org/packages/65/d3/83211b4ebfbaf87383392aed6ef3aa98d65e0ade613a2aa0ea0f222cb6b1/release_creator-0.5.1.tar.gz"
-size = 158621
+name = "release_creator-0.6.0.tar.gz"
+upload-time = 2026-10-23 02:44:39.588714+00:00
+url = "https://files.pythonhosted.org/packages/17/11/c0126b406a17370db72d8a08afa1a5823204e69c44938de796cc98df0d02/release_creator-0.6.0.tar.gz"
+size = 135957
 
 [packages.sdist.hashes]
-sha256 = "755f8d460a493789756ab1bd4bbda0dd90145699288239085dd712cba2d84251"
+sha256 = "58afd3cd0fc0b0e47ded23a735a1ba9189a7b0adad410628c90c96cf74457ed6"
 
 [[packages.wheels]]
-name = "release_creator-0.5.1-py3-none-any.whl"
-upload-time = 2026-10-22 13:51:54.135682+00:00
-url = "https://files.pythonhosted.org/packages/5f/88/fab14c09530c8691040ec040613476d645414e2db1123c35b3818d291cea/release_creator-0.5.1-py3-none-any.whl"
-size = 50983
+name = "release_creator-0.6.0-py3-none-any.whl"
+upload-time = 2026-10-23 02:44:37.874747+00:00
+url = "https://files.pythonhosted.org/packages/ef/91/ad1ce7d5c65892866893879fb0f407898f2d5c808bbd266ca0a82513a205/release_creator-0.6.0-py3-none-any.whl"
+size = 49478
 
 [packages.wheels.hashes]
-sha256 = "7aa5f28c5195f6f5e0493abede9c041a58d015bc3a837feee5669cc2062d6053"
+sha256 = "4b9cd6187c87fcb7bf3aca5f58c67c90703e58875643af633661a0448756d45f"
 
 [[packages]]
 name = "requests"
@@ -1975,7 +2001,7 @@ sha256 = "32a7b79ac57a2e83670ce329ccf675798bc5a2094783a63676866b70503f2e2b"
 [[packages]]
 name = "tomli-w"
 version = "1.2.0"
-marker = "\"lock-tools\" in dependency_groups or \"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
+marker = "\"lock-tools\" in dependency_groups"
 requires-python = ">=3.9"
 index = "https://pypi.org/simple/"
 
@@ -2025,7 +2051,7 @@ sha256 = "177a05aece5a8ca5266fd3c448abb47b8d352f09d477d3ca8332db4d89b24304"
 [[packages]]
 name = "towncrier"
 version = "26.9.0"
-marker = "\"release-news\" in dependency_groups or \"release-prepare\" in dependency_groups"
+marker = "\"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
 requires-python = ">=3.9"
 dependencies = [
     { name = "click" },
@@ -2302,24 +2328,25 @@ sha256 = "4e8b4e54979b26554c72a7e669009017a7fdd3fb00bbae0b26f82a86636c289f"
 
 [tool.nab]
 nab-version = "0.0.22"
-created-at = 2026-10-22 23:17:10.754894+00:00
+created-at = 2026-10-23 02:46:01.225053+00:00
 command-line = [
     "nab",
     "lock",
     "--groups",
     "build",
     "lock-tools",
-    "release-notes",
-    "release-news",
-    "release-prepare",
-    "release-validate",
-    "release-check",
     "release-attestations",
-    "release-shell",
-    "release-hooks",
+    "release-check",
     "release-hook-check",
+    "release-hooks",
+    "release-news",
+    "release-notes",
+    "release-prepare",
+    "release-shell",
+    "release-validate",
     "--output",
     "pylock.toml",
+    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"

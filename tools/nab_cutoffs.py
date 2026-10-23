@@ -8,7 +8,7 @@ _REVIEWED_EXCEPTIONS = {
         ("nab", "nab-index", "nab-markersets", "nab-project", "nab-provider", "nab-resolver"),
         datetime(2026, 10, 19, tzinfo=UTC),
     ),
-    "release-creator": datetime(2026, 10, 22, 13, 51, 56, tzinfo=UTC),
+    "release-creator": datetime(2026, 10, 23, 2, 44, 40, tzinfo=UTC),
 }
 
 
