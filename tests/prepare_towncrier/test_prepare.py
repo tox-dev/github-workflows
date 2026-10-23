@@ -71,7 +71,7 @@ def test_prepare_custom_fragment_directory(
         "prepare-towncrier",
         version="",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(repository, github_api, 2),
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     assert "version=0.2.0" in (tmp_path / "output").read_text()
@@ -93,7 +93,7 @@ def test_prepare_renders_github_notes(
         "prepare-towncrier",
         version="0.2.0",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(repository, github_api, 2),
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     result = run(
@@ -208,7 +208,7 @@ def test_prepare_links_named_fragments(
         "prepare-towncrier",
         version="0.2.0",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(repository, github_api, 2),
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     expected = (
@@ -231,7 +231,7 @@ def test_prepare_links_numeric_fragment_to_merged_pull_request(
         "prepare-towncrier",
         version="0.2.0",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(repository, github_api, 2),
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     assert "[#2](https://github.com/tox-dev/github-workflows/pull/2)" in (repository / "CHANGELOG.md").read_text()
@@ -250,7 +250,7 @@ def test_prepare_resolves_numeric_fragment_from_commit(
         "prepare-towncrier",
         version="0.2.0",
         GITHUB_REPOSITORY="tox-dev/github-workflows",
-        **_author_lookup(repository, github_api, 3),
+        **_author_lookup(github_api, 3),
     )
     assert result.returncode == 0, result.stderr
     assert "[#3](https://github.com/tox-dev/github-workflows/pull/3)" in (repository / "CHANGELOG.md").read_text()
@@ -339,7 +339,7 @@ def test_prepare_formats_rst(
         action_scripts,
         "prepare-towncrier",
         version="0.2.0",
-        **_author_lookup(repository, github_api, 2),
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     assert "Add a After feature (:pr:`2`) by :user:`gaborbernat`." in (repository / "CHANGELOG.rst").read_text()
@@ -377,7 +377,7 @@ def test_prepare_avoids_rst_conflict_marker(
         action_scripts,
         "prepare-towncrier",
         version="0.2.0",
-        **_author_lookup(repository, github_api, 2),
+        **_author_lookup(github_api, 2),
     )
     assert result.returncode == 0, result.stderr
     run(repository, "git", "reset", "--hard", "HEAD")
@@ -392,15 +392,7 @@ def test_prepare_avoids_rst_conflict_marker(
     assert "Changes\n=======" in (repository / "CHANGELOG.rst").read_text()
 
 
-def _author_lookup(repository: Path, github_api: tuple[HTTPServer, dict[str, str]], number: int) -> dict[str, str]:
-    server, environment = github_api
-    commit = run(repository, "git", "rev-parse", "HEAD").stdout.strip()
-    for name in ("fixture", "github-workflows"):
-        server.expect_request(
-            f"/api/v3/repos/tox-dev/{name}/commits/{commit}/pulls",
-            method="GET",
-            query_string="per_page=100",
-        ).respond_with_json(
-            [{"number": number, "merge_commit_sha": commit, "user": {"login": "gaborbernat", "type": "User"}}],
-        )
+def _author_lookup(github_api: tuple[HTTPServer, dict[str, str]], number: int) -> dict[str, str]:
+    _, environment = github_api
+    environment["TEST_PULL_NUMBER"] = str(number)
     return environment

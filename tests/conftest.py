@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import ssl
 import subprocess
@@ -13,6 +14,7 @@ import pytest
 import trustme
 import yaml
 from pytest_httpserver import HTTPServer
+from werkzeug.wrappers import Request, Response
 
 
 @pytest.fixture
@@ -138,27 +140,36 @@ def repository(tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]], mo
     server, environment = github_api
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
-    fragment_commit = run(worktree, "git", "rev-parse", "HEAD").stdout.strip()
-    server.expect_request("/api/graphql", method="POST").respond_with_json(
-        {
-            "data": {
-                "repository": {
-                    "c0": {
-                        "associatedPullRequests": {
-                            "nodes": [
-                                {
-                                    "number": 2,
-                                    "mergedAt": "2026-10-22T00:00:00Z",
-                                    "mergeCommit": {"oid": fragment_commit},
-                                    "author": {"login": "gaborbernat", "__typename": "User"},
+
+    def associated_pulls(request: Request) -> Response:
+        query = request.get_json()["query"]
+        commits = (part.split('"', 1)[0] for part in query.split('object(oid: "')[1:])
+        return Response(
+            json.dumps(
+                {
+                    "data": {
+                        "repository": {
+                            f"c{index}": {
+                                "associatedPullRequests": {
+                                    "nodes": [
+                                        {
+                                            "number": int(environment.get("TEST_PULL_NUMBER", "2")),
+                                            "mergedAt": "2026-10-22T00:00:00Z",
+                                            "mergeCommit": {"oid": commit},
+                                            "author": {"login": "gaborbernat", "__typename": "User"},
+                                        }
+                                    ]
                                 }
-                            ]
+                            }
+                            for index, commit in enumerate(commits)
                         }
                     }
                 }
-            }
-        }
-    )
+            ),
+            mimetype="application/json",
+        )
+
+    server.expect_request("/api/graphql", method="POST").respond_with_handler(associated_pulls)
     return worktree
 
 
