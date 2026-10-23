@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tools.nab_cutoffs import remove_expired_cutoffs
 
 
@@ -158,6 +159,7 @@ def test_check_nab_lock_rejects_package_change(tmp_path: Path) -> None:
         pytest.param("nab", "2026-10-19T00:00:00Z", False, id="unreviewed-nab"),
         pytest.param("nab", "2026-10-20T00:00:00Z", False, id="extended-nab"),
         pytest.param("release-creator", "2026-10-23T02:44:40Z", True, id="reviewed-release-creator"),
+        pytest.param("release-creator", "2026-10-23T16:52:06Z", True, id="reviewed-release-creator-0.6.4"),
         pytest.param("release-creator", "2026-10-23T16:52:07Z", False, id="extended-release-creator"),
         pytest.param("unreviewed", "2026-10-22T00:00:00Z", False, id="new-package"),
     ],

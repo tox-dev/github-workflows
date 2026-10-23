@@ -67,7 +67,9 @@ def validate_recent_cutoffs(project: str, threshold: datetime) -> None:
         timestamp = datetime.fromisoformat(value) if isinstance(value, str) else value
         if timestamp.tzinfo is None:
             raise ValueError(f"Nab package cutoff has no timezone: {value}")
-        if timestamp > threshold and timestamp > _REVIEWED_EXCEPTIONS.get(name, datetime.min.replace(tzinfo=UTC)):
+        if timestamp > threshold and timestamp not in {
+            reviewed for (package, _), reviewed in _REVIEWED_VERSIONS.items() if package == name
+        }:
             raise ValueError(f"unreviewed recent Nab cutoff for {name}: {timestamp.isoformat()}")
 
 
