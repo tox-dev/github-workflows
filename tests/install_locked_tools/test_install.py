@@ -470,6 +470,7 @@ def test_install_locked_tools_constraints_only_checks_lock_age(tmp_path: Path, a
 
 
 def test_install_locked_tools_constraints_only_accepts_no_build_group(tmp_path: Path, action_scripts: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text('[tool.nab]\nuploaded-prior-to = "P7D"\n')
     (tmp_path / "pylock.toml").write_text(
         'lock-version = "1.0"\nrequires-python = ">=3.15"\ncreated-by = "test"\n'
         'dependency-groups = ["project-runtime"]\npackages = []\n'

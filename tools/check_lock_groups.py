@@ -74,6 +74,8 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
             continue
         if local_tool_source and package.name == "release-creator" and package.index is None:
             continue
+        if package.index is None:
+            raise ValueError(f"release lock has an uncooled non-index package: {package.name}")
         if package.index != "https://pypi.org/simple/":
             raise ValueError(f"release lock has an unapproved index: {package.name}: {package.index}")
         artifacts = ([package.sdist] if package.sdist is not None else []) + list(package.wheels or ())
