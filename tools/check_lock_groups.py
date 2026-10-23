@@ -6,6 +6,7 @@ import argparse
 import json
 import tomllib
 from collections import defaultdict
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,11 +14,9 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from nab_cutoffs import reviewed_cutoff, validate_indexes
-from packaging.pylock import Pylock, PylockValidationError
+from packaging.pylock import Package, Pylock, PylockValidationError
 from packaging.utils import canonicalize_name, parse_sdist_filename, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
-
-_COOLDOWN = timedelta(days=7)
 
 
 def main() -> None:
@@ -65,15 +64,8 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
     created = lock.tool.get("nab", {}).get("created-at") if lock.tool else None
     if not isinstance(created, datetime) or created.tzinfo is None or created > datetime.now(tz=UTC):
         raise ValueError("lock has no valid creation time or was created in the future")
-    threshold = created - _COOLDOWN
-    for package in lock.packages:
-        if package.marker is not None and not any(
-            package.marker.evaluate({"dependency_groups": selection}, context="lock_file")
-            for selection in (groups, {"build"})
-        ):
-            continue
-        if local_tool_source and package.name == "release-creator" and package.index is None:
-            continue
+    threshold = created - timedelta(days=7)
+    for package in _selected_packages(lock, groups, local_tool_source=local_tool_source):
         if package.index is None:
             raise ValueError(f"release lock has an uncooled non-index package: {package.name}")
         if package.index != "https://pypi.org/simple/":
@@ -100,14 +92,7 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
 
 def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> None:
     expected: dict[str, list[tuple[str, str | None, str, datetime | None]]] = defaultdict(list)
-    for package in lock.packages:
-        if package.marker is not None and not any(
-            package.marker.evaluate({"dependency_groups": selection}, context="lock_file")
-            for selection in (groups, {"build"})
-        ):
-            continue
-        if local_tool_source and package.name == "release-creator" and package.index is None:
-            continue
+    for package in _selected_packages(lock, groups, local_tool_source=local_tool_source):
         for artifact in ([package.sdist] if package.sdist is not None else []) + list(package.wheels or ()):
             expected[canonicalize_name(package.name)].append(
                 (
@@ -122,6 +107,18 @@ def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> 
             for filename, url, digest, upload_time in expected[name]:
                 if actual.get(filename) != (url, digest, upload_time):
                     raise ValueError(f"release lock differs from PyPI metadata: {name}: {filename}")
+
+
+def _selected_packages(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> Iterator[Package]:
+    for package in lock.packages:
+        if package.marker is not None and not any(
+            package.marker.evaluate({"dependency_groups": selection}, context="lock_file")
+            for selection in (groups, {"build"})
+        ):
+            continue
+        if local_tool_source and package.name == "release-creator" and package.index is None:
+            continue
+        yield package
 
 
 def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None, datetime | None]]]:
