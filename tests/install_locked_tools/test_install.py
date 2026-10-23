@@ -136,6 +136,28 @@ def test_install_locked_tools_rejects_missing_group(tmp_path: Path, action_scrip
     assert "missing lock dependency groups: relesae" in result.stderr
 
 
+@pytest.mark.parametrize("local_source", [False, True], ids=["locked-caller", "local-source"])
+def test_install_locked_tools_checks_caller_release_creator(tmp_path: Path, local_source: bool) -> None:
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(
+        'lock-version = "1.0"\nrequires-python = ">=3.15"\n'
+        'dependency-groups = ["release-prepare"]\ncreated-by = "test"\npackages = []\n'
+    )
+    source = Path(__file__).resolve().parents[2]
+    command = [
+        "python",
+        str(source / "tools/check_lock_groups.py"),
+        str(lock),
+        "release-prepare",
+        "--shared-lock",
+        str(source / "pylock.toml"),
+    ]
+    if local_source:
+        command.append("--local-tool-source")
+    result = subprocess.run(command, text=True, capture_output=True, check=False)
+    assert (result.returncode == 0) is local_source, result.stderr
+
+
 def test_install_locked_tools_shared_group_ignores_missing_caller_group(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     lock = (source / "pylock.toml").read_text().replace('    "release-attestations",\n', "", 1)

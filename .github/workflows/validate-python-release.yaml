@@ -80,6 +80,7 @@ jobs:
         with:
           groups: release-notes${{ inputs.local-tool-source && ' project-runtime' || '' }}
           venv: ${{ runner.temp }}/release-tools
+          local-tool-source: ${{ inputs.local-tool-source }}
       - name: Add locked tools to PATH
         run: echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
       - uses: $/build-python-distribution

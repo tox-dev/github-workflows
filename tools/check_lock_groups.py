@@ -15,6 +15,7 @@ def main() -> None:
     parser.add_argument("lock", type=Path)
     parser.add_argument("groups", nargs="+")
     parser.add_argument("--shared-lock", type=Path)
+    parser.add_argument("--local-tool-source", action="store_true")
     args = parser.parse_args()
     try:
         with args.lock.open("rb") as stream:
@@ -30,7 +31,11 @@ def main() -> None:
                 set(args.groups)
                 & {"release-news", "release-notes", "release-prepare", "release-validate", "release-hooks"}
             )
-            if needs_release_creator and (installed is None or Version(str(installed)) < Version(str(required))):
+            if (
+                needs_release_creator
+                and not args.local_tool_source
+                and (installed is None or Version(str(installed)) < Version(str(required)))
+            ):
                 parser.error(f"relock: release-creator {required} required")
     except (OSError, PylockValidationError) as error:
         parser.error(str(error))

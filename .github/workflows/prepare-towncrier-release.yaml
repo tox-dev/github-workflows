@@ -60,6 +60,7 @@ jobs:
         with:
           groups: release-prepare${{ inputs.local-tool-source && ' project-runtime' || '' }}
           venv: .venv
+          local-tool-source: ${{ inputs.local-tool-source }}
       - name: Add locked tools to PATH
         run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
       - name: Install prek hooks

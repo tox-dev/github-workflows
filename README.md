@@ -18,6 +18,8 @@ constraints generated from the lock's `build` group under the runner's temporary
 - `lock-source`: `caller` (default) installs from the checkout's lock; `shared` installs from the pinned Action's lock.
   Both paths use the pinned Action's lock-tool bootstrap. The Action checks that every selected group exists in the
   selected lock and applies hashed build constraints.
+- `local-tool-source`: set to `true` only when release-creator builds and installs its own wheel after this Action. The
+  caller's lock then needs the selected groups but does not need a release-creator package entry.
 
 There is no named output. The installed commands are in `venv/bin` or Windows `venv/Scripts`; add that directory to
 `GITHUB_PATH` when later steps call them by name. Run `actions/checkout` and `astral-sh/setup-uv` with Python 3.15

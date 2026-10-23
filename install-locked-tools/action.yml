@@ -10,6 +10,9 @@ inputs:
   lock-source:
     description: Install groups from the caller or the shared Action lock
     default: caller
+  local-tool-source:
+    description: The caller builds release-creator from its own checkout after installing locked third-party tools
+    default: "false"
 runs:
   using: composite
   steps:
@@ -21,6 +24,7 @@ runs:
         DEPENDENCY_GROUPS: ${{ inputs.groups }}
         VENV: ${{ inputs.venv }}
         LOCK_SOURCE: ${{ inputs.lock-source }}
+        LOCAL_TOOL_SOURCE: ${{ inputs.local-tool-source }}
       run: |
         set -euo pipefail
         uv venv --allow-existing --python 3.15 "$VENV"
@@ -47,9 +51,11 @@ runs:
           echo '::error::at least one dependency group is required' >&2
           exit 1
         fi
+        source_check=()
+        if [[ "$LOCAL_TOOL_SOURCE" == true ]]; then source_check=(--local-tool-source); fi
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
           "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" "${groups[@]}" \
-          "${lock_check[@]}"
+          "${lock_check[@]}" "${source_check[@]}"
         printf '%s\n' "${groups[@]}" >"$RUNNER_TEMP/selected-lock-groups"
         printf 'lock=%s\n' "$lock" >>"$GITHUB_OUTPUT"
     - id: constraints
