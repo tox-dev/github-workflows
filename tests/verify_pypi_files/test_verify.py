@@ -48,6 +48,17 @@ def test_verify_files_matches_complete_release(distribution: Path, mocker: Mocke
     assert result == [distribution / "fixture-1.0-py3-none-any.whl", distribution / "fixture-1.0.tar.gz"]
 
 
+def test_verify_files_ignores_legacy_egg_from_older_release(distribution: Path, mocker: MockerFixture) -> None:
+    files = _listing(distribution)
+    files.append({"filename": "fixture-0.8.1-py2.4.egg", "hashes": {"sha256": "0" * 64}, "yanked": False})
+    mocker.patch.object(_MODULE, "urlopen", return_value=_body(files))
+
+    assert verify_files("fixture", "1.0", distribution, 0) == [
+        distribution / "fixture-1.0-py3-none-any.whl",
+        distribution / "fixture-1.0.tar.gz",
+    ]
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [

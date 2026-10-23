@@ -83,7 +83,10 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
             continue
         for file in files:
             if (identity := _identity(file["filename"])) is None:
-                raise ValueError(f"PyPI has an unrecognized distribution filename: {file['filename']}")
+                prefix, separator, suffix = file["filename"].rpartition(f"-{release}")
+                if separator and (not suffix or suffix[0] in ".-_") and canonicalize_name(prefix) == name:
+                    raise ValueError(f"PyPI has an unrecognized distribution filename: {file['filename']}")
+                continue
             if identity != (name, release):
                 continue
             filename = file["filename"]
