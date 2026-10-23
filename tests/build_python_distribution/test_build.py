@@ -11,7 +11,8 @@ from conftest import action, run
 
 
 @pytest.fixture
-def build_repository(source_project: Path, nab_executable: Path) -> Path:
+def build_repository(source_project: Path, nab_executable: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
     project = source_project / "pyproject.toml"
     release_requirement = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text())[
         "dependency-groups"
