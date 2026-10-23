@@ -173,10 +173,12 @@ def test_install_locked_tools_checks_caller_release_creator(tmp_path: Path, loca
 
 def test_local_tool_source_accepts_versionless_package(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    project = tomllib.loads((source / "pylock.toml").read_text())
-    package = next(item for item in project["packages"] if item["name"] == "release-creator")
-    lock = (source / "pylock.toml").read_text().replace(f'version = "{package["version"]}"', "", 1)
-    (tmp_path / "pylock.toml").write_text(lock)
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    package = next(item for item in document["packages"] if item["name"] == "release-creator")
+    for field in ("version", "index", "sdist", "wheels"):
+        package.pop(field)
+    package["directory"] = {"path": "."}
+    (tmp_path / "pylock.toml").write_text(tomlkit.dumps(document))
     result = subprocess.run(
         [
             "python",
@@ -341,8 +343,8 @@ def test_install_locked_tools_rejects_unreviewed_version_under_reviewed_floor(tm
     package = next(package for package in document["packages"] if package["name"] == "release-creator")
     package["version"] = "0.6.3"
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = artifact["name"].replace("0.6.4", "0.6.3")
-        artifact["url"] = artifact["url"].replace("0.6.4", "0.6.3")
+        artifact["name"] = artifact["name"].replace("0.6.5", "0.6.3")
+        artifact["url"] = artifact["url"].replace("0.6.5", "0.6.3")
     lock = tmp_path / "pylock.toml"
     lock.write_text(tomlkit.dumps(document))
 

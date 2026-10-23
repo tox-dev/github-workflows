@@ -177,7 +177,7 @@ def test_check_nab_lock_rejects_forged_upload_time(
     committed.write_bytes(lock.read_bytes())
 
     regenerated = subprocess.run(
-        [str(nab_executable), "lock", "--groups", "release-notes", "--output", "pylock.toml"],
+        [str(nab_executable), "lock", "--no-cache", "--groups", "release-notes", "--output", "pylock.toml"],
         cwd=build_repository,
         text=True,
         capture_output=True,
@@ -200,6 +200,8 @@ def test_check_nab_lock_rejects_forged_upload_time(
         pytest.param("release-creator", "2026-10-23T02:44:40Z", True, id="reviewed-release-creator"),
         pytest.param("release-creator", "2026-10-23T16:52:06Z", True, id="reviewed-release-creator-0.6.4"),
         pytest.param("release-creator", "2026-10-23T16:52:07Z", False, id="extended-release-creator"),
+        pytest.param("release-creator", "2026-10-23T19:54:50Z", True, id="reviewed-release-creator-0.6.5"),
+        pytest.param("release-creator", "2026-10-23T19:54:51Z", False, id="extended-release-creator-0.6.5"),
         pytest.param("unreviewed", "2026-10-22T00:00:00Z", False, id="new-package"),
     ],
 )

@@ -91,7 +91,7 @@ def test_package_lock(tmp_path_factory: pytest.TempPathFactory, nab_executable: 
         'default-groups = []\n[tool.nab.matrix]\npython = ">=3.15,<3.16"\nplatforms = ["linux_x86_64"]\n'
     )
     subprocess.run(
-        [str(nab_executable), "lock", "--groups", "fixture", "--output", "pylock.toml"],
+        [str(nab_executable), "lock", "--no-cache", "--groups", "fixture", "--output", "pylock.toml"],
         cwd=fixture,
         check=True,
         capture_output=True,
@@ -267,7 +267,16 @@ def build_repository(source_project: Path, nab_executable: Path, monkeypatch: py
         + f"\n[dependency-groups]\nrelease-notes = [{json.dumps(release_requirement)}]\n"
         + '\n[tool.nab]\nbase-group = "project-runtime"\nbuild-group = "build"\n'
     )
-    run(source_project, str(nab_executable), "lock", "--groups", "release-notes", "--output", "pylock.toml")
+    run(
+        source_project,
+        str(nab_executable),
+        "lock",
+        "--no-cache",
+        "--groups",
+        "release-notes",
+        "--output",
+        "pylock.toml",
+    )
     run(source_project, "git", "add", ".")
     run(source_project, "git", "commit", "-m", "Add package source")
     run(source_project, "git", "push", "origin", "main")

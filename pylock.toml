@@ -1703,7 +1703,7 @@ sha256 = "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
 
 [[packages]]
 name = "release-creator"
-version = "0.6.4"
+version = "0.6.5"
 marker = "\"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
 requires-python = ">=3.15"
 dependencies = [
@@ -1717,22 +1717,22 @@ dependencies = [
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "release_creator-0.6.4.tar.gz"
-upload-time = 2026-10-23 16:52:05.496598+00:00
-url = "https://files.pythonhosted.org/packages/97/91/9e1cac72d6bac1b0c5bce41a9231340c9d8640063102461c0fd33817ca50/release_creator-0.6.4.tar.gz"
-size = 133464
+name = "release_creator-0.6.5.tar.gz"
+upload-time = 2026-10-23 19:54:49.281646+00:00
+url = "https://files.pythonhosted.org/packages/a0/da/7195823b3d0ab066f518d8bd987f88a39e0e39da33f629e021346209a7cb/release_creator-0.6.5.tar.gz"
+size = 135158
 
 [packages.sdist.hashes]
-sha256 = "801c15dfc79e862298037fe1f02b52f3b2c3035acc02bebff9fa916c3b3fdce0"
+sha256 = "954247b06b7b9a8c196a782252e3d980d33a9e9b7f9e5aea7647ef6c758d4275"
 
 [[packages.wheels]]
-name = "release_creator-0.6.4-py3-none-any.whl"
-upload-time = 2026-10-23 16:52:04.227467+00:00
-url = "https://files.pythonhosted.org/packages/fb/86/fb3fb2b9b5cf3f6ea6d67b711c9d7915a2cec5ed1542bcf6bde51e85cd77/release_creator-0.6.4-py3-none-any.whl"
-size = 46339
+name = "release_creator-0.6.5-py3-none-any.whl"
+upload-time = 2026-10-23 19:54:47.716775+00:00
+url = "https://files.pythonhosted.org/packages/f1/4c/6215690fc2b48f3d927699bb16f5c8bcf26b8862e378df33a2581a45215b/release_creator-0.6.5-py3-none-any.whl"
+size = 46723
 
 [packages.wheels.hashes]
-sha256 = "cf41e5d6d50b489fbc666a82790463f810caff4f91f18c9da02ec72dc96223a0"
+sha256 = "dd109f7fb64808a83833c332b8563c56bd943c4a8de79b440eab475b5ca9a73e"
 
 [[packages]]
 name = "requests"
@@ -2483,10 +2483,11 @@ sha256 = "4e8b4e54979b26554c72a7e669009017a7fdd3fb00bbae0b26f82a86636c289f"
 
 [tool.nab]
 nab-version = "0.0.22"
-created-at = 2026-10-23 16:58:48.863323+00:00
+created-at = 2026-10-23 19:55:55.131127+00:00
 command-line = [
     "nab",
     "lock",
+    "--no-cache",
     "--groups",
     "build",
     "lock-tools",
