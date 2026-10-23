@@ -78,7 +78,7 @@ patch = [ "subprocess" ]
 source_dirs = [ "tools" ]
 
 [tool.coverage.report]
-fail_under = 85
+fail_under = 100
 show_missing = true
 
 [tool.ruff.lint.per-file-ignores]
