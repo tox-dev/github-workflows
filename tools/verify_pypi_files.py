@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import ssl
 import time
 from http.client import IncompleteRead
 from pathlib import Path
@@ -77,7 +78,7 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
             if deadline - time.monotonic() <= 0:
                 raise
             files = []
-        except TimeoutError, ConnectionError, URLError, IncompleteRead:
+        except TimeoutError, ConnectionError, URLError, IncompleteRead, ssl.SSLError, json.JSONDecodeError:
             if deadline - time.monotonic() <= 0:
                 raise
             files = []
@@ -87,7 +88,14 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
                 if (
                     separator
                     and (not suffix or suffix[0] in ".-_")
-                    and not (suffix.startswith(".") and suffix[1:2].isdigit())
+                    and not (
+                        suffix.startswith(".")
+                        and (
+                            suffix[1:2].isdigit()
+                            or (suffix.startswith(".post") and suffix[5:6].isdigit())
+                            or (suffix.startswith(".dev") and suffix[4:5].isdigit())
+                        )
+                    )
                     and canonicalize_name(prefix) == name
                 ):
                     raise ValueError(f"PyPI has an unrecognized distribution filename: {file['filename']}")

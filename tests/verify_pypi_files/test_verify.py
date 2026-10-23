@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import ssl
 from email.message import Message
 from http.client import IncompleteRead
 from pathlib import Path
@@ -61,11 +62,21 @@ def test_verify_files_ignores_legacy_egg_from_older_release(distribution: Path, 
     ]
 
 
-def test_verify_files_ignores_legacy_egg_from_longer_version(distribution: Path, mocker: MockerFixture) -> None:
+@pytest.mark.parametrize(
+    "filename",
+    [
+        pytest.param("fixture-0.9.1-py2.7.egg", id="next-release"),
+        pytest.param("fixture-0.9.post1-py2.7.egg", id="post-release"),
+        pytest.param("fixture-0.9.dev1.tar.bz2", id="development-release"),
+    ],
+)
+def test_verify_files_ignores_legacy_files_from_other_versions(
+    distribution: Path, mocker: MockerFixture, filename: str
+) -> None:
     for path in distribution.iterdir():
         path.rename(path.with_name(path.name.replace("1.0", "0.9")))
     files = _listing(distribution)
-    files.append({"filename": "fixture-0.9.1-py2.7.egg", "hashes": {"sha256": "0" * 64}, "yanked": False})
+    files.append({"filename": filename, "hashes": {"sha256": "0" * 64}, "yanked": False})
     mocker.patch.object(_MODULE, "urlopen", return_value=_body(files))
 
     assert verify_files("fixture", "0.9", distribution, 0) == [
@@ -144,10 +155,12 @@ def test_verify_files_waits_for_incomplete_listing(distribution: Path, mocker: M
         pytest.param(ConnectionResetError("connection reset"), id="reset"),
         pytest.param(TimeoutError("read timeout"), id="read-timeout"),
         pytest.param(IncompleteRead(b"partial", 10), id="incomplete-read"),
+        pytest.param(ssl.SSLError("TLS failure"), id="tls"),
+        pytest.param(json.JSONDecodeError("truncated", "{", 1), id="truncated-json"),
     ],
 )
 def test_verify_files_retries_transient_listing_failure(
-    distribution: Path, mocker: MockerFixture, failure: OSError | IncompleteRead
+    distribution: Path, mocker: MockerFixture, failure: OSError | IncompleteRead | json.JSONDecodeError
 ) -> None:
     response = mocker.patch.object(_MODULE, "urlopen", side_effect=[failure, _body(_listing(distribution))])
     mocker.patch.object(_MODULE.time, "sleep")
@@ -178,6 +191,19 @@ def test_verify_files_retries_response_read_failure(
         distribution / "fixture-1.0-py3-none-any.whl",
         distribution / "fixture-1.0.tar.gz",
     ]
+
+
+def test_verify_files_retries_truncated_json_response(distribution: Path, mocker: MockerFixture) -> None:
+    response = mocker.patch.object(
+        _MODULE, "urlopen", side_effect=[io.BytesIO(b'{"meta":'), _body(_listing(distribution))]
+    )
+    mocker.patch.object(_MODULE.time, "sleep")
+
+    assert verify_files("fixture", "1.0", distribution, 2) == [
+        distribution / "fixture-1.0-py3-none-any.whl",
+        distribution / "fixture-1.0.tar.gz",
+    ]
+    assert response.call_count == 2
 
 
 def test_main_reports_exhausted_incomplete_read(
