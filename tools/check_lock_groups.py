@@ -52,7 +52,6 @@ def main() -> None:
         if args.shared_lock:
             with args.shared_lock.open("rb") as stream:
                 shared = Pylock.from_dict(tomllib.load(stream))
-            _check_cooling(shared, groups)
             required = _selected_release_creator(shared, groups)
             if required is not None and not args.local_tool_source:
                 installed = _selected_release_creator(lock, groups)
