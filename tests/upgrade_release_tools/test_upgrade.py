@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from conftest import run
+from conftest import action, run
 from pytest_httpserver import HTTPServer
 
 
@@ -79,11 +79,11 @@ def lock_repository(tmp_path: Path) -> Path:
 def test_upgrade_locks_only_selected_groups(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
     project = lock_repository / "pyproject.toml"
     project.write_text(project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]'))
-    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
+    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
     assert installed.returncode == 0, installed.stderr
     resolved = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK_GROUPS="release-check",
         MODE="refresh",
@@ -97,11 +97,11 @@ def test_upgrade_locks_only_selected_groups(lock_repository: Path, tmp_path: Pat
 def test_upgrade_check_mode_preserves_lock_bytes(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
     project = lock_repository / "pyproject.toml"
     project.write_text(project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]'))
-    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
+    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
     assert installed.returncode == 0, installed.stderr
     refreshed = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK_GROUPS="release-check",
         MODE="refresh",
@@ -110,7 +110,7 @@ def test_upgrade_check_mode_preserves_lock_bytes(lock_repository: Path, tmp_path
     expected = (lock_repository / "pylock.toml").read_bytes()
     checked = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK_GROUPS="release-check",
         MODE="check",
@@ -134,11 +134,11 @@ def test_upgrade_preserves_secondary_lock_matrix(
         project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]')
         + '[build-system]\nrequires = ["setuptools>=80"]\nbuild-backend = "setuptools.build_meta"\n',
     )
-    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
+    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
     assert installed.returncode == 0, installed.stderr
     primary = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK_GROUPS="release-check",
         MODE="refresh",
@@ -183,7 +183,7 @@ def test_upgrade_preserves_secondary_lock_matrix(
         "MATRIX_PLATFORMS": "linux_x86_64 macos_arm64",
         "MATRIX_IMPLEMENTATIONS": "cpython",
     }
-    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-2.sh", tmp_path, **environment)
+    checked = execute(lock_repository, upgrade_scripts / "refresh-release-lock-3.sh", tmp_path, **environment)
     assert checked.returncode == 0, checked.stderr
     assert additional.read_bytes() == expected
 
@@ -191,11 +191,11 @@ def test_upgrade_preserves_secondary_lock_matrix(
 def test_upgrade_rejects_secondary_matrix_change(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
     project = lock_repository / "pyproject.toml"
     project.write_text(project.read_text().replace("release = []", 'release-check = ["prek>=0.2"]'))
-    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
+    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
     assert installed.returncode == 0, installed.stderr
     initial = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK_GROUPS="release-check",
         MODE="refresh",
@@ -204,7 +204,7 @@ def test_upgrade_rejects_secondary_matrix_change(lock_repository: Path, tmp_path
     (lock_repository / "pylock.build.toml").write_bytes((lock_repository / "pylock.toml").read_bytes())
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-2.sh",
+        upgrade_scripts / "refresh-release-lock-3.sh",
         tmp_path,
         LOCK_GROUPS="release-check",
         MODE="refresh",
@@ -224,9 +224,9 @@ def test_upgrade_expires_old_nab_floor(lock_repository: Path, tmp_path: Path, up
         project.read_text()
         + '[[tool.nab.package-rules]]\nmatch = ["nab"]\nuploaded-prior-to = "2026-01-01T00:00:00Z"\n',
     )
-    installed = execute(lock_repository, upgrade_scripts / "refresh-release-lock-0.sh", tmp_path)
+    installed = action(lock_repository, tmp_path, upgrade_scripts, "install-nab", version="")
     assert installed.returncode == 0, installed.stderr
-    expired = execute(lock_repository, upgrade_scripts / "refresh-release-lock-1.sh", tmp_path)
+    expired = execute(lock_repository, upgrade_scripts / "refresh-release-lock-2.sh", tmp_path)
     assert expired.returncode == 0, expired.stderr
     assert "package-rules" not in tomllib.loads(project.read_text())["tool"]["nab"]
 
@@ -244,7 +244,7 @@ def test_upgrade_emits_patch_for_allowed_change(
     (lock_repository / changed_path).write_text((lock_repository / changed_path).read_text() + "\n")
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-6.sh",
+        upgrade_scripts / "refresh-release-lock-7.sh",
         tmp_path,
         MODE="refresh",
         GITHUB_OUTPUT=str(tmp_path / "output"),
@@ -261,7 +261,7 @@ def test_upgrade_check_mode_rejects_lock_drift(lock_repository: Path, tmp_path: 
     (lock_repository / "pylock.toml").write_text('lock-version = "1.1"\n')
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-6.sh",
+        upgrade_scripts / "refresh-release-lock-7.sh",
         tmp_path,
         MODE="check",
         GITHUB_OUTPUT=str(tmp_path / "output"),
@@ -278,7 +278,7 @@ def test_upgrade_rejects_unrelated_change(
 ) -> None:
     (tmp_path / "project-after-expiry.toml").write_bytes((lock_repository / "pyproject.toml").read_bytes())
     (lock_repository / path).write_text("changed\n")
-    result = execute(lock_repository, upgrade_scripts / "refresh-release-lock-5.sh", tmp_path)
+    result = execute(lock_repository, upgrade_scripts / "refresh-release-lock-6.sh", tmp_path)
     assert result.returncode != 0
     assert "outside the lock and cutoff policy" in result.stderr
 

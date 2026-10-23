@@ -29,8 +29,12 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: $/install-lock-tools
+    - uses: $/install-nab
+    - name: Check recent package cutoffs
+      shell: bash
+      run: uv run --no-project --python "$RUNNER_TEMP/lock-tools" python "$GITHUB_ACTION_PATH/../tools/check_recent_cutoffs.py" pyproject.toml
     - name: Expire reviewed package cutoffs
+      if: inputs.mode == 'refresh'
       shell: bash
       run: |
         set -euo pipefail
@@ -132,6 +136,7 @@ runs:
       shell: bash
       run: uv run --no-project --python "$RUNNER_TEMP/release-tools" prek run --all-files
     - name: Check refreshed paths
+      if: inputs.mode == 'refresh'
       shell: bash
       env:
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}

@@ -56,7 +56,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "resolve-pr-from-run",
         "refresh-release-lock",
         "install-locked-tools",
-        "install-lock-tools",
+        "install-nab",
         "export-build-constraints",
         "read-towncrier-config",
         "refresh-hook-pins",
@@ -76,6 +76,33 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
             path.write_text(f"#!/usr/bin/env bash\n{step['run']}")
             path.chmod(0o755)
     return scripts
+
+
+@pytest.fixture(scope="session")
+def nab_executable(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    root = Path(__file__).resolve().parents[1]
+    environment = tmp_path_factory.mktemp("nab-tools")
+    subprocess.run(["uv", "venv", "--python", "3.15", str(environment)], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "uv",
+            "pip",
+            "sync",
+            "--preview-features",
+            "pylock",
+            "--python",
+            str(environment / "bin/python"),
+            "--group",
+            "lock-tools",
+            "--only-binary",
+            ":all:",
+            "--require-hashes",
+            str(root / "pylock.toml"),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return environment / "bin/nab"
 
 
 @pytest.fixture
@@ -112,14 +139,26 @@ def repository(tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]], mo
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
     fragment_commit = run(worktree, "git", "rev-parse", "HEAD").stdout.strip()
-    for name in ("fixture", "github-workflows"):
-        server.expect_request(
-            f"/api/v3/repos/tox-dev/{name}/commits/{fragment_commit}/pulls",
-            method="GET",
-            query_string="per_page=100",
-        ).respond_with_json(
-            [{"number": 2, "merge_commit_sha": fragment_commit, "user": {"login": "gaborbernat", "type": "User"}}],
-        )
+    server.expect_request("/api/graphql", method="POST").respond_with_json(
+        {
+            "data": {
+                "repository": {
+                    "c0": {
+                        "associatedPullRequests": {
+                            "nodes": [
+                                {
+                                    "number": 2,
+                                    "mergedAt": "2026-10-22T00:00:00Z",
+                                    "mergeCommit": {"oid": fragment_commit},
+                                    "author": {"login": "gaborbernat", "__typename": "User"},
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    )
     return worktree
 
 

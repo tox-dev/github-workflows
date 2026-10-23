@@ -383,6 +383,59 @@ def test_draft_release_uploads_missing_asset(
     ]
 
 
+def test_draft_release_replaces_incomplete_asset(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    release_cli: dict[str, str],
+) -> None:
+    server, environment = github_api
+    notes, commit = _notes_and_commit(repository, tmp_path)
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    asset_path = assets / "fixture.zip"
+    asset_path.write_bytes(b"release archive")
+    incomplete = _release(
+        notes,
+        draft=True,
+        assets=[{"id": "21", "name": asset_path.name, "digest": "", "state": "starter"}],
+    )
+    uploaded = _release(
+        notes,
+        draft=True,
+        assets=[
+            {
+                "name": asset_path.name,
+                "digest": f"sha256:{sha256(asset_path.read_bytes()).hexdigest()}",
+                "state": "uploaded",
+            }
+        ],
+    )
+    prefix = "/api/v3/repos/tox-dev/fixture"
+    server.expect_ordered_request(f"{prefix}/commits/refs/tags/0.1.0", method="GET").respond_with_json({"sha": commit})
+    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json(
+        [incomplete]
+    )
+    server.expect_ordered_request(f"{prefix}/releases/assets/21", method="DELETE").respond_with_json({})
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(incomplete | {"assets": []})
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(uploaded)
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(uploaded)
+    result = _request(
+        repository,
+        tmp_path,
+        action_scripts,
+        notes,
+        commit,
+        environment | release_cli,
+        assets=assets,
+        mode="stage",
+    )
+    assert result.returncode == 0, result.stderr
+    assert ("release", "upload", "0.1.0", str(asset_path), "--repo", "tox-dev/fixture") in _release_calls(tmp_path)
+    assert [request.method for request, _ in server.log] == ["GET", "GET", "DELETE", "GET", "GET", "GET"]
+
+
 def test_failed_asset_upload_leaves_draft_unpublished(
     repository: Path,
     tmp_path: Path,

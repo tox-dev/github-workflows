@@ -12,12 +12,12 @@ inputs:
     default: ""
 outputs:
   path:
-    description: Path to the generated constraints; each call replaces the file
+    description: Path to the generated constraints for this lock selection
     value: ${{ steps.constraints.outputs.path }}
 runs:
   using: composite
   steps:
-    - uses: $/install-lock-tools
+    - uses: $/install-nab
     - id: constraints
       name: Export locked build requirements
       shell: bash
@@ -37,7 +37,15 @@ runs:
         if [[ -n "$TARGET_PLATFORM" || -n "$TARGETS" ]]; then
           args+=(--target-platform "$TARGET_PLATFORM" --targets "$TARGETS")
         fi
-        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
-          "$GITHUB_ACTION_PATH/../tools/build_constraints.py" "${args[@]}" \
-          "$RUNNER_TEMP/build-constraints.txt" "${locks[@]}"
-        echo "path=$RUNNER_TEMP/build-constraints.txt" >>"$GITHUB_OUTPUT"
+        digest=$(
+          sha256sum "${locks[@]}"
+          printf '%s\n' "$TARGET_PLATFORM" "$TARGETS" "${args[@]}"
+        )
+        digest=$(sha256sum <<<"$digest")
+        output="$RUNNER_TEMP/build-constraints-${digest%% *}.txt"
+        if [[ ! -f "$output" ]]; then
+          uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
+            "$GITHUB_ACTION_PATH/../tools/build_constraints.py" "${args[@]}" \
+            "$output" "${locks[@]}"
+        fi
+        echo "path=$output" >>"$GITHUB_OUTPUT"

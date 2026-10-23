@@ -13,7 +13,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: $/install-lock-tools
+    - uses: $/install-nab
     - id: selection
       name: Select locked groups and build constraints
       shell: bash
@@ -27,13 +27,11 @@ runs:
         case "$LOCK_SOURCE" in
           caller)
             lock=pylock.toml
-            locks=("$GITHUB_ACTION_PATH/../pylock.toml" "$lock")
-            policy=(--shared-policy "$GITHUB_ACTION_PATH/../pyproject.toml")
+            lock_check=(--shared-lock "$GITHUB_ACTION_PATH/../pylock.toml")
             ;;
           shared)
             lock="$GITHUB_ACTION_PATH/../pylock.toml"
-            locks=("$lock")
-            policy=()
+            lock_check=()
             ;;
           *)
             echo "::error::unknown lock source: $LOCK_SOURCE" >&2
@@ -50,20 +48,20 @@ runs:
           exit 1
         fi
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
-          "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" "${groups[@]}"
-        package_path=$(uv run --no-project --python "$RUNNER_TEMP/lock-tools" python -c \
-          'from pathlib import Path; import packaging; print(Path(packaging.__file__).parent.parent)')
-        PYTHONPATH="$package_path" uv run --no-project --python "$VENV" python \
-          "$GITHUB_ACTION_PATH/../tools/build_constraints.py" \
-          "${policy[@]}" "$RUNNER_TEMP/caller-build-constraints.txt" \
-          "${locks[@]}"
+          "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" "${groups[@]}" \
+          "${lock_check[@]}"
         printf '%s\n' "${groups[@]}" >"$RUNNER_TEMP/selected-lock-groups"
         printf 'lock=%s\n' "$lock" >>"$GITHUB_OUTPUT"
+    - id: constraints
+      uses: $/export-build-constraints
+      with:
+        lock: ${{ steps.selection.outputs.lock }}
     - name: Install selected groups
       shell: bash
       env:
         VENV: ${{ inputs.venv }}
         LOCK: ${{ steps.selection.outputs.lock }}
+        BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}
       run: |
         set -euo pipefail
         unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
@@ -72,5 +70,5 @@ runs:
           groups+=(--group "$group")
         done <"$RUNNER_TEMP/selected-lock-groups"
         uv pip sync --preview-features pylock --preview-features build-dependency-hashes --python "$VENV" \
-          "${groups[@]}" --build-constraints "$RUNNER_TEMP/caller-build-constraints.txt" \
-          --require-build-hashes "$LOCK"
+          "${groups[@]}" --build-constraints "$BUILD_CONSTRAINTS" \
+          --require-build-hashes --require-hashes "$LOCK"

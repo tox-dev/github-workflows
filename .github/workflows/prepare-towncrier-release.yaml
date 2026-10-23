@@ -68,10 +68,16 @@ jobs:
         background: true
       - name: Create a fresh validation worktree
         run: git worktree add --detach "$RUNNER_TEMP/release-validation" "$GITHUB_SHA"
+      - name: Export local build constraints
+        if: inputs.local-tool-source
+        id: constraints
+        uses: $/export-build-constraints
       - name: Build local release tool wheel
         if: inputs.local-tool-source
+        env:
+          BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}
         run: |
-          uv build --wheel --build-constraints "$RUNNER_TEMP/caller-build-constraints.txt" \
+          uv build --wheel --build-constraints "$BUILD_CONSTRAINTS" \
             --require-build-hashes --out-dir "$RUNNER_TEMP/local-tool-dist" .
       - name: Install local release tool wheel
         if: inputs.local-tool-source

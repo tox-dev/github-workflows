@@ -28,7 +28,10 @@ jobs:
         with:
           version: latest-known
           python-version: "3.15"
-          enable-cache: false
+          enable-cache: true
+          cache-dependency-glob: |
+            pylock.toml
+            pyproject.toml
       - uses: $/install-locked-tools
         with:
           groups: release-check
@@ -54,7 +57,10 @@ jobs:
         with:
           version: latest-known
           python-version: "3.15"
-          enable-cache: false
+          enable-cache: true
+          cache-dependency-glob: |
+            pylock.toml
+            pyproject.toml
       - uses: $/install-locked-tools
         with:
           groups: release-shell
@@ -92,7 +98,10 @@ jobs:
         with:
           version: latest-known
           python-version: "3.15"
-          enable-cache: false
+          enable-cache: true
+          cache-dependency-glob: |
+            pylock.toml
+            pyproject.toml
       - uses: $/install-locked-tools
         with:
           groups: release-news release-shell
@@ -117,7 +126,10 @@ jobs:
         with:
           version: latest-known
           python-version: "3.15"
-          enable-cache: false
+          enable-cache: true
+          cache-dependency-glob: |
+            pylock.toml
+            pyproject.toml
       - name: Check Python types
         run: uvx --with tox-uv tox run -e type
   changelog:
@@ -132,7 +144,10 @@ jobs:
         with:
           version: latest-known
           python-version: "3.15"
-          enable-cache: false
+          enable-cache: true
+          cache-dependency-glob: |
+            pylock.toml
+            pyproject.toml
       - uses: $/install-locked-tools
         with:
           groups: release-news
@@ -162,7 +177,10 @@ jobs:
         with:
           version: latest-known
           python-version: "3.15"
-          enable-cache: false
+          enable-cache: true
+          cache-dependency-glob: |
+            pylock.toml
+            pyproject.toml
       - uses: $/refresh-release-lock
         with:
           lock-groups: >-

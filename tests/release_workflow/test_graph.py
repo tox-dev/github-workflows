@@ -58,7 +58,8 @@ def test_prepare_builds_local_tool_once_with_locked_backends() -> None:
     steps = workflow["jobs"]["assemble"]["steps"]
     builds = [step for step in steps if step.get("name") == "Build local release tool wheel"]
     assert len(builds) == 1
-    assert '--build-constraints "$RUNNER_TEMP/caller-build-constraints.txt"' in builds[0]["run"]
+    assert builds[0]["env"]["BUILD_CONSTRAINTS"] == "${{ steps.constraints.outputs.path }}"
+    assert '--build-constraints "$BUILD_CONSTRAINTS"' in builds[0]["run"]
     assert "--require-build-hashes" in builds[0]["run"]
     assert any(
         step.get("name") == "Install local release tool wheel" and '"$RUNNER_TEMP/local-tool-dist/"*.whl' in step["run"]
@@ -154,3 +155,10 @@ def test_shfmt_hook_rejects_unformatted_inline_shell(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "diff" in result.stdout
+
+
+def test_action_manifests_have_no_empty_environment_mapping() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for path in root.glob("*/action.yml"):
+        action = yaml.safe_load(path.read_text())
+        assert all("env" not in step or isinstance(step["env"], dict) for step in action["runs"]["steps"]), path

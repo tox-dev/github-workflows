@@ -76,7 +76,7 @@ jobs:
           name: release-tools-lock
           path: ${{ runner.temp }}/lock.patch
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
   generate-hooks:
     runs-on: ubuntu-26.04
     env:
@@ -104,7 +104,7 @@ jobs:
           name: release-tools-hooks
           path: ${{ runner.temp }}/hooks.patch
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
   publish:
     needs: [generate-lock, generate-hooks]
     if: |

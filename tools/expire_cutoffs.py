@@ -6,8 +6,7 @@ import argparse
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import tomlkit
-from nab_cutoffs import expired_cutoffs
+from nab_cutoffs import remove_expired_cutoffs
 from tomlkit.exceptions import ParseError
 
 
@@ -17,23 +16,9 @@ def main() -> None:
     args = parser.parse_args()
     try:
         source = args.project.read_text()
-        names, positions = expired_cutoffs(source, datetime.now(UTC) - timedelta(days=7))
-        if names or positions:
-            document = tomlkit.parse(source)
-            nab = document["tool"]["nab"]
-            for name in names:
-                settings = nab["packages"][name]
-                del settings["uploaded-prior-to"]
-                if not settings:
-                    del nab["packages"][name]
-            for index in sorted(positions, reverse=True):
-                rule = nab["package-rules"][index]
-                del rule["uploaded-prior-to"]
-                if set(rule) == {"match"}:
-                    del nab["package-rules"][index]
-            if "package-rules" in nab and not nab["package-rules"]:
-                del nab["package-rules"]
-            args.project.write_text(tomlkit.dumps(document))
+        updated = remove_expired_cutoffs(source, datetime.now(UTC) - timedelta(days=7))
+        if source != updated:
+            args.project.write_text(updated)
     except (OSError, KeyError, ValueError, ParseError) as error:
         parser.error(str(error))
 

@@ -15,11 +15,12 @@ def test_export_build_constraints_uses_checked_in_locks(tmp_path: Path, action_s
     (tmp_path / "pylock.toml").write_bytes((source / "pylock.toml").read_bytes())
     result = action(tmp_path, tmp_path, action_scripts, "export-build-constraints", version="")
     assert result.returncode == 0, result.stderr
-    constraints = (tmp_path / "build-constraints.txt").read_text()
+    output = next(tmp_path.glob("build-constraints-*.txt"))
+    constraints = output.read_text()
     assert "cython==" in constraints
     assert "setuptools==" in constraints
     assert "pytest==" not in constraints
-    assert (tmp_path / "output").read_text() == f"path={tmp_path / 'build-constraints.txt'}\n"
+    assert (tmp_path / "output").read_text() == f"path={output}\n"
 
 
 @pytest.mark.parametrize(

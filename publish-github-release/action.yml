@@ -89,10 +89,13 @@ runs:
         jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
           --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
             length <= 1 and all(.[];
+              . as $release |
               .name == $title and .body == $body and .prerelease == $prerelease and
               ((.assets | map(.name) | unique | length) == (.assets | length)) and
-              all(.assets[]; .state == "uploaded" and
-                (.name as $name | .digest as $digest |
+              all(.assets[];
+                .name as $name | .digest as $digest |
+                any($assets[0][]; .name == $name) and
+                (.state != "uploaded" and $release.draft or
                   any($assets[0][]; .name == $name and .digest == $digest))) and
               (.draft or (.assets | length) == ($assets[0] | length))
             )
@@ -136,6 +139,11 @@ runs:
         if [[ "$MODE" != publish && -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob
           release_id=$(<"$RUNNER_TEMP/release-id")
+          if jq -e 'length == 1 and .[0].draft' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
+            while IFS= read -r asset_id; do
+              gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id" >/dev/null
+            done < <(jq -r '.[0].assets[] | select(.state != "uploaded") | .id' "$RUNNER_TEMP/release-existing.json")
+          fi
           for attempt in {1..6}; do
             if ! gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-current.json"; then
               if ((attempt == 6)); then

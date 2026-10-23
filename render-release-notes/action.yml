@@ -19,6 +19,9 @@ inputs:
   generated-notes:
     description: Existing GitHub generated-notes file with contributor metadata
     default: ""
+  previous:
+    description: Previous tag, or auto to calculate it from Git history
+    default: auto
 outputs:
   previous:
     description: Previous version tag, or an empty string for the first release
@@ -26,10 +29,23 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: previous
+    - id: selected
+      if: inputs.previous == 'auto'
       uses: $/select-previous-tag
       with:
         tag: ${{ inputs.tag }}
+    - id: previous
+      name: Select previous tag
+      shell: bash
+      env:
+        INPUT_PREVIOUS: ${{ inputs.previous }}
+        SELECTED_PREVIOUS: ${{ steps.selected.outputs.previous }}
+      run: |
+        if [[ "$INPUT_PREVIOUS" == auto ]]; then
+          echo "previous=$SELECTED_PREVIOUS" >>"$GITHUB_OUTPUT"
+        else
+          echo "previous=$INPUT_PREVIOUS" >>"$GITHUB_OUTPUT"
+        fi
     - name: Render GitHub Release notes
       shell: bash
       env:

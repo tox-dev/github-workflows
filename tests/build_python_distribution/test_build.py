@@ -11,7 +11,7 @@ from conftest import action, run
 
 
 @pytest.fixture
-def build_repository(source_project: Path) -> Path:
+def build_repository(source_project: Path, nab_executable: Path) -> Path:
     project = source_project / "pyproject.toml"
     release_requirement = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text())[
         "dependency-groups"
@@ -23,10 +23,7 @@ def build_repository(source_project: Path) -> Path:
     )
     run(
         source_project,
-        "uvx",
-        "--from",
-        "nab==0.0.22",
-        "nab",
+        str(nab_executable),
         "lock",
         "--groups",
         "release-notes",
@@ -56,7 +53,7 @@ def test_build_python_distribution_creates_wheel_and_sdist(
         "fixture-0.2.0-py3-none-any.whl",
         "fixture-0.2.0.tar.gz",
     }
-    assert (tmp_path / "build-constraints.txt").read_text().count("hatchling==") == 1
+    assert next(tmp_path.glob("build-constraints-*.txt")).read_text().count("hatchling==") == 1
 
 
 def test_build_python_distribution_repeats_exact_bytes(

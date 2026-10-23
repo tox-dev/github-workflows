@@ -23,7 +23,7 @@ There is no named output. The installed commands are in `venv/bin` or Windows `v
 `GITHUB_PATH` when later steps call them by name. Run `actions/checkout` and `astral-sh/setup-uv` with Python 3.15
 before this Action.
 
-`install-lock-tools` is the shared bootstrap used by `install-locked-tools`, `export-build-constraints`, and
+`install-nab` is the shared bootstrap used by `install-locked-tools`, `export-build-constraints`, and
 `refresh-release-lock`. It takes no inputs and has no outputs. It creates `$RUNNER_TEMP/lock-tools` and installs the
 hash-checked `lock-tools` group from this repository's pinned `pylock.toml`; it does not install caller dependencies.
 
@@ -594,10 +594,10 @@ generated-notes endpoint only when nonempty.
 ## Reconcile PyPI artifacts
 
 `reconcile-pypi-artifacts` compares the complete validated distribution directory with PyPI's Simple JSON API and
-verifies a trusted-publisher attestation for each file. Upload the complete directory with the pinned PyPI publisher,
-without `skip-existing`. Run this Action in a read-only job after the publisher. A different digest, unexpected or
-yanked file, malformed response, or invalid attestation fails. The GitHub Release writer must depend on this
-verification.
+verifies a trusted-publisher attestation for each file. Upload the complete validated directory with the pinned PyPI
+publisher and `skip-existing: true`. A rerun sends only files missing from PyPI. Run this Action in a read-only job
+after the publisher. A different digest in an already published file, unexpected or yanked file, malformed response, or
+invalid attestation fails. The GitHub Release writer must depend on this verification.
 
 ```yaml
   - uses: tox-dev/github-workflows/reconcile-pypi-artifacts@SHA

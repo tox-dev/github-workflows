@@ -8,19 +8,14 @@ from conftest import action, run
 
 
 @pytest.fixture
-def distribution(source_project: Path) -> tuple[Path, Path]:
+def distribution(source_project: Path, nab_executable: Path) -> tuple[Path, Path]:
     project = source_project / "pyproject.toml"
     project.write_text(
         project.read_text() + '\n[dependency-groups]\npkg-meta = ["check-wheel-contents>=0.6.3", "twine>=7"]\n',
     )
     run(
         source_project,
-        "uvx",
-        "--python",
-        "3.15",
-        "--from",
-        "nab==0.0.22",
-        "nab",
+        str(nab_executable),
         "lock",
         "--python",
         "3.15",

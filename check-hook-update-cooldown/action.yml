@@ -37,6 +37,10 @@ runs:
         case "$MINIMUM_DAYS" in
         '' | 0* | *[!0-9]*) exit 1 ;;
         esac
+        if ((MINIMUM_DAYS < 7)); then
+          echo '::error::hook cooldown must be at least seven days' >&2
+          exit 1
+        fi
         test "$GITHUB_EVENT_NAME" = pull_request
         jq -e --argjson number "$PR_NUMBER" --arg head "$HEAD_SHA" '
           .number == $number and .pull_request.head.sha == $head

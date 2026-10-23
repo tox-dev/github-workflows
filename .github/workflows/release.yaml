@@ -90,7 +90,7 @@ jobs:
           path: ${{ runner.temp }}/generated-notes.md
           if-no-files-found: error
   notes:
-    needs: contributors
+    needs: [source, contributors]
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -119,6 +119,7 @@ jobs:
       - uses: $/render-release-notes
         with:
           tag: ${{ github.ref_name }}
+          previous: ${{ needs.source.outputs.previous }}
           changelog: CHANGELOG.md
           generated-notes: ${{ runner.temp }}/generated-notes.md
           output: ${{ runner.temp }}/release-notes.md

@@ -92,7 +92,7 @@ def test_backend_constraints_match_shared_lock(tmp_path: Path) -> None:
 
 def test_install_lock_tools_rejects_hash_mismatch(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    action_root = tmp_path / "install-lock-tools"
+    action_root = tmp_path / "install-nab"
     action_root.mkdir()
     lock = (source / "pylock.toml").read_text()
     package = next(package for package in tomllib.loads(lock)["packages"] if package["name"] == "nab")
@@ -101,7 +101,7 @@ def test_install_lock_tools_rejects_hash_mismatch(tmp_path: Path, action_scripts
         tmp_path,
         tmp_path,
         action_scripts,
-        "install-lock-tools",
+        "install-nab",
         version="0.2.0",
         GITHUB_ACTION_PATH=str(action_root),
         UV_CACHE_DIR=str(tmp_path / "cache"),
@@ -184,7 +184,7 @@ def test_install_locked_tools_uses_managed_python(tmp_path: Path, action_scripts
     source = Path(__file__).resolve().parents[2]
     tools = tmp_path / "bin"
     tools.mkdir()
-    for name in ("bash", "uv"):
+    for name in ("bash", "sha256sum", "uv"):
         executable = shutil.which(name)
         assert executable is not None
         (tools / name).symlink_to(executable)
@@ -244,17 +244,19 @@ hashes.sha256 = """
         venv=tmp_path / "tools",
     )
     assert result.returncode == 0, result.stderr
-    assert "probe-only==1.0 " in (tmp_path / "caller-build-constraints.txt").read_text()
+    assert "probe-only==1.0 " in next(tmp_path.glob("build-constraints-*.txt")).read_text()
 
 
-def test_install_locked_tools_accepts_lock_without_build_group(tmp_path: Path, action_scripts: Path) -> None:
+def test_install_locked_tools_accepts_lock_without_build_group(
+    tmp_path: Path, action_scripts: Path, nab_executable: Path
+) -> None:
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "tool-only"\nversion = "0.1.0"\nrequires-python = ">=3.15"\n'
         '[dependency-groups]\nrelease-check = ["prek>=0.2"]\n'
         '[tool.nab]\nbase-group = "project-runtime"\ndefault-groups = []\n',
     )
     generated = subprocess.run(
-        ["uvx", "--from", "nab==0.0.22", "nab", "lock", "--groups", "release-check", "--output", "pylock.toml"],
+        [str(nab_executable), "lock", "--groups", "release-check", "--output", "pylock.toml"],
         cwd=tmp_path,
         text=True,
         capture_output=True,
@@ -264,7 +266,7 @@ def test_install_locked_tools_accepts_lock_without_build_group(tmp_path: Path, a
     assert "build" not in tomllib.loads((tmp_path / "pylock.toml").read_text())["dependency-groups"]
     result = install(tmp_path, action_scripts, tmp_path, groups="release-check", venv=tmp_path / "tools")
     assert result.returncode == 0, result.stderr
-    assert "setuptools==" in (tmp_path / "caller-build-constraints.txt").read_text()
+    assert "setuptools==" in next(tmp_path.glob("build-constraints-*.txt")).read_text()
 
 
 def test_install_locked_tools_ignores_resolution_cutoff_for_hashed_lock(tmp_path: Path, action_scripts: Path) -> None:

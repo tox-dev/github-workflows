@@ -279,7 +279,6 @@ runs:
         fi
     - name: Ensure the maintenance label
       shell: bash
-      env:
       run: |
         set -euo pipefail
         pr_number=$(cat "$RUNNER_TEMP/post-release-number")

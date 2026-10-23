@@ -8,7 +8,7 @@ import tomllib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from nab_cutoffs import expired_cutoffs
+from nab_cutoffs import expired_cutoffs, remove_cutoffs
 
 
 def main() -> None:
@@ -22,22 +22,19 @@ def main() -> None:
             capture_output=True,
             text=True,
         ).stdout
-        expected = tomllib.loads(baseline)
+        original = tomllib.loads(baseline)
+        actual = tomllib.loads(args.project.read_text())
         names, positions = expired_cutoffs(baseline, datetime.now(UTC) - timedelta(days=7))
-        nab = expected["tool"]["nab"]
-        for name in names:
-            settings = nab["packages"][name]
-            del settings["uploaded-prior-to"]
-            if not settings:
-                del nab["packages"][name]
-        for index in sorted(positions, reverse=True):
-            rule = nab["package-rules"][index]
-            del rule["uploaded-prior-to"]
-            if set(rule) == {"match"}:
-                del nab["package-rules"][index]
-        if "package-rules" in nab and not nab["package-rules"]:
-            del nab["package-rules"]
-        if expected != tomllib.loads(args.project.read_text()):
+        before = original["tool"]["nab"]
+        after = actual["tool"]["nab"]
+        removed_names = {
+            name for name in names if after.get("packages", {}).get(name, {}).get("uploaded-prior-to") is None
+        }
+        removed_positions = {
+            index for index in positions if before["package-rules"][index] not in after.get("package-rules", [])
+        }
+        remove_cutoffs(before, removed_names, removed_positions)
+        if original != actual:
             parser.error("pyproject.toml has changes beyond expired Nab cutoffs")
     except (OSError, KeyError, ValueError, subprocess.CalledProcessError, tomllib.TOMLDecodeError) as error:
         parser.error(str(error))
