@@ -99,7 +99,7 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
 
 
 def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> None:
-    expected: dict[str, dict[str, tuple[str | None, str, datetime | None]]] = defaultdict(dict)
+    expected: dict[str, list[tuple[str, str | None, str, datetime | None]]] = defaultdict(list)
     for package in lock.packages:
         if package.marker is not None and not any(
             package.marker.evaluate({"dependency_groups": selection}, context="lock_file")
@@ -109,15 +109,18 @@ def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> 
         if local_tool_source and package.name == "release-creator" and package.index is None:
             continue
         for artifact in ([package.sdist] if package.sdist is not None else []) + list(package.wheels or ()):
-            expected[canonicalize_name(package.name)][urlsplit(artifact.url or "").path.rsplit("/", 1)[-1]] = (
-                artifact.url,
-                artifact.hashes["sha256"],
-                artifact.upload_time,
+            expected[canonicalize_name(package.name)].append(
+                (
+                    urlsplit(artifact.url or "").path.rsplit("/", 1)[-1],
+                    artifact.url,
+                    artifact.hashes["sha256"],
+                    artifact.upload_time,
+                )
             )
     with ThreadPoolExecutor(max_workers=8) as pool:
         for name, actual in pool.map(_pypi_files, expected):
-            for filename, metadata in expected[name].items():
-                if actual.get(filename) != metadata:
+            for filename, url, digest, upload_time in expected[name]:
+                if actual.get(filename) != (url, digest, upload_time):
                     raise ValueError(f"release lock differs from PyPI metadata: {name}: {filename}")
 
 

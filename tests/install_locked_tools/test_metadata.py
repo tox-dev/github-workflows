@@ -6,10 +6,21 @@ import sys
 from io import BytesIO
 from pathlib import Path
 from textwrap import dedent
-from typing import Any
+from typing import NotRequired, TypedDict
 
 import pytest
 from pytest_mock import MockerFixture
+
+_PyPIFile = TypedDict(
+    "_PyPIFile",
+    {"filename": str, "url": str, "upload-time": NotRequired[str], "hashes": dict[str, str]},
+)
+
+
+class _PyPIListing(TypedDict):
+    meta: dict[str, str]
+    name: str
+    files: list[_PyPIFile]
 
 
 @pytest.fixture
@@ -43,7 +54,7 @@ def lock_case(tmp_path: Path) -> tuple[Path, Path]:
 
 
 @pytest.fixture
-def pypi_listing() -> dict[str, Any]:
+def pypi_listing() -> _PyPIListing:
     return {
         "meta": {"api-version": "1.4"},
         "name": "six",
@@ -59,7 +70,7 @@ def pypi_listing() -> dict[str, Any]:
 
 
 def test_lock_metadata_matches_pypi(
-    lock_case: tuple[Path, Path], pypi_listing: dict[str, Any], mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch
+    lock_case: tuple[Path, Path], pypi_listing: _PyPIListing, mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     request = mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
 
@@ -68,13 +79,34 @@ def test_lock_metadata_matches_pypi(
     assert request.call_args.args[0].full_url == "https://pypi.org/simple/six/"
 
 
+def test_lock_metadata_checks_each_duplicate_artifact(
+    lock_case: tuple[Path, Path],
+    pypi_listing: _PyPIListing,
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lock = lock_case[0]
+    head, package = lock.read_text().split("[[packages]]")
+    lock.write_text(
+        f"{head}[[packages]]{package.replace(pypi_listing['files'][0]['hashes']['sha256'], '0' * 64)}"
+        f"[[packages]]{package}"
+    )
+    mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert "release lock differs from PyPI metadata" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "change",
     ["missing-file", "missing-hash", "wrong-hash", "missing-date", "forged-date", "wrong-url"],
 )
 def test_lock_metadata_rejects_pypi_mismatch(
     lock_case: tuple[Path, Path],
-    pypi_listing: dict[str, Any],
+    pypi_listing: _PyPIListing,
     mocker: MockerFixture,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
