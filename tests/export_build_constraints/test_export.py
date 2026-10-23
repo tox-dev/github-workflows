@@ -24,6 +24,35 @@ def test_export_build_constraints_uses_checked_in_locks(tmp_path: Path, action_s
 
 
 @pytest.mark.parametrize(
+    "platform",
+    [
+        pytest.param("macos_x86_64", id="macos-intel"),
+        pytest.param("windows_arm64", id="windows-arm"),
+    ],
+)
+def test_export_build_constraints_covers_release_runners(tmp_path: Path, platform: str) -> None:
+    source = Path(__file__).resolve().parents[2]
+    output = tmp_path / "constraints.txt"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(source / "tools/build_constraints.py"),
+            "--target-platform",
+            platform,
+            "--targets",
+            "3.15.0:cpython",
+            str(output),
+            str(source / "pylock.toml"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "setuptools==" in output.read_text()
+
+
+@pytest.mark.parametrize(
     ("version", "accepted"),
     [pytest.param("81.0.0", True, id="compatible"), pytest.param("79.0.0", False, id="incompatible")],
 )
