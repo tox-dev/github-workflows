@@ -149,7 +149,7 @@ runs:
           read_draft() {
             gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-current.json" &&
               jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
-              --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+                --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
                 length == 1 and .[0].name == $title and .[0].body == $body and
                 .[0].prerelease == $prerelease and
                 all(.[0].assets[]; .state == "uploaded" and
@@ -215,7 +215,7 @@ runs:
         read_complete() {
           gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-complete.json" &&
             jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
-            --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+              --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
               length == 1 and .[0].name == $title and .[0].body == $body and
               .[0].prerelease == $prerelease and
               ([.[0].assets[] | select(.state == "uploaded") | {name, digest}] | sort_by(.name)) ==
