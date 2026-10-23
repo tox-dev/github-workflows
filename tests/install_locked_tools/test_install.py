@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tomllib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -119,6 +120,44 @@ def test_install_locked_tools_reuses_existing_environment(tmp_path: Path, action
     second = action(source, tmp_path, action_scripts, "install-locked-tools", version="", **environment)
     assert first.returncode == second.returncode == 0, first.stderr + second.stderr
     assert (tmp_path / "lock-tools" / ("Scripts/nab.exe" if os.name == "nt" else "bin/nab")).is_file()
+
+
+def test_install_locked_tools_exposes_release_commands(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    environment = tmp_path / "tools"
+    result = install(source, action_scripts, tmp_path, groups="release-check", venv=environment)
+
+    assert result.returncode == 0, result.stderr
+    overlay = Path((tmp_path / "github-path").read_text().splitlines()[-1])
+    suffix = ".exe" if os.name == "nt" else ""
+    assert (overlay / f"prek{suffix}").is_file()
+    command = subprocess.run([str(overlay / f"prek{suffix}"), "--version"], capture_output=True, text=True, check=False)
+    assert command.returncode == 0, command.stderr
+
+
+def test_install_locked_tools_preserves_runner_python(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    result = install(source, action_scripts, tmp_path, groups="release-check", venv=tmp_path / "tools")
+
+    assert result.returncode == 0, result.stderr
+    overlay = Path((tmp_path / "github-path").read_text().splitlines()[-1])
+    assert not any(command.name.casefold().startswith(("python", "pip", "uv")) for command in overlay.iterdir())
+    original = shutil.which(Path(sys.executable).name, path=f"{overlay}{os.pathsep}{Path(sys.executable).parent}")
+    assert original is not None
+    assert Path(original).resolve() == Path(sys.executable).resolve()
+
+
+def test_install_locked_tools_exposes_separate_environments(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    for group in ("release-check", "release-news"):
+        result = install(source, action_scripts, tmp_path, groups=group, venv=tmp_path / group)
+        assert result.returncode == 0, result.stderr
+
+    overlays = [Path(line) for line in (tmp_path / "github-path").read_text().splitlines()]
+    suffix = ".exe" if os.name == "nt" else ""
+    assert overlays[0] != overlays[1]
+    assert (overlays[0] / f"prek{suffix}").is_file()
+    assert (overlays[1] / f"towncrier{suffix}").is_file()
 
 
 def test_install_locked_tools_reuses_windows_shaped_environment(tmp_path: Path, action_scripts: Path) -> None:
@@ -357,6 +396,37 @@ def test_install_locked_tools_rejects_unreviewed_version_under_reviewed_floor(tm
 
     assert result.returncode != 0
     assert "uncooled artifact" in result.stderr
+
+
+@pytest.mark.parametrize("version", ["0.6.0", "0.6.4"])
+def test_install_locked_tools_rejects_caller_below_shared_floor(tmp_path: Path, version: str) -> None:
+    source = Path(__file__).resolve().parents[2]
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    package = next(package for package in document["packages"] if package["name"] == "release-creator")
+    package["version"] = version
+    for artifact in [package["sdist"], *package["wheels"]]:
+        artifact["name"] = artifact["name"].replace("0.6.5", version)
+        artifact["url"] = artifact["url"].replace("0.6.5", version)
+        artifact["upload-time"] = datetime(2026, 10, 15, tzinfo=UTC)
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(tomlkit.dumps(document))
+
+    result = subprocess.run(
+        [
+            "python",
+            str(source / "tools/check_lock_groups.py"),
+            str(lock),
+            "release-news",
+            "--shared-lock",
+            str(source / "pylock.toml"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "relock: release-creator 0.6.5 required" in result.stderr
 
 
 def test_install_locked_tools_constraints_only_checks_lock_age(tmp_path: Path, action_scripts: Path) -> None:

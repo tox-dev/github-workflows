@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import time
+from http.client import IncompleteRead
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 from urllib.error import HTTPError, URLError
@@ -37,7 +38,7 @@ def main() -> None:
     try:
         for path in verify_files(args.project, args.version, args.dist, args.wait_seconds):
             print(path)
-    except (OSError, TypeError, ValueError) as error:
+    except (OSError, TypeError, ValueError, IncompleteRead) as error:
         parser.error(str(error))
 
 
@@ -76,7 +77,7 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
             if deadline - time.monotonic() <= 0:
                 raise
             files = []
-        except TimeoutError, ConnectionError, URLError:
+        except TimeoutError, ConnectionError, URLError, IncompleteRead:
             if deadline - time.monotonic() <= 0:
                 raise
             files = []
@@ -94,7 +95,7 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
             if identity != (name, release):
                 continue
             filename = file["filename"]
-            if filename in remote or file.get("yanked"):
+            if filename in remote or file.get("yanked", False) is not False:
                 raise ValueError(f"duplicate or yanked PyPI file: {filename}")
             remote[filename] = file["hashes"]["sha256"]
         if extra := remote.keys() - local.keys():

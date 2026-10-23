@@ -21,10 +21,16 @@ constraints generated from the lock's `build` group under the runner's temporary
   selected lock and applies hashed build constraints.
 - `local-tool-source`: set to `true` only when release-creator builds and installs its own wheel after this Action. The
   caller's lock then needs the selected groups but does not need a release-creator package entry.
+- `constraints-lock`: lock used to export build constraints; defaults to the selected install lock. Use a secondary lock
+  when the build matrix differs from the release-tool matrix.
+- `target-platform` and `targets`: Nab platform ID and space-separated `full-version:implementation` pairs for build
+  constraints. Pass both when exporting constraints for a specific build target; otherwise the runner selects the
+  target.
 
-The `build-constraints` output names the hashed constraints file. The Action adds installed commands to `GITHUB_PATH`
-for later steps. Run `actions/checkout` and `astral-sh/setup-uv` with Python 3.15 before it. It bootstraps Nab from the
-shared, hash-checked lock.
+The `build-constraints` output names the hashed constraints file. The Action adds installed command launchers to
+`GITHUB_PATH` for later steps while leaving the runner's `python`, `pip`, and `uv` commands on their original paths. Run
+`actions/checkout` and `astral-sh/setup-uv` with Python 3.15 before it. It bootstraps Nab from the shared, hash-checked
+lock.
 
 ## Check pull request news
 

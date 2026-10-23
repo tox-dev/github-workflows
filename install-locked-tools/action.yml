@@ -151,8 +151,5 @@ runs:
       env:
         VENV: ${{ inputs.venv }}
       run: |
-        if [[ -d "$VENV/Scripts" ]]; then
-          (cd "$VENV/Scripts" && pwd) >>"$GITHUB_PATH"
-        else
-          (cd "$VENV/bin" && pwd) >>"$GITHUB_PATH"
-        fi
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
+          "$GITHUB_ACTION_PATH/../tools/expose_locked_commands.py" "$VENV"

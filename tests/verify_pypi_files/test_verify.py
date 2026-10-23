@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 from email.message import Message
+from http.client import IncompleteRead
 from pathlib import Path
 from socket import gaierror
 from typing import TYPE_CHECKING, TypedDict, cast
@@ -29,7 +30,7 @@ verify_files = cast("Callable[[str, str, Path, int], list[Path]]", _MODULE.verif
 class _ListingFile(TypedDict):
     filename: str
     hashes: dict[str, str]
-    yanked: bool
+    yanked: bool | str
 
 
 @pytest.fixture
@@ -79,6 +80,7 @@ def test_verify_files_ignores_legacy_egg_from_longer_version(distribution: Path,
         pytest.param("extra", "unexpected files", id="extra"),
         pytest.param("digest", "different SHA256", id="digest"),
         pytest.param("yanked", "yanked PyPI file", id="yanked"),
+        pytest.param("yanked-empty", "yanked PyPI file", id="yanked-empty-reason"),
         pytest.param("missing", "missing files", id="missing"),
         pytest.param("duplicate", "duplicate or yanked", id="duplicate"),
         pytest.param("invalid-name", "unrecognized distribution filename", id="invalid-name"),
@@ -141,10 +143,11 @@ def test_verify_files_waits_for_incomplete_listing(distribution: Path, mocker: M
         pytest.param(URLError(gaierror("DNS failure")), id="dns"),
         pytest.param(ConnectionResetError("connection reset"), id="reset"),
         pytest.param(TimeoutError("read timeout"), id="read-timeout"),
+        pytest.param(IncompleteRead(b"partial", 10), id="incomplete-read"),
     ],
 )
 def test_verify_files_retries_transient_listing_failure(
-    distribution: Path, mocker: MockerFixture, failure: OSError
+    distribution: Path, mocker: MockerFixture, failure: OSError | IncompleteRead
 ) -> None:
     response = mocker.patch.object(_MODULE, "urlopen", side_effect=[failure, _body(_listing(distribution))])
     mocker.patch.object(_MODULE.time, "sleep")
@@ -156,9 +159,18 @@ def test_verify_files_retries_transient_listing_failure(
     assert response.call_count == 2
 
 
-def test_verify_files_retries_response_read_timeout(distribution: Path, mocker: MockerFixture) -> None:
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(TimeoutError("read timeout"), id="timeout"),
+        pytest.param(IncompleteRead(b"partial", 10), id="incomplete-read"),
+    ],
+)
+def test_verify_files_retries_response_read_failure(
+    distribution: Path, mocker: MockerFixture, failure: TimeoutError | IncompleteRead
+) -> None:
     response = mocker.MagicMock()
-    response.__enter__.return_value.read.side_effect = TimeoutError("read timeout")
+    response.__enter__.return_value.read.side_effect = failure
     mocker.patch.object(_MODULE, "urlopen", side_effect=[response, _body(_listing(distribution))])
     mocker.patch.object(_MODULE.time, "sleep")
 
@@ -166,6 +178,19 @@ def test_verify_files_retries_response_read_timeout(distribution: Path, mocker: 
         distribution / "fixture-1.0-py3-none-any.whl",
         distribution / "fixture-1.0.tar.gz",
     ]
+
+
+def test_main_reports_exhausted_incomplete_read(
+    distribution: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mocker.patch.object(_MODULE, "urlopen", side_effect=IncompleteRead(b"partial", 10))
+    mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution), "--wait-seconds", "0"])
+
+    with pytest.raises(SystemExit) as raised:
+        cast("Callable[[], None]", _MODULE.main)()
+
+    assert raised.value.code == 2
+    assert "IncompleteRead" in capsys.readouterr().err
 
 
 def test_verify_files_backs_off_between_retries(distribution: Path, mocker: MockerFixture) -> None:
@@ -193,6 +218,8 @@ def _serve(mocker: MockerFixture, distribution: Path, *, change: str = "") -> No
         files[0]["hashes"]["sha256"] = "0" * 64
     elif change == "yanked":
         files[0]["yanked"] = True
+    elif change == "yanked-empty":
+        files[0]["yanked"] = ""
     elif change == "missing":
         files.pop()
     elif change == "duplicate":

@@ -43,6 +43,9 @@
   ([#6](https://github.com/tox-dev/github-workflows/pull/6)) by [@gaborbernat](https://github.com/gaborbernat).
 - Run release-tool checks and build-constraint export outside the job that builds distribution files
   ([#6](https://github.com/tox-dev/github-workflows/pull/6)) by [@gaborbernat](https://github.com/gaborbernat).
+- Add `constraints-lock`, `target-platform`, and `targets` inputs and the `build-constraints` output to
+  `install-locked-tools` ([#6](https://github.com/tox-dev/github-workflows/pull/6)) by
+  [@gaborbernat](https://github.com/gaborbernat).
 
 <a name="release-1-0-0-fixed"></a>
 
@@ -63,9 +66,13 @@
 
 - Remove the `install-nab`, `label-bot-news`, `refresh-hook-pins`, `resolve-pr-from-run`, and
   `validate-python-distribution` Actions. `select-previous-tag` no longer accepts `package`, `executable`, or
-  `stable-only`; `validate-release-patch` no longer accepts `expected-patch-sha`; and `render-release-notes` no longer
-  emits `previous`. The release validation workflow no longer uploads the `release-validation-notes` artifact
-  ([#6](https://github.com/tox-dev/github-workflows/pull/6)) by [@gaborbernat](https://github.com/gaborbernat).
+  `stable-only`; `reconcile-pypi-artifacts` no longer accepts `local-tool-source`; `validate-release-patch` no longer
+  accepts `expected-patch-sha`; and `render-release-notes` no longer emits `previous`. The release validation workflow
+  no longer uploads the `release-validation-notes` artifact ([#6](https://github.com/tox-dev/github-workflows/pull/6))
+  by [@gaborbernat](https://github.com/gaborbernat).
+- `install-locked-tools` now adds its selected virtual environment to `GITHUB_PATH`, so later bare `python` commands
+  resolve to that environment ([#6](https://github.com/tox-dev/github-workflows/pull/6)) by
+  [@gaborbernat](https://github.com/gaborbernat).
 
 <a name="release-0-4-1"></a>
 

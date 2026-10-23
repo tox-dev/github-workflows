@@ -20,8 +20,6 @@ _REVIEWED_VERSIONS: Final = {
         (name, "0.0.22"): datetime(2026, 10, 18, 5, 45, 9, tzinfo=UTC)
         for name in ("nab", "nab-index", "nab-markersets", "nab-project", "nab-provider", "nab-resolver")
     },
-    ("release-creator", "0.6.0"): datetime(2026, 10, 23, 2, 44, 40, tzinfo=UTC),
-    ("release-creator", "0.6.4"): datetime(2026, 10, 23, 16, 52, 6, tzinfo=UTC),
     ("release-creator", "0.6.5"): datetime(2026, 10, 23, 19, 54, 50, tzinfo=UTC),
     ("release-creator", "0.6.6"): datetime(2026, 10, 23, 20, 48, 24, tzinfo=UTC),
     ("uv-build", "0.13.4"): datetime(2026, 10, 21, tzinfo=UTC),
