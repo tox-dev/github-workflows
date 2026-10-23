@@ -27,7 +27,7 @@ def test_recheck_schedule_has_only_required_permissions() -> None:
         pytest.param(8, 8, "failure", "hook-cooldown", 7, 1, id="matured-failure"),
         pytest.param(8, 8, "failure", "Hook update cooldown", 7, 1, id="named-job"),
         pytest.param(6, 6, "failure", "hook-cooldown", 7, 0, id="recent-pull"),
-        pytest.param(8, 8, "failure", "hook-cooldown", 7, 1, id="failed-rerun"),
+        pytest.param(8, 0, "failure", "hook-cooldown", 7, 1, id="failed-rerun"),
         pytest.param(31, 31, "failure", "hook-cooldown", 7, 0, id="expired-run"),
         pytest.param(8, 8, "success", "hook-cooldown", 7, 0, id="successful-job"),
         pytest.param(8, 8, "failure", "hook-cooldown", 14, 0, id="custom-cooldown-pending"),

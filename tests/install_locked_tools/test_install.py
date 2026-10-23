@@ -120,6 +120,20 @@ def test_install_nab_reuses_existing_environment(tmp_path: Path, action_scripts:
     assert (tmp_path / "lock-tools" / ("Scripts/nab.exe" if os.name == "nt" else "bin/nab")).is_file()
 
 
+def test_install_nab_reuses_windows_shaped_environment(tmp_path: Path, action_scripts: Path) -> None:
+    subprocess.run(["uv", "venv", "--python", "3.15", str(tmp_path / "lock-tools")], check=True, capture_output=True)
+    (tmp_path / "lock-tools" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")).unlink()
+    result = subprocess.run(
+        ["bash", str(action_scripts / "install-nab-0.sh")],
+        env=os.environ | {"RUNNER_TEMP": str(tmp_path)},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "lock-tools/pyvenv.cfg").is_file()
+
+
 def test_install_locked_tools_rejects_empty_groups(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     result = install(
@@ -166,6 +180,29 @@ def test_install_locked_tools_checks_caller_release_creator(tmp_path: Path, loca
         command.append("--local-tool-source")
     result = subprocess.run(command, text=True, capture_output=True, check=False)
     assert (result.returncode == 0) is local_source, result.stderr
+
+
+def test_local_tool_source_accepts_versionless_package(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    project = tomllib.loads((source / "pylock.toml").read_text())
+    package = next(item for item in project["packages"] if item["name"] == "release-creator")
+    lock = (source / "pylock.toml").read_text().replace(f'version = "{package["version"]}"', "", 1)
+    (tmp_path / "pylock.toml").write_text(lock)
+    result = subprocess.run(
+        [
+            "python",
+            str(source / "tools/check_lock_groups.py"),
+            str(tmp_path / "pylock.toml"),
+            "release-prepare",
+            "--shared-lock",
+            str(source / "pylock.toml"),
+            "--local-tool-source",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_caller_version_check_uses_shared_package_marker(tmp_path: Path) -> None:
@@ -310,13 +347,13 @@ hashes.sha256 = """
 
 
 def test_install_locked_tools_accepts_lock_without_build_group(
-    tmp_path: Path, action_scripts: Path, nab_executable: Path, locked_release_index: str
+    tmp_path: Path, action_scripts: Path, nab_executable: Path, test_package_index: str
 ) -> None:
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "tool-only"\nversion = "0.1.0"\nrequires-python = ">=3.15"\n'
         '[dependency-groups]\nrelease-check = ["prek>=0.2"]\n'
         '[tool.nab]\nbase-group = "project-runtime"\ndefault-groups = []\n'
-        f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{locked_release_index}"\nserialization = "html"\n',
+        f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{test_package_index}"\nserialization = "html"\n',
     )
     generated = subprocess.run(
         [str(nab_executable), "lock", "--groups", "release-check", "--output", "pylock.toml"],

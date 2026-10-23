@@ -43,13 +43,14 @@ def validate_recent_cutoffs(project: str, threshold: datetime) -> None:
         if "uploaded-prior-to" in rule
         for name in rule["match"]
     )
+    for name, settings in nab.get("index", {}).items():
+        if "uploaded-prior-to" in settings:
+            raise ValueError(f"Nab index cutoff for {name} bypasses the seven-day policy")
     for name, value in candidates:
         if value is False:
-            if name not in _REVIEWED_EXCEPTIONS:
-                raise ValueError(f"Nab cutoff for {name} weakens the seven-day policy: {value}")
-            continue
+            raise ValueError(f"Nab cutoff for {name} weakens the seven-day policy: {value}")
         if isinstance(value, str) and (match := _DURATION.fullmatch(value)) is not None:
-            if name not in _REVIEWED_EXCEPTIONS and int(match["days"]) < _MINIMUM_DAYS:
+            if int(match["days"]) < _MINIMUM_DAYS:
                 raise ValueError(f"Nab cutoff for {name} weakens the seven-day policy: {value}")
             continue
         if isinstance(value, bool):

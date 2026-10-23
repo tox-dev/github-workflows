@@ -27,9 +27,10 @@ def main() -> None:
             with args.shared_lock.open("rb") as stream:
                 shared = Pylock.from_dict(tomllib.load(stream))
             required = _selected_release_creator(shared, groups)
-            installed = _selected_release_creator(lock, groups)
-            if required is not None and not args.local_tool_source and (installed is None or installed < required):
-                parser.error(f"relock: release-creator {required} required")
+            if required is not None and not args.local_tool_source:
+                installed = _selected_release_creator(lock, groups)
+                if installed is None or installed < required:
+                    parser.error(f"relock: release-creator {required} required")
     except (InvalidVersion, OSError, PylockValidationError) as error:
         parser.error(str(error))
 

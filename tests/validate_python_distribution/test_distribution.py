@@ -10,14 +10,14 @@ from conftest import action, run
 
 @pytest.fixture
 def distribution(
-    source_project: Path, nab_executable: Path, locked_release_index: str, monkeypatch: pytest.MonkeyPatch
+    source_project: Path, nab_executable: Path, test_package_index: str, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Path, Path]:
     monkeypatch.delenv("SSL_CERT_FILE", raising=False)
     project = source_project / "pyproject.toml"
     project.write_text(
         project.read_text()
         + '\n[dependency-groups]\npkg-meta = ["check-wheel-contents>=0.6.3", "twine>=7"]\n'
-        + f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{locked_release_index}"\nserialization = "html"\n',
+        + f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{test_package_index}"\nserialization = "html"\n',
     )
     run(
         source_project,

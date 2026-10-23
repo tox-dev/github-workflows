@@ -57,7 +57,7 @@ def test_upgrade_pull_request_uses_repository_app() -> None:
 
 
 @pytest.fixture
-def lock_repository(tmp_path: Path, locked_release_index: str) -> Path:
+def lock_repository(tmp_path: Path, test_package_index: str) -> Path:
     repository = tmp_path / "repository"
     repository.mkdir()
     (repository / "pyproject.toml").write_text(
@@ -67,7 +67,7 @@ def lock_repository(tmp_path: Path, locked_release_index: str) -> Path:
         'decision-order = "stable"\nbase-group = "project-runtime"\ndefault-groups = []\n'
         '[tool.nab.matrix]\npython = ">=3.15,<3.16"\n'
         'platforms = ["linux_x86_64", "linux_aarch64", "macos_arm64", "windows_amd64"]\n'
-        f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{locked_release_index}"\nserialization = "html"\n',
+        f'[[tool.nab.indexes]]\nname = "fixture"\nurl = "{test_package_index}"\nserialization = "html"\n',
     )
     run(repository, "git", "init", "-b", "main")
     run(repository, "git", "config", "user.name", "Release test")
@@ -115,6 +115,8 @@ def test_upgrade_check_mode_preserves_lock_bytes(lock_repository: Path, tmp_path
     project_bytes = project.read_bytes()
     run(lock_repository, "git", "add", ".")
     run(lock_repository, "git", "commit", "-m", "Record lock")
+    (lock_repository / "pylock.toml").write_bytes(expected.replace(b'"release-check"', b'"release-news"', 1))
+    stale = (lock_repository / "pylock.toml").read_bytes()
     checked = action(
         lock_repository,
         tmp_path,
@@ -124,8 +126,9 @@ def test_upgrade_check_mode_preserves_lock_bytes(lock_repository: Path, tmp_path
         LOCK_GROUPS="release-check",
         MODE="check",
     )
-    assert checked.returncode == 0, checked.stderr
-    assert (lock_repository / "pylock.toml").read_bytes() == expected
+    assert checked.returncode != 0
+    assert "regenerated Nab lock differs" in checked.stderr
+    assert (lock_repository / "pylock.toml").read_bytes() != stale
     assert project.read_bytes() == project_bytes
 
 

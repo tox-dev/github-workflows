@@ -179,10 +179,13 @@ runs:
                 "$RUNNER_TEMP/release-current.json" >/dev/null; then
                 for attempt in {1..6}; do
                   if ((attempt > 1)); then
+                    release=$(gh api "repos/$GH_REPO/releases/$release_id")
+                    asset_ids=$(jq -r --arg name "$name" \
+                      '.assets[] | select(.name == $name and .state != "uploaded") | .id' <<<"$release")
                     while IFS= read -r asset_id; do
+                      [[ -n "$asset_id" ]] || continue
                       gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id" >/dev/null
-                    done < <(gh api "repos/$GH_REPO/releases/$release_id" | jq -r --arg name "$name" \
-                      '.assets[] | select(.name == $name and .state != "uploaded") | .id')
+                    done <<<"$asset_ids"
                   fi
                   if gh release upload "$TAG" "$asset" --repo "$GH_REPO"; then
                     break

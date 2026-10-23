@@ -190,7 +190,7 @@ jobs:
       - uses: $/refresh-release-lock
         with:
           lock-groups: >-
-            build lock-tools release-notes release-news release-prepare release-validate release-check release-attestations release-shell release-hooks release-hook-check release-fixture
+            build lock-tools release-notes release-news release-prepare release-validate release-check release-attestations release-shell release-hooks release-hook-check
           mode: check
   gate:
     name: ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Required checks pass (non-PR)' }}

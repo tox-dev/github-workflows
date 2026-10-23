@@ -15,6 +15,7 @@ from typing import Final
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 
+import certifi
 import pytest
 import trustme
 import yaml
@@ -33,8 +34,7 @@ def github_api(tmp_path: Path) -> Iterator[tuple[HTTPServer, dict[str, str]]]:
     server.start()
     bundle = tmp_path / "ca.pem"
     authority.cert_pem.write_to_path(bundle)
-    if (system_certs := ssl.get_default_verify_paths().cafile) and Path(system_certs).is_file():
-        bundle.write_bytes(bundle.read_bytes() + Path(system_certs).read_bytes())
+    bundle.write_bytes(bundle.read_bytes() + Path(certifi.where()).read_bytes())
     yield (
         server,
         {
@@ -86,9 +86,30 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return scripts
 
 
+@pytest.fixture(scope="session")
+def test_package_lock(tmp_path_factory: pytest.TempPathFactory, nab_executable: Path) -> Path:
+    fixture = tmp_path_factory.mktemp("fixture-lock")
+    (fixture / "pyproject.toml").write_text(
+        '[project]\nname = "release-fixture"\nversion = "0.1.0"\nrequires-python = ">=3.15,<3.16"\n'
+        '[dependency-groups]\nfixture = ["check-wheel-contents>=0.6.3", "hatchling>=1.28", "twine>=7"]\n'
+        '[tool.nab]\nmode = "universal"\nbase-group = "project-runtime"\n'
+        'default-groups = []\n[tool.nab.matrix]\npython = ">=3.15,<3.16"\nplatforms = ["linux_x86_64"]\n'
+    )
+    subprocess.run(
+        [str(nab_executable), "lock", "--groups", "fixture", "--output", "pylock.toml"],
+        cwd=fixture,
+        check=True,
+        capture_output=True,
+    )
+    return fixture / "pylock.toml"
+
+
 @pytest.fixture
-def locked_release_index(httpserver: HTTPServer) -> str:
-    packages = tomllib.loads((Path(__file__).resolve().parents[1] / "pylock.toml").read_text())["packages"]
+def test_package_index(httpserver: HTTPServer, test_package_lock: Path, artifact_cache: dict[str, bytes]) -> str:
+    packages = [
+        *tomllib.loads((Path(__file__).resolve().parents[1] / "pylock.toml").read_text())["packages"],
+        *tomllib.loads(test_package_lock.read_text())["packages"],
+    ]
     listings: dict[str, list[str]] = {}
     artifacts: dict[str, tuple[str, str]] = {}
     for package in packages:
@@ -106,13 +127,20 @@ def locked_release_index(httpserver: HTTPServer) -> str:
     for filename, (url, digest) in artifacts.items():
 
         def serve(_request: Request, *, source: str = url, expected: str = digest) -> Response:
-            with urlopen(source, timeout=30) as stream:
-                content = stream.read()
+            if expected not in artifact_cache:
+                with urlopen(source, timeout=30) as stream:
+                    artifact_cache[expected] = stream.read()
+            content = artifact_cache[expected]
             assert sha256(content).hexdigest() == expected
             return Response(content, mimetype="application/octet-stream")
 
         httpserver.expect_request(f"/files/{filename}").respond_with_handler(serve)
     return httpserver.url_for("/simple/")
+
+
+@pytest.fixture(scope="session")
+def artifact_cache() -> dict[str, bytes]:
+    return {}
 
 
 @pytest.fixture(scope="session")
@@ -424,6 +452,7 @@ def _safe_environment() -> dict[str, str]:
             "LANG",
             "PATH",
             "UV_CACHE_DIR",
+            "UV_INDEX_URL",
             "HTTP_PROXY",
             "HTTPS_PROXY",
             "NO_PROXY",

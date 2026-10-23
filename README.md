@@ -157,14 +157,17 @@ jobs:
 The required `lock-groups` input lists the caller's release dependency groups, separated by spaces or newlines. Include
 `build` and `lock-tools` where declared; exclude test, type, and documentation groups. This example lists this
 repository's groups; a caller supplies its own. The project configures its Python and platform targets in `[tool.nab]`.
-For a separately checked-in build matrix lock, also pass `additional-lock` with an existing `pylock.*.toml` basename,
-`additional-matrix-python` with its Python range, and `additional-matrix-platforms` and
+Tests install test, type, and documentation groups afresh so they detect upstream dependency changes. The Action tests
+fetch immutable, hash-checked release-tool artifacts from the shared lock; their separate package fixture resolves
+test-only tools afresh. For a separately checked-in build matrix lock, also pass `additional-lock` with an existing
+`pylock.*.toml` basename, `additional-matrix-python` with its Python range, and `additional-matrix-platforms` and
 `additional-matrix-implementations` as space-separated Nab values. The secondary lock keeps its specified environment
 matrix during refresh. `additional-lock-groups` selects dependency groups for it; when empty, Nab locks the project's
 build requirements. Set `additional-lock-selection: project` to include the project's runtime dependencies and any
 configured build group. The consumer must select its runtime group when reading that lock. This selection cannot be
 combined with `additional-lock-groups`. Secondary-lock inputs without `additional-lock` fail. The writer accepts only
-the named secondary lock path.
+the named secondary lock path. Use `project` only when those runtime dependencies become part of the published artifact,
+such as a bundled zipapp; tests still install runtime dependencies afresh.
 
 For a repository that already commits `pylock.build.toml`, the complete caller is:
 

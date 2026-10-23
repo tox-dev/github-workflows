@@ -14,6 +14,8 @@ def main() -> None:
     parser.add_argument("project", type=Path)
     args = parser.parse_args()
     try:
+        if (args.project.parent / "nab.toml").exists():
+            parser.error("project nab.toml can override the reviewed cutoff policy")
         validate_recent_cutoffs(args.project.read_text(), datetime.now(UTC) - timedelta(days=7))
     except (OSError, KeyError, TypeError, ValueError) as error:
         parser.error(str(error))

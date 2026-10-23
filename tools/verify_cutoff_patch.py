@@ -36,7 +36,7 @@ def main() -> None:
         remove_cutoffs(before, removed_names, removed_positions)
         if original != actual:
             parser.error("pyproject.toml has changes beyond expired Nab cutoffs")
-    except (OSError, KeyError, ValueError, subprocess.CalledProcessError, tomllib.TOMLDecodeError) as error:
+    except (OSError, KeyError, TypeError, ValueError, subprocess.CalledProcessError, tomllib.TOMLDecodeError) as error:
         parser.error(str(error))
 
 
