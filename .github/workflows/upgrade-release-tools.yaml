@@ -6,6 +6,30 @@ on:
         description: Release dependency groups selected by the universal lock
         required: true
         type: string
+      additional-lock:
+        description: Optional secondary pylock basename for a separate build matrix
+        type: string
+        default: ""
+      additional-lock-groups:
+        description: Groups for the secondary lock; empty selects build requirements
+        type: string
+        default: ""
+      additional-lock-selection:
+        description: Select project dependencies and configured groups for the secondary lock
+        type: string
+        default: build-or-groups
+      additional-matrix-python:
+        description: Python range for the secondary lock
+        type: string
+        default: ""
+      additional-matrix-platforms:
+        description: Space-separated Nab platform IDs for the secondary lock
+        type: string
+        default: ""
+      additional-matrix-implementations:
+        description: Space-separated implementations for the secondary lock
+        type: string
+        default: ""
       commit-message:
         description: Commit message for the refreshed dependency files
         type: string
@@ -45,6 +69,12 @@ jobs:
         uses: $/refresh-release-lock
         with:
           lock-groups: ${{ inputs.lock-groups }}
+          additional-lock: ${{ inputs.additional-lock }}
+          additional-lock-groups: ${{ inputs.additional-lock-groups }}
+          additional-lock-selection: ${{ inputs.additional-lock-selection }}
+          additional-matrix-python: ${{ inputs.additional-matrix-python }}
+          additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
+          additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.lock.outputs.changed == 'true'
         with:
@@ -131,12 +161,14 @@ jobs:
         if: needs.generate-hooks.outputs.changed == 'true'
         run: git apply --index "$RUNNER_TEMP/release-tools-hooks/hooks.patch"
       - name: Check dependency patch paths
+        env:
+          ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
         run: |
           set -euo pipefail
           git diff --cached --name-only --no-renames -z >"$RUNNER_TEMP/dependency-paths"
           while IFS= read -r -d '' path; do
             if [[ "$path" != pylock.toml && "$path" != pyproject.toml &&
-              "$path" != .pre-commit-config.yaml ]]; then
+              "$path" != .pre-commit-config.yaml && "$path" != "$ADDITIONAL_LOCK" ]]; then
               echo "::error::unexpected dependency path: $path" >&2
               exit 1
             fi

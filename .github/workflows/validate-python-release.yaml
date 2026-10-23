@@ -2,6 +2,22 @@ name: Validate Python release
 on:
   workflow_call:
     inputs:
+      changelog:
+        description: Deprecated; notes are rendered by the caller
+        type: string
+        default: ""
+      artifact-base-url:
+        description: Deprecated; notes are rendered by the caller
+        type: string
+        default: ""
+      artifact-label:
+        description: Deprecated; notes are rendered by the caller
+        type: string
+        default: PyPI release
+      local-tool-source:
+        description: Deprecated; distribution builds do not install release-creator
+        type: boolean
+        default: false
       source:
         description: Package source directory
         default: .

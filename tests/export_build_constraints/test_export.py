@@ -125,6 +125,25 @@ def test_export_build_constraints_selects_explicit_targets(tmp_path: Path, platf
     assert output.read_text() == f"example==1.0 --hash=sha256:{'0' * 64}\n"
 
 
+def test_export_build_constraints_action_selects_secondary_lock(tmp_path: Path, action_scripts: Path) -> None:
+    write_matrix_lock(tmp_path / "pylock.build.toml")
+
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "export-build-constraints",
+        version="",
+        LOCK="pylock.build.toml",
+        TARGET_PLATFORM="macos_arm64",
+        TARGETS="3.15.0:cpython",
+    )
+
+    assert result.returncode == 0, result.stderr
+    output = Path((tmp_path / "output").read_text().splitlines()[-1].removeprefix("path="))
+    assert output.read_text() == f"example==1.0 --hash=sha256:{'0' * 64}\n"
+
+
 def test_export_build_constraints_rejects_different_target_versions(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     lock = tmp_path / "pylock.build.toml"

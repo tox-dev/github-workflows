@@ -67,10 +67,10 @@ The Action expects a pull request base ref and a Markdown or reStructuredText ch
 Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Its read-only jobs refresh the universal
 `pylock.toml` and the frozen pre-commit hooks in parallel. Nab reads the seven-day package cutoff and any reviewed
 package exceptions from `[tool.nab]`. The hook updater applies the same cooldown to hook revisions and their
-`additional_dependencies`. Each job uploads a patch. The writer accepts changes to `pylock.toml` and
-`.pre-commit-config.yaml`, plus removal of expired Nab cutoffs in `pyproject.toml`. It independently checks those cutoff
-removals before minting the App token, then opens or updates one dependency PR from `automation/update-release-tools` to
-`main`. A lock or hook update runs the normal PR checks before merge.
+`additional_dependencies`. Each job uploads a patch. The writer accepts changes to `pylock.toml`, an explicitly
+configured secondary lock, and `.pre-commit-config.yaml`, plus removal of expired Nab cutoffs in `pyproject.toml`. It
+independently checks those cutoff removals before minting the App token, then opens or updates one dependency PR from
+`automation/update-release-tools` to `main`. A lock or hook update runs the normal PR checks before merge.
 
 The writer uses a repository-only release App with Contents and Pull requests write access. Install the App on this
 repository, set `RELEASE_APP_CLIENT_ID` as a repository variable, and store `RELEASE_APP_PRIVATE_KEY` in the
@@ -105,11 +105,18 @@ The required `lock-groups` input lists the caller's release dependency groups, s
 repository's groups; a caller supplies its own. The project configures its Python and platform targets in `[tool.nab]`.
 Tests install test, type, and documentation groups afresh so they detect upstream dependency changes. The Action tests
 fetch immutable, hash-checked release-tool artifacts from the shared lock; their separate package fixture resolves
-test-only tools afresh. A separate build matrix lock is refreshed by its own workflow.
+test-only tools afresh. The updater also refreshes a caller's secondary build-matrix lock when `additional-lock` and its
+matrix inputs are set.
 
 The optional `commit-message`, `pull-request-title`, and `pull-request-body` inputs retain existing PR wording. The
 workflow does not update `uv.lock` or a checked-in constraints file. Build constraints are generated from the lock's
 `build` group at runtime.
+
+For a second lock such as `pylock.build.toml`, set `additional-lock`, `additional-matrix-python`,
+`additional-matrix-platforms`, and `additional-matrix-implementations`. `additional-lock-groups` selects dependency
+groups in that lock; with no groups, the updater selects build requirements. Set `additional-lock-selection: project`
+for a lock that selects the project's runtime dependencies instead. The lock must already exist, and the updater writes
+both locks in the same dependency PR. The writer accepts only those locks, `pyproject.toml`, and the hook configuration.
 
 `refresh-release-lock` is the read-only half of the updater. In `refresh` mode, it upgrades the selected release groups
 under Nab's configured cutoff and writes `$RUNNER_TEMP/lock.patch` if either lock or a reviewed expired Nab cutoff
@@ -232,7 +239,42 @@ commit's local Actions.
 Publish only after the reusable workflow succeeds. Download the distribution with pinned `download-artifact`
 [v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
 which checks the artifact digest. Render GitHub notes in the caller's tag workflow after fetching GitHub's contributor
-metadata; this reusable workflow does not render notes. Keep PyPI OIDC in the caller's `release` environment job.
+metadata; this reusable workflow does not render notes. Keep PyPI OIDC in the caller's `release` environment job. Older
+callers may still pass `changelog`, `artifact-base-url`, `artifact-label`, or `local-tool-source`. These inputs are
+accepted for compatibility but have no effect; remove them when updating the caller workflow.
+
+## Build a distribution for a pull request
+
+`build-python-distribution` remains available for existing keyless PR build jobs. It checks that `dist/` is empty,
+exports hashed build constraints from the caller's lock, and writes a wheel and sdist to `dist/`. It does not upload or
+publish them. Tagged release jobs use `validate-python-release.yaml` so lock and release tools run in a separate job
+from the distribution build.
+
+```yaml
+  - uses: tox-dev/github-workflows/build-python-distribution@SHA
+    with:
+      source: .
+```
+
+`source` defaults to `.`. The Action has no named output; subsequent steps read `dist/`.
+
+## Export constraints for a build matrix
+
+`export-build-constraints` reads `pylock.toml` by default. Pass `lock` for a secondary lock such as `pylock.build.toml`,
+plus `target-platform` and `targets` when the build matrix needs constraints for specific interpreters. The output
+`path` names a temporary requirements file with hashes. The Action writes no tracked files.
+
+```yaml
+  - id: constraints
+    uses: tox-dev/github-workflows/export-build-constraints@SHA
+    with:
+      lock: pylock.build.toml
+      target-platform: linux_aarch64
+      targets: 3.15.0:cpython
+```
+
+`targets` is a space-separated list of `full-version:implementation` pairs. All selected targets must resolve the same
+build package versions; otherwise the Action fails instead of writing an ambiguous constraints file.
 
 ## Prepare and tag with one reusable workflow
 
@@ -345,6 +387,7 @@ and mode checks with `checks: "false"`, without installing release tools.
 - `working-directory`: Checkout where the patch is applied; default `.`. Assembly uses a fresh linked worktree here so
   validation cannot pass because of files left by preparation.
 - `checks`: `true` (default) runs `release-creator` and `prek`; `false` only applies and checks the validated patch.
+- `expected-patch-sha`: Accepted for older callers but ignored. Artifact downloads by ID already verify the digest.
 
 **Output:** No named output. **Working-tree effect:** Applies and stages the patch. The Action reads the changelog path,
 fragment directory, and categories from committed Towncrier configuration. Only the changelog and direct fragment
@@ -433,9 +476,10 @@ checkout or GitHub state.
       tag: ${{ github.ref_name }}
 ```
 
-`tag` is required. `executable` defaults to `release-creator` on `PATH` and accepts a path to a locked installation. The
-`previous` output is empty when this is the first release. Pass it as `previous_tag_name` to GitHub's generated-notes
-endpoint only when nonempty. Namespaced packages can call `release-creator tags --package` directly.
+`tag` is required. `executable` defaults to `release-creator` on `PATH` and accepts a path to a locked installation.
+`package` restricts the search to a package namespace and retains that prefix in the output. `stable-only: "true"`
+ignores prerelease tags. The `previous` output is empty when this is the first matching release. Pass it as
+`previous_tag_name` to GitHub's generated-notes endpoint only when nonempty.
 
 ## Reconcile PyPI artifacts
 

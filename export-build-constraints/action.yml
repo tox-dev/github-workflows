@@ -1,0 +1,53 @@
+name: Export build constraints
+description: Write hashed build dependencies selected from the caller's pylock
+inputs:
+  lock:
+    description: pylock.toml merges shared and caller pins; another lock uses only its build pins
+    default: pylock.toml
+  target-platform:
+    description: Nab platform ID such as linux_aarch64; required with targets
+    default: ""
+  targets:
+    description: Space-separated pairs such as 3.15.0:cpython; selected package versions must match
+    default: ""
+outputs:
+  path:
+    description: Path to the generated constraints for this lock selection
+    value: ${{ steps.constraints.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - uses: $/install-locked-tools
+      with:
+        lock-source: shared
+    - id: constraints
+      name: Export locked build requirements
+      shell: bash
+      env:
+        BUILD_LOCK: ${{ inputs.lock }}
+        TARGET_PLATFORM: ${{ inputs.target-platform }}
+        TARGETS: ${{ inputs.targets }}
+      run: |
+        set -euo pipefail
+        args=()
+        if [[ "$BUILD_LOCK" == pylock.toml ]]; then
+          args+=(--shared-policy "$GITHUB_ACTION_PATH/../pyproject.toml")
+          locks=("$GITHUB_ACTION_PATH/../pylock.toml" pylock.toml)
+        else
+          locks=("$BUILD_LOCK")
+        fi
+        if [[ -n "$TARGET_PLATFORM" || -n "$TARGETS" ]]; then
+          args+=(--target-platform "$TARGET_PLATFORM" --targets "$TARGETS")
+        fi
+        digest=$(
+          sha256sum "${locks[@]}"
+          printf '%s\n' "$TARGET_PLATFORM" "$TARGETS" "${args[@]}"
+        )
+        digest=$(sha256sum <<<"$digest")
+        output="$RUNNER_TEMP/build-constraints-${digest%% *}.txt"
+        if [[ ! -f "$output" ]]; then
+          uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
+            "$GITHUB_ACTION_PATH/../tools/build_constraints.py" "${args[@]}" \
+            "$output" "${locks[@]}"
+        fi
+        echo "path=$output" >>"$GITHUB_OUTPUT"

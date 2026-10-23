@@ -60,6 +60,8 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "validate-news",
         "refresh-release-lock",
         "install-locked-tools",
+        "export-build-constraints",
+        "build-python-distribution",
         "read-towncrier-config",
         "publish-github-release",
         "reconcile-pypi-artifacts",

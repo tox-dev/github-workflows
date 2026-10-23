@@ -1,0 +1,36 @@
+name: Build Python distribution
+description: Build a wheel and sdist for a keyless PR check
+inputs:
+  source:
+    description: Distribution source directory
+    default: .
+runs:
+  using: composite
+  steps:
+    - name: Require empty output directory
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -d dist && -n $(find dist -mindepth 1 -maxdepth 1 -print -quit) ]]; then
+          echo '::error::distribution output directory is not empty: dist' >&2
+          exit 1
+        fi
+    - name: Select build interpreter
+      shell: bash
+      run: uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/build-python"
+    - id: constraints
+      uses: $/export-build-constraints
+    - name: Build wheel and sdist
+      shell: bash
+      env:
+        SOURCE: ${{ inputs.source }}
+        BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}
+      run: |
+        set -euo pipefail
+        unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
+        build_python=$(uv python find "$RUNNER_TEMP/build-python")
+        export SOURCE_DATE_EPOCH
+        SOURCE_DATE_EPOCH=$(git -C "$SOURCE" log -1 --format=%ct)
+        uv build --python "$build_python" \
+          --python-preference only-managed --sdist --wheel \
+          --build-constraints "$BUILD_CONSTRAINTS" --require-build-hashes "$SOURCE" --out-dir dist
