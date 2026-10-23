@@ -34,11 +34,11 @@ def main() -> None:
             args.build_constraints and missing == {"build"}
         ):
             parser.error(f"missing lock dependency groups: {', '.join(sorted(missing))}")
-        _check_cooling(lock, groups | {"build"}, local_tool_source=args.local_tool_source)
+        _check_cooling(lock, groups, local_tool_source=args.local_tool_source)
         if args.shared_lock:
             with args.shared_lock.open("rb") as stream:
                 shared = Pylock.from_dict(tomllib.load(stream))
-            _check_cooling(shared, groups | {"build"})
+            _check_cooling(shared, groups)
             required = _selected_release_creator(shared, groups)
             if required is not None and not args.local_tool_source:
                 installed = _selected_release_creator(lock, groups)
@@ -54,8 +54,9 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
         raise ValueError("lock has no valid creation time or was created in the future")
     threshold = created - _COOLDOWN
     for package in lock.packages:
-        if package.marker is not None and not package.marker.evaluate(
-            {"dependency_groups": groups}, context="lock_file"
+        if package.marker is not None and not any(
+            package.marker.evaluate({"dependency_groups": selection}, context="lock_file")
+            for selection in (groups, {"build"})
         ):
             continue
         if local_tool_source and package.name == "release-creator" and package.index is None:

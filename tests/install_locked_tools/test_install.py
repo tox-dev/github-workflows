@@ -356,6 +356,26 @@ def test_install_locked_tools_rejects_non_pypi_artifact(tmp_path: Path, source_k
     assert "non-PyPI artifact" in result.stderr
 
 
+def test_install_locked_tools_checks_exact_group_marker(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    package = next(package for package in document["packages"] if package["name"] == "cython")
+    package["marker"] = '"release-check" in dependency_groups and "build" not in dependency_groups'
+    package["wheels"][0]["url"] = package["wheels"][0]["url"].replace("files.pythonhosted.org", "example.org")
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(tomlkit.dumps(document))
+
+    result = subprocess.run(
+        ["python", str(source / "tools/check_lock_groups.py"), str(lock), "release-check"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "non-PyPI artifact" in result.stderr
+
+
 def test_install_locked_tools_rejects_artifact_version_mismatch(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     document = tomlkit.parse((source / "pylock.toml").read_text())
