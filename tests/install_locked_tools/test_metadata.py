@@ -7,7 +7,7 @@ from io import BytesIO
 from pathlib import Path
 from textwrap import dedent
 from typing import NotRequired, TypedDict
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pytest
 from pytest_mock import MockerFixture
@@ -109,6 +109,53 @@ def test_lock_metadata_stops_after_three_network_errors(
 
     assert request.call_count == 3
     assert "handshake timed out" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("status", [pytest.param(429, id="rate-limit"), pytest.param(503, id="server-error")])
+def test_lock_metadata_retries_transient_http_error(
+    lock_case: tuple[Path, Path],
+    pypi_listing: _PyPIListing,
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+) -> None:
+    request = mocker.patch(
+        "urllib.request.urlopen",
+        side_effect=[
+            HTTPError("https://pypi.org/simple/six/", status, "transient", None, None),
+            BytesIO(json.dumps(pypi_listing).encode()),
+        ],
+    )
+    mocker.patch("time.sleep")
+
+    _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert request.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("status", "calls"),
+    [pytest.param(404, 1, id="not-found"), pytest.param(503, 3, id="repeated-server-error")],
+)
+def test_lock_metadata_rejects_http_error(
+    lock_case: tuple[Path, Path],
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    status: int,
+    calls: int,
+) -> None:
+    request = mocker.patch(
+        "urllib.request.urlopen",
+        side_effect=HTTPError("https://pypi.org/simple/six/", status, "unavailable", None, None),
+    )
+    mocker.patch("time.sleep")
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert request.call_count == calls
+    assert f"HTTP Error {status}" in capsys.readouterr().err
 
 
 def test_lock_metadata_requires_group(
