@@ -79,6 +79,56 @@ def test_lock_metadata_matches_pypi(
     assert request.call_args.args[0].full_url == "https://pypi.org/simple/six/"
 
 
+def test_lock_metadata_requires_group(
+    lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = Path(__file__).resolve().parents[2]
+    monkeypatch.syspath_prepend(str(source / "tools"))
+    monkeypatch.setattr(sys, "argv", ["check_lock_groups.py", str(lock_case[0])])
+    command = runpy.run_path(str(source / "tools/check_lock_groups.py"), run_name="lock_check")
+
+    with pytest.raises(SystemExit, match="2"):
+        command["main"]()
+
+    assert "at least one dependency group is required" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "change", [pytest.param("api-version", id="api-version"), pytest.param("project-name", id="project-name")]
+)
+def test_lock_metadata_rejects_invalid_listing(
+    lock_case: tuple[Path, Path],
+    pypi_listing: _PyPIListing,
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    change: str,
+) -> None:
+    if change == "api-version":
+        pypi_listing["meta"]["api-version"] = "2.0"
+    else:
+        pypi_listing["name"] = "other"
+    mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert "invalid PyPI listing for six" in capsys.readouterr().err
+
+
+def test_lock_metadata_allows_local_release_creator(
+    lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock = lock_case[0]
+    lock.write_text(
+        lock.read_text().split("[[packages]]", 1)[0]
+        + '[[packages]]\nname = "release-creator"\nmarker = \'"release-check" in dependency_groups\'\n'
+        + 'directory = { path = "." }\n'
+    )
+
+    _run_check(lock_case, monkeypatch, "--local-tool-source", "--verify-pypi", "--project", str(lock_case[1]))
+
+
 def test_lock_metadata_checks_each_duplicate_artifact(
     lock_case: tuple[Path, Path],
     pypi_listing: _PyPIListing,

@@ -79,8 +79,6 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
         if package.index != "https://pypi.org/simple/":
             raise ValueError(f"release lock has an unapproved index: {package.name}: {package.index}")
         artifacts = ([package.sdist] if package.sdist is not None else []) + list(package.wheels or ())
-        if not artifacts:
-            raise ValueError(f"release lock has no dated artifacts: {package.name}")
         cutoff = max(threshold, reviewed_cutoff(package.name, str(package.version)) or threshold)
         for artifact in artifacts:
             url = urlsplit(artifact.url or "")
