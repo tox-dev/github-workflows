@@ -4,8 +4,10 @@ import hashlib
 import importlib.util
 import io
 import json
+from email.message import Message
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -54,6 +56,7 @@ def test_verify_files_matches_complete_release(distribution: Path, mocker: Mocke
         pytest.param("yanked", "yanked PyPI file", id="yanked"),
         pytest.param("missing", "missing files", id="missing"),
         pytest.param("duplicate", "duplicate or yanked", id="duplicate"),
+        pytest.param("invalid-name", "unrecognized distribution filename", id="invalid-name"),
     ],
 )
 def test_verify_files_rejects_bad_remote_release(
@@ -100,6 +103,31 @@ def test_verify_files_waits_for_incomplete_listing(distribution: Path, mocker: M
     assert response.call_count == 2
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(
+            HTTPError("https://pypi.org/simple/fixture/", 429, "rate limit", Message(), None), id="rate-limit"
+        ),
+        pytest.param(
+            HTTPError("https://pypi.org/simple/fixture/", 503, "unavailable", Message(), None), id="server-error"
+        ),
+        pytest.param(URLError(TimeoutError("timeout")), id="timeout"),
+    ],
+)
+def test_verify_files_retries_transient_listing_failure(
+    distribution: Path, mocker: MockerFixture, failure: HTTPError | URLError
+) -> None:
+    response = mocker.patch.object(_MODULE, "urlopen", side_effect=[failure, _body(_listing(distribution))])
+    mocker.patch.object(_MODULE.time, "sleep")
+
+    assert verify_files("fixture", "1.0", distribution, 2) == [
+        distribution / "fixture-1.0-py3-none-any.whl",
+        distribution / "fixture-1.0.tar.gz",
+    ]
+    assert response.call_count == 2
+
+
 def _serve(mocker: MockerFixture, distribution: Path, *, change: str = "") -> None:
     files = _listing(distribution)
     if change == "extra":
@@ -112,6 +140,8 @@ def _serve(mocker: MockerFixture, distribution: Path, *, change: str = "") -> No
         files.pop()
     elif change == "duplicate":
         files.append(files[0].copy())
+    elif change == "invalid-name":
+        files.append({"filename": "fixture-1.0.invalid", "hashes": {"sha256": "0" * 64}, "yanked": False})
     mocker.patch.object(_MODULE, "urlopen", return_value=_body(files))
 
 

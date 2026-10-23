@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import tomlkit
 from conftest import action
 
 
@@ -225,6 +226,47 @@ def test_install_locked_tools_rejects_uncooled_lock(tmp_path: Path, replace: tup
     assert message in result.stderr
 
 
+def test_install_locked_tools_checks_build_group_with_selected_groups(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    package = next(package for package in document["packages"] if package["name"] == "cython")
+    package["wheels"][0]["upload-time"] = datetime(2099, 1, 1, tzinfo=UTC)
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(tomlkit.dumps(document))
+
+    result = subprocess.run(
+        ["python", str(source / "tools/check_lock_groups.py"), str(lock), "release-news"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "uncooled artifact" in result.stderr
+
+
+def test_install_locked_tools_rejects_unreviewed_version_under_reviewed_floor(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    package = next(package for package in document["packages"] if package["name"] == "release-creator")
+    package["version"] = "0.6.3"
+    for artifact in [package["sdist"], *package["wheels"]]:
+        artifact["name"] = artifact["name"].replace("0.6.4", "0.6.3")
+        artifact["url"] = artifact["url"].replace("0.6.4", "0.6.3")
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(tomlkit.dumps(document))
+
+    result = subprocess.run(
+        ["python", str(source / "tools/check_lock_groups.py"), str(lock), "release-news"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "uncooled artifact" in result.stderr
+
+
 def test_install_locked_tools_constraints_only_checks_lock_age(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     (tmp_path / "pylock.toml").write_text(
@@ -374,6 +416,7 @@ index = "https://pypi.org/simple/"
 [[packages.wheels]]
 name = "probe_only-1.0-py3-none-any.whl"
 url = "https://files.pythonhosted.org/probe_only-1.0-py3-none-any.whl"
+upload-time = 2026-10-01T00:00:00Z
 hashes.sha256 = """
         + f'"{"0" * 64}"\n',
     )

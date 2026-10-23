@@ -8,7 +8,7 @@ import json
 import time
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from packaging.utils import (
@@ -67,8 +67,24 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
     deadline = time.monotonic() + wait_seconds
     while True:
         remote: dict[str, str] = {}
-        for file in _listing(name):
-            if _identity(file["filename"]) != (name, release):
+        try:
+            files = _listing(name)
+        except HTTPError as error:
+            if error.code != 429 and not 500 <= error.code < 600:
+                raise
+            if (remaining := deadline - time.monotonic()) <= 0:
+                raise
+            time.sleep(min(2, remaining))
+            continue
+        except URLError as error:
+            if not isinstance(error.reason, TimeoutError) or (remaining := deadline - time.monotonic()) <= 0:
+                raise
+            time.sleep(min(2, remaining))
+            continue
+        for file in files:
+            if (identity := _identity(file["filename"])) is None:
+                raise ValueError(f"PyPI has an unrecognized distribution filename: {file['filename']}")
+            if identity != (name, release):
                 continue
             filename = file["filename"]
             if filename in remote or file.get("yanked"):

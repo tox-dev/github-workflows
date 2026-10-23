@@ -286,7 +286,7 @@ def test_validate_rejects_unsafe_file_mode(
     run(repository, "git", "reset", "--hard", "HEAD")
     result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
-    assert "unexpected release file mode" in result.stderr
+    assert ("unexpected release path" if file_mode == "symlink" else "unexpected release file mode") in result.stderr
 
 
 def test_validate_rejects_nonregular_deleted_fragment(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
@@ -317,7 +317,7 @@ def test_validate_rejects_removed_changelog(repository: Path, tmp_path: Path, ac
     run(repository, "git", "reset", "--hard", "HEAD")
     result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
-    assert "No such file or directory: 'CHANGELOG.md'" in result.stderr
+    assert "unexpected release path" in result.stderr
 
 
 def test_validate_rejects_missing_heading(repository: Path, tmp_path: Path, action_scripts: Path) -> None:

@@ -14,7 +14,14 @@ def test_validator_isolates_release_tools_from_build() -> None:
         (Path(__file__).resolve().parents[2] / ".github/workflows/validate-python-release.yaml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    assert set(workflow["on"]["workflow_call"]["inputs"]) == {"source", "artifact-prefix"}
+    assert set(workflow["on"]["workflow_call"]["inputs"]) == {
+        "source",
+        "artifact-prefix",
+        "changelog",
+        "artifact-base-url",
+        "artifact-label",
+        "local-tool-source",
+    }
     assert set(workflow["jobs"]) == {"source-check", "constraints", "build", "validate"}
     assert workflow["jobs"]["build"]["needs"] == "constraints"
     assert not any(step.get("uses", "").startswith("$/install-") for step in workflow["jobs"]["build"]["steps"])
@@ -27,6 +34,7 @@ def test_validator_isolates_release_tools_from_build() -> None:
     [
         pytest.param("lightweight", "refs/tags/0.2.0", True, id="lightweight-tag"),
         pytest.param("annotated", "refs/tags/0.2.0", True, id="annotated-tag"),
+        pytest.param("lightweight", "refs/heads/0.2.0", False, id="branch-event-on-tagged-commit"),
         pytest.param("branch", "refs/tags/0.2.0", False, id="same-name-branch"),
         pytest.param("off-main", "refs/tags/0.2.0", False, id="tagged-off-main-commit"),
     ],

@@ -91,6 +91,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = "refs/tags/$TAG"
           git check-ref-format "refs/tags/$TAG"
           test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
           git merge-base --is-ancestor HEAD origin/main

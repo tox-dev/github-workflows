@@ -150,7 +150,7 @@ def test_upgrade_check_mode_preserves_lock_bytes(lock_repository: Path, tmp_path
     assert project.read_bytes() == project_bytes
 
 
-def test_upgrade_expires_old_nab_floor(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
+def test_upgrade_preserves_deliberate_nab_hold(lock_repository: Path, tmp_path: Path, upgrade_scripts: Path) -> None:
     project = lock_repository / "pyproject.toml"
     project.write_text(
         project.read_text()
@@ -169,7 +169,9 @@ def test_upgrade_expires_old_nab_floor(lock_repository: Path, tmp_path: Path, up
     assert installed.returncode == 0, installed.stderr
     expired = execute(lock_repository, upgrade_scripts / "refresh-release-lock-2.sh", tmp_path)
     assert expired.returncode == 0, expired.stderr
-    assert "package-rules" not in tomllib.loads(project.read_text())["tool"]["nab"]
+    assert tomllib.loads(project.read_text())["tool"]["nab"]["package-rules"][0]["uploaded-prior-to"] == (
+        "2026-01-01T00:00:00Z"
+    )
 
 
 @pytest.mark.parametrize(

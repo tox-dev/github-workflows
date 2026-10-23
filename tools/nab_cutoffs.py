@@ -15,18 +15,23 @@ _DURATION: Final = re.compile(
 )
 _MINIMUM_DAYS: Final = 7
 
-_REVIEWED_EXCEPTIONS = {
-    **dict.fromkeys(
-        ("nab", "nab-index", "nab-markersets", "nab-project", "nab-provider", "nab-resolver"),
-        datetime(2026, 10, 19, tzinfo=UTC),
-    ),
-    "release-creator": datetime(2026, 10, 23, 16, 52, 6, tzinfo=UTC),
-    "uv-build": datetime(2026, 10, 21, tzinfo=UTC),  # toml-fmt requires 0.13.4 until the cutoff matures.
+_REVIEWED_VERSIONS: Final = {
+    **{
+        (name, "0.0.22"): datetime(2026, 10, 18, 5, 45, 9, tzinfo=UTC)
+        for name in ("nab", "nab-index", "nab-markersets", "nab-project", "nab-provider", "nab-resolver")
+    },
+    ("release-creator", "0.6.0"): datetime(2026, 10, 23, 2, 44, 40, tzinfo=UTC),
+    ("release-creator", "0.6.4"): datetime(2026, 10, 23, 16, 52, 6, tzinfo=UTC),
+    ("uv-build", "0.13.4"): datetime(2026, 10, 21, tzinfo=UTC),
+}
+_REVIEWED_EXCEPTIONS: Final = {
+    name: min(reviewed for (package, _), reviewed in _REVIEWED_VERSIONS.items() if package == name)
+    for name, _ in _REVIEWED_VERSIONS
 }
 
 
-def reviewed_cutoff(name: str) -> datetime | None:
-    return _REVIEWED_EXCEPTIONS.get(name)
+def reviewed_cutoff(name: str, version: str) -> datetime | None:
+    return _REVIEWED_VERSIONS.get((name, version))
 
 
 def validate_recent_cutoffs(project: str, threshold: datetime) -> None:
@@ -101,19 +106,26 @@ def expired_cutoffs(project: str, threshold: datetime) -> tuple[set[str], set[in
         for name, settings in nab.get("packages", {}).items()
         if name in _REVIEWED_EXCEPTIONS
         and (value := settings.get("uploaded-prior-to")) is not None
-        and _expired(value, threshold)
+        and _expired(
+            value, threshold, {reviewed for (package, _), reviewed in _REVIEWED_VERSIONS.items() if package == name}
+        )
     }
     rules = {
         index
         for index, rule in enumerate(nab.get("package-rules", []))
         if set(rule["match"]) <= _REVIEWED_EXCEPTIONS.keys()
         and (value := rule.get("uploaded-prior-to")) is not None
-        and _expired(value, threshold)
+        and all(
+            _expired(
+                value, threshold, {reviewed for (package, _), reviewed in _REVIEWED_VERSIONS.items() if package == name}
+            )
+            for name in rule["match"]
+        )
     }
     return packages, rules
 
 
-def _expired(value: str | datetime | bool, threshold: datetime) -> bool:
+def _expired(value: str | datetime | bool, threshold: datetime, reviewed: set[datetime]) -> bool:
     if value is False or isinstance(value, str) and _DURATION.fullmatch(value) is not None:
         return False
     if isinstance(value, bool):
@@ -121,7 +133,7 @@ def _expired(value: str | datetime | bool, threshold: datetime) -> bool:
     timestamp = datetime.fromisoformat(value) if isinstance(value, str) else value
     if timestamp.tzinfo is None:
         raise ValueError(f"Nab package cutoff has no timezone: {value}")
-    return timestamp <= threshold
+    return timestamp in reviewed and timestamp <= threshold
 
 
 __all__ = [

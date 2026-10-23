@@ -32,11 +32,11 @@ def main() -> None:
             args.build_constraints and missing == {"build"}
         ):
             parser.error(f"missing lock dependency groups: {', '.join(sorted(missing))}")
-        _check_cooling(lock, groups, local_tool_source=args.local_tool_source)
+        _check_cooling(lock, groups | {"build"}, local_tool_source=args.local_tool_source)
         if args.shared_lock:
             with args.shared_lock.open("rb") as stream:
                 shared = Pylock.from_dict(tomllib.load(stream))
-            _check_cooling(shared, groups)
+            _check_cooling(shared, groups | {"build"})
             required = _selected_release_creator(shared, groups)
             if required is not None and not args.local_tool_source:
                 installed = _selected_release_creator(lock, groups)
@@ -63,7 +63,7 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
         artifacts = ([package.sdist] if package.sdist is not None else []) + list(package.wheels or ())
         if not artifacts:
             raise ValueError(f"release lock has no dated artifacts: {package.name}")
-        cutoff = max(threshold, reviewed_cutoff(package.name) or threshold)
+        cutoff = max(threshold, reviewed_cutoff(package.name, str(package.version)) or threshold)
         for artifact in artifacts:
             if (
                 artifact.upload_time is None
