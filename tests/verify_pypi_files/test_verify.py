@@ -13,6 +13,7 @@ from socket import gaierror
 from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.error import HTTPError, URLError
 
+import certifi
 import pytest
 
 if TYPE_CHECKING:
@@ -52,6 +53,16 @@ def test_verify_files_matches_complete_release(distribution: Path, mocker: Mocke
     result = verify_files("fixture", "1.0", distribution, 0)
 
     assert result == [distribution / "fixture-1.0-py3-none-any.whl", distribution / "fixture-1.0.tar.gz"]
+
+
+def test_verify_files_uses_pinned_trust_store(distribution: Path, mocker: MockerFixture) -> None:
+    request = mocker.patch.object(_MODULE, "urlopen", return_value=_body(_listing(distribution)))
+    context = mocker.patch.object(ssl, "create_default_context", autospec=True)
+
+    verify_files("fixture", "1.0", distribution, 0)
+
+    assert request.call_args.kwargs["context"] is context.return_value
+    assert context.call_args.kwargs == {"cafile": certifi.where()}
 
 
 def test_verify_files_rejects_unsupported_simple_api(distribution: Path, mocker: MockerFixture) -> None:
