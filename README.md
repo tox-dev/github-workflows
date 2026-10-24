@@ -197,6 +197,8 @@ hook-cooldown:
     pull-requests: read
   steps:
     - uses: tox-dev/github-workflows/check-hook-update-cooldown@SHA
+      with:
+        release-app-client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
 ```
 
 Run the PR workflow on `opened`, `reopened`, and `synchronize`; the cooldown check must succeed on PRs and may skip on

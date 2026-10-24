@@ -21,6 +21,10 @@ def test_action_uses_scoped_job_token() -> None:
         "${{ github.token }}",
         "${{ github.token }}",
     ]
+    assert action["runs"]["steps"][0]["env"]["RELEASE_APP_CLIENT_ID"] == "${{ inputs.release-app-client-id }}"
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/check.yaml").read_text())
+    caller = workflow["jobs"]["hook-cooldown"]["steps"][0]
+    assert caller["with"]["release-app-client-id"] == "${{ vars.RELEASE_APP_CLIENT_ID }}"
 
 
 @pytest.mark.parametrize(

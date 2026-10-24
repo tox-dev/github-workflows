@@ -642,8 +642,6 @@ def _expression(
         return environment.get("GITHUB_EVENT_PULL_REQUEST_NUMBER", "")
     if expression == "github.token":
         return environment.get("GH_TOKEN", environment.get("GH_ENTERPRISE_TOKEN", ""))
-    if expression == "vars.RELEASE_APP_CLIENT_ID":
-        return environment.get("RELEASE_APP_CLIENT_ID", "")
     if expression == "github.event.pull_request.user.type":
         return "Bot" if environment.get("BOT_AUTHOR") == "true" else "User"
     if expression == "contains(github.event.pull_request.labels.*.name, 'skip news')":

@@ -4,6 +4,9 @@ inputs:
   minimum-days:
     description: Minimum age of a proposed hook revision
     default: "7"
+  release-app-client-id:
+    description: Client ID of the App allowed to update managed hook dependencies
+    default: ""
 runs:
   using: composite
   steps:
@@ -13,7 +16,7 @@ runs:
       env:
         MINIMUM_DAYS: ${{ inputs.minimum-days }}
         GH_TOKEN: ${{ github.token }}
-        RELEASE_APP_CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
+        RELEASE_APP_CLIENT_ID: ${{ inputs.release-app-client-id }}
       run: |
         set -euo pipefail
         REPOSITORY=$GITHUB_REPOSITORY

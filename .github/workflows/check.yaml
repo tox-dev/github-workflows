@@ -135,6 +135,8 @@ jobs:
       pull-requests: read
     steps:
       - uses: $/check-hook-update-cooldown
+        with:
+          release-app-client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
   release-tools-preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
