@@ -87,7 +87,12 @@ def test_prepare_validation_calculates_version_independently(
     verify = next(step for step in steps if step.get("name") == "Verify selected release version")
     command = tmp_path / "bin/release-creator"
     command.parent.mkdir()
-    command.write_text(f"#!{sys.executable}\nimport sys\nprint('v1.2.3' if '--prefix' in sys.argv else '1.2.3')\n")
+    expected_arguments = ["tags", "--next", "auto", "--directory", "changelog.d"]
+    if prefix:
+        expected_arguments.extend(["--prefix", prefix])
+    command.write_text(
+        f"#!{sys.executable}\nimport sys\nassert sys.argv[1:] == {expected_arguments!r}\nprint({f'{prefix}1.2.3'!r})\n"
+    )
     command.chmod(0o755)
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
 

@@ -208,6 +208,14 @@ head. GitHub accepts reruns for 30 days. A failed rerun is retried on the next s
 [caller here](.github/workflows/recheck-hook-cooldown.yaml) shows the trigger and permissions. The Action reruns the
 `hook-cooldown` job in `check.yaml`.
 
+If the job has a different name or workflow filename, pass both to the scheduled caller:
+
+```yaml
+with:
+  workflow: ci.yaml
+  job-name: check-hook-updates
+```
+
 ## Start with a caller
 
 The [release preparation workflow](.github/workflows/prepare-release.yaml) in this repository calls the reusable
