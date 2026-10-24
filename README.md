@@ -34,6 +34,17 @@ The `build-constraints` output names the hashed constraints file. The Action add
 `actions/checkout` and `astral-sh/setup-uv` with Python 3.15 before it. It bootstraps Nab from the shared, hash-checked
 lock.
 
+For a zipapp that bundles wheels from a separate runtime lock, check that lock in the same job before building it:
+
+```yaml
+  - uses: tox-dev/github-workflows/install-locked-tools@SHA
+    with:
+      groups: release-build
+      venv: ${{ runner.temp }}/release-tools
+      verify-lock: pylock.zipapp.toml
+      verify-groups: project-runtime
+```
+
 ## Check pull request news
 
 `validate-news` reads `tool.towncrier` from `pyproject.toml`. It checks every added or modified fragment in the
