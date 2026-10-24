@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import ssl
 import time
 import tomllib
 from collections import defaultdict
@@ -17,6 +18,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+import certifi
 from nab_cutoffs import reviewed_cutoff, validate_indexes
 from packaging._parser import Variable
 from packaging.markers import Marker
@@ -172,7 +174,7 @@ def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None,
     attempt = 0
     while True:
         try:
-            with urlopen(request, timeout=10) as response:
+            with urlopen(request, timeout=10, context=ssl.create_default_context(cafile=certifi.where())) as response:
                 listing = json.load(response)
             break
         except HTTPError as error:

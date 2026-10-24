@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import runpy
+import ssl
 import sys
 from email.message import Message
 from io import BytesIO
@@ -10,6 +11,7 @@ from textwrap import dedent
 from typing import NotRequired, TypedDict
 from urllib.error import HTTPError, URLError
 
+import certifi
 import pytest
 from pytest_mock import MockerFixture
 
@@ -81,10 +83,12 @@ def test_lock_metadata_matches_pypi(
     lock_case: tuple[Path, Path], pypi_listing: _PyPIListing, mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     request = mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
+    context = mocker.patch.object(ssl, "create_default_context", autospec=True)
 
     _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
 
     assert request.call_args.args[0].full_url == "https://pypi.org/simple/six/"
+    assert context.call_args.kwargs == {"cafile": certifi.where()}
 
 
 def test_lock_metadata_rejects_yanked_artifact(

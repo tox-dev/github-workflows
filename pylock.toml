@@ -111,7 +111,7 @@ sha256 = "ecd351a4be9d35a9eaaba244a7687143c9c7d4aea6ac964e7e7ddab20cbcf4e7"
 [[packages]]
 name = "certifi"
 version = "2026.7.22"
-marker = "\"release-attestations\" in dependency_groups"
+marker = "\"lock-reader\" in dependency_groups or \"release-attestations\" in dependency_groups"
 requires-python = ">=3.7"
 index = "https://pypi.org/simple/"
 
