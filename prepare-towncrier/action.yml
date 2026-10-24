@@ -39,15 +39,23 @@ runs:
       uses: $/read-towncrier-config
     - id: version
       name: Select release version
-      if: inputs.phase != 'finalize'
       shell: bash
       env:
         BUMP: ${{ inputs.bump }}
         TAG_PREFIX: ${{ inputs.tag-prefix }}
         VERSION: ${{ inputs.version }}
         FRAGMENTS: ${{ steps.config.outputs.fragments }}
+        PHASE: ${{ inputs.phase }}
       run: |
         set -euo pipefail
+        if [[ "$PHASE" == finalize ]]; then
+          [[ -n "$VERSION" ]] || {
+            echo '::error::finalize requires a version from the build phase' >&2
+            exit 1
+          }
+          printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
+          exit 0
+        fi
         if [[ -n "$VERSION" ]]; then
           git tag --list | release-creator tags --next auto --directory "$FRAGMENTS" >/dev/null
           git tag --list | release-creator tags "$VERSION" --require-newer

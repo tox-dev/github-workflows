@@ -41,6 +41,26 @@ def test_prepare_finalize_phase_writes_patch(repository: Path, tmp_path: Path, a
     assert "0.2.0" in (tmp_path / "release.patch").read_text()
 
 
+def test_prepare_finalize_phase_preserves_version_output(
+    repository: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="build")
+    assert result.returncode == 0, result.stderr
+    (tmp_path / "output").unlink()
+
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="finalize")
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "output").read_text() == "version=0.2.0\n"
+
+
+def test_prepare_finalize_phase_requires_version(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="", PHASE="finalize")
+
+    assert result.returncode != 0
+    assert "finalize requires a version" in result.stderr
+
+
 def test_prepare_custom_changelog(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     project = repository / "pyproject.toml"
     project.write_text(project.read_text().replace("CHANGELOG.md", "HISTORY.md"))
