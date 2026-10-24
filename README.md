@@ -155,12 +155,13 @@ refresh produces a patch. Neither mode pushes a branch or requests a write token
 ## Refresh a pinned mise binary
 
 `refresh-mise-pin` updates one named `jdx/mise-action` step in a release workflow. It selects the newest stable mise
-GitHub Release whose publication and Linux executable upload are at least seven days old. The executable must also be
-unchanged for seven days. The Action installs that version through the pinned mise Action and compares the executable
-with the release asset digest. The mise Action verifies the download against mise's minisign-signed checksum file. The
-refresh Action fails if the named step is missing or duplicated, its version or digest is not literal, or the installed
-binary differs from the selected release. It changes only that step's `version` and `sha256` values and leaves the
-verified mise executable on `PATH` for the next step.
+GitHub Release whose publication and Linux executable and archive uploads are at least seven days old. Those assets must
+also be unchanged for seven days. The Action installs that version through the pinned mise Action and compares the
+executable with the release asset digest. Before invoking mise, the mise Action verifies its downloaded archive against
+the minisign-signed checksum file. The refresh Action fails if the named step is missing or duplicated, its version or
+digest is not literal, or the installed binary differs from the selected release. It changes only that step's `version`
+and `sha256` values. The verified mise executable is on `PATH` and at `$RUNNER_TEMP/refresh-mise-pin/bin/mise` for the
+next step; `export_path: false` disables mise-generated paths, not the binary's path.
 
 Call it in a read-only Ubuntu job after checkout and setup-uv with Python 3.15. The Action installs its YAML parser from
 the shared hash-checked lock. `workflow` is the path under `.github/workflows`; `step-name` is the exact name of the
@@ -176,7 +177,8 @@ change; `version` omits the leading `v`, and `sha256` is the Linux x64 executabl
       step-name: 🔧 Set up mise (JDKs)
       github-token: ${{ github.token }}
   - name: Refresh locked JDKs
-    run: mise lock --bump --minimum-release-age 7d
+    run: >-
+      $RUNNER_TEMP/refresh-mise-pin/bin/mise lock --bump --minimum-release-age 7d
 ```
 
 Include `.github/workflows/release.yaml` and `mise.lock` in the updater's artifact and App writer path allowlists. The

@@ -6,6 +6,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
+from typing import cast
 
 import pytest
 import yaml
@@ -22,18 +23,32 @@ def _release(
     asset: bool = True,
     digest: str = "sha256:" + "a" * 64,
     asset_days: int | None = None,
+    archive: bool = True,
+    recent_archive: str = "",
 ) -> dict[str, object]:
     asset_date = (datetime.now(UTC) - timedelta(days=days if asset_days is None else asset_days)).isoformat()
+    archive_date = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    assets = (
+        [{"name": f"mise-v{version}-linux-x64", "digest": digest, "created_at": asset_date, "updated_at": asset_date}]
+        if asset
+        else []
+    )
+    if archive:
+        assets.extend(
+            {
+                "name": f"mise-v{version}-linux-x64{suffix}",
+                "digest": "sha256:" + "b" * 64,
+                "created_at": archive_date,
+                "updated_at": datetime.now(UTC).isoformat() if suffix == recent_archive else archive_date,
+            }
+            for suffix in (".tar.zst", ".tar.gz")
+        )
     return {
         "tag_name": f"v{version}",
         "published_at": (datetime.now(UTC) - timedelta(days=days)).isoformat(),
         "prerelease": prerelease,
         "draft": draft,
-        "assets": [
-            {"name": f"mise-v{version}-linux-x64", "digest": digest, "created_at": asset_date, "updated_at": asset_date}
-        ]
-        if asset
-        else [],
+        "assets": assets,
     }
 
 
@@ -363,11 +378,27 @@ def test_select_rejects_recent_asset_on_aged_release(tmp_path: Path) -> None:
     (tmp_path / "releases.jsonl").write_text(json.dumps(_release("2026.10.13", days=8, asset_days=1)))
     result = _run(tmp_path, "select", "releases.jsonl")
     assert result.returncode != 0
-    assert "no mise executable was uploaded and unchanged" in result.stderr
+    assert "no mise executable and archives were uploaded and unchanged" in result.stderr
 
 
 def test_select_uses_older_release_when_newer_asset_is_recent(tmp_path: Path) -> None:
     releases = [_release("2026.10.13", days=8, asset_days=1), _release("2026.10.12", days=9)]
+    (tmp_path / "releases.jsonl").write_text("\n".join(map(json.dumps, releases)))
+    result = _run(tmp_path, "select", "releases.jsonl")
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "output").read_text() == f"version=2026.10.12\nsha256={'a' * 64}\n"
+
+
+@pytest.mark.parametrize("suffix", [pytest.param(".tar.zst", id="zstd"), pytest.param(".tar.gz", id="gzip")])
+def test_select_rejects_recent_archive_on_aged_release(tmp_path: Path, suffix: str) -> None:
+    (tmp_path / "releases.jsonl").write_text(json.dumps(_release("2026.10.13", days=8, recent_archive=suffix)))
+    result = _run(tmp_path, "select", "releases.jsonl")
+    assert result.returncode != 0
+    assert "no mise executable and archives were uploaded and unchanged" in result.stderr
+
+
+def test_select_uses_older_release_when_newer_archive_is_recent(tmp_path: Path) -> None:
+    releases = [_release("2026.10.13", days=8, recent_archive=".tar.zst"), _release("2026.10.12", days=9)]
     (tmp_path / "releases.jsonl").write_text("\n".join(map(json.dumps, releases)))
     result = _run(tmp_path, "select", "releases.jsonl")
     assert result.returncode == 0, result.stderr
@@ -385,8 +416,14 @@ def test_main_selects_release(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 def test_action_verifies_signed_checksum_and_exports_mise_path() -> None:
     action = yaml.safe_load((Path(__file__).resolve().parents[2] / "refresh-mise-pin" / "action.yml").read_text())
-    installer = next(step for step in action["runs"]["steps"] if step.get("uses", "").startswith("jdx/mise-action@"))
-    assert installer == {
+    steps = action["runs"]["steps"]
+    installer_index = next(
+        index for index, step in enumerate(steps) if step.get("uses", "").startswith("jdx/mise-action@")
+    )
+    assert installer_index < next(
+        index for index, step in enumerate(steps) if step["name"] == "Update the workflow pin"
+    )
+    assert steps[installer_index] == {
         "name": "Install signature-verified mise",
         "uses": "jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8",
         "with": {
@@ -401,12 +438,30 @@ def test_action_verifies_signed_checksum_and_exports_mise_path() -> None:
     }
 
 
+def test_action_keeps_linux_executable_and_archives_in_release_listing() -> None:
+    action = yaml.safe_load((Path(__file__).resolve().parents[2] / "refresh-mise-pin" / "action.yml").read_text())
+    query = action["runs"]["steps"][0]["run"].split("--jq '", 1)[1].split("'", 1)[0]
+    release = _release("2026.10.13", days=8)
+    cast(list[dict[str, object]], release["assets"]).append(
+        {"name": "mise-v2026.10.13-linux-x64-musl", "digest": "sha256:" + "c" * 64}
+    )
+    result = subprocess.run(
+        ["jq", "-r", query], input=json.dumps([release]), text=True, capture_output=True, check=True
+    )
+    assert {asset["name"] for asset in json.loads(result.stdout)["assets"]} == {
+        "mise-v2026.10.13-linux-x64",
+        "mise-v2026.10.13-linux-x64.tar.zst",
+        "mise-v2026.10.13-linux-x64.tar.gz",
+    }
+
+
 @pytest.mark.parametrize(
     ("releases", "message"),
     [
         pytest.param([_release("2026.10.13", days=1)], "no stable mise", id="too-young"),
         pytest.param([_release("2026.10.13", days=8, draft=True)], "no stable mise", id="draft"),
         pytest.param([_release("2026.10.13", days=8, asset=False)], "no unique Linux", id="missing-asset"),
+        pytest.param([_release("2026.10.13", days=8, archive=False)], "no unique Linux", id="missing-archive"),
         pytest.param([_release("2026.10.13", days=8, digest="sha256:bad")], "no unique Linux", id="bad-asset-digest"),
     ],
 )

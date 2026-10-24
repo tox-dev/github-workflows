@@ -30,7 +30,9 @@ runs:
       run: |
         gh api --paginate \
           --jq '.[] | {tag_name,published_at,prerelease,draft,assets:[.assets[] |
-            select(.name | endswith("-linux-x64")) | {name,digest,created_at,updated_at}]} | @json' \
+            select(.name | endswith("-linux-x64") or endswith("-linux-x64.tar.zst") or
+              endswith("-linux-x64.tar.gz")) |
+            {name,digest,created_at,updated_at}]} | @json' \
           'repos/jdx/mise/releases?per_page=100' >"$RUNNER_TEMP/mise-releases.jsonl"
     - name: Install locked YAML editor
       uses: $/install-locked-tools

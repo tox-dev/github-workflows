@@ -31,6 +31,16 @@ class _Release(TypedDict):
     assets: list[_Asset]
 
 
+_VERSION: Final[re.Pattern[str]] = re.compile(
+    r"""
+    (?P<year>\d{4})\.
+    (?P<month>\d{1,2})\.
+    (?P<patch>\d+)
+    """,
+    re.VERBOSE,
+)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Refresh a signed mise release pin")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -58,11 +68,15 @@ def main() -> None:
 
 def _select_release(path: Path) -> tuple[str, str]:
     cutoff = datetime.now(UTC) - timedelta(days=7)
-    version_pattern: Final[re.Pattern[str]] = re.compile(r"v(\d{4})\.(\d{1,2})\.(\d+)")
     releases = (cast(_Release, json.loads(line)) for line in path.read_text().splitlines())
     eligible: list[tuple[tuple[int, ...], _Release]] = []
     for release in releases:
-        if release["draft"] or release["prerelease"] or not (version := version_pattern.fullmatch(release["tag_name"])):
+        if (
+            release["draft"]
+            or release["prerelease"]
+            or not release["tag_name"].startswith("v")
+            or not (version := _VERSION.fullmatch(release["tag_name"][1:]))
+        ):
             continue
         published = datetime.fromisoformat(release["published_at"])
         if published <= cutoff:
@@ -71,12 +85,22 @@ def _select_release(path: Path) -> tuple[str, str]:
         raise ValueError("no stable mise release was published at least seven days ago")
     for _, release in sorted(eligible, key=lambda item: item[0], reverse=True):
         version = release["tag_name"][1:]
-        assets = [asset for asset in release["assets"] if asset["name"] == f"mise-v{version}-linux-x64"]
-        if len(assets) != 1 or not re.fullmatch(r"sha256:[a-f0-9]{64}", assets[0]["digest"]):
-            raise ValueError(f"mise {version} has no unique Linux x64 executable digest")
-        if all(datetime.fromisoformat(assets[0][key]) <= cutoff for key in ("created_at", "updated_at")):
+        assets: list[_Asset] = []
+        for suffix in ("", ".tar.zst", ".tar.gz"):
+            name = f"mise-v{version}-linux-x64{suffix}"
+            matches = [asset for asset in release["assets"] if asset["name"] == name]
+            if (
+                len(matches) != 1
+                or not matches[0]["digest"].startswith("sha256:")
+                or not _hex(matches[0]["digest"][7:], 64)
+            ):
+                raise ValueError(f"mise {version} has no unique Linux x64 asset digest for {name}")
+            assets.append(matches[0])
+        if all(
+            datetime.fromisoformat(asset[key]) <= cutoff for asset in assets for key in ("created_at", "updated_at")
+        ):
             return version, assets[0]["digest"].removeprefix("sha256:")
-    raise ValueError("no mise executable was uploaded and unchanged for at least seven days")
+    raise ValueError("no mise executable and archives were uploaded and unchanged for at least seven days")
 
 
 def _update_pin(workflow: Path, step_name: str, version: str, expected_sha256: str, binary: Path) -> bool:
@@ -84,9 +108,9 @@ def _update_pin(workflow: Path, step_name: str, version: str, expected_sha256: s
         raise ValueError("workflow must be a file in .github/workflows")
     if workflow.suffix not in {".yaml", ".yml"} or workflow.is_symlink():
         raise ValueError("workflow must be a regular YAML file")
-    if not re.fullmatch(r"\d{4}\.\d{1,2}\.\d+", version):
+    if not _VERSION.fullmatch(version):
         raise ValueError("invalid mise version")
-    if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
+    if not _hex(expected_sha256, 64):
         raise ValueError("invalid mise digest")
     if binary.is_symlink() or not binary.is_file() or binary.with_name("mise-version").read_text().strip() != version:
         raise ValueError("mise-action did not install the selected version")
@@ -116,7 +140,11 @@ def _update_pin(workflow: Path, step_name: str, version: str, expected_sha256: s
         raise ValueError(f"expected one mise step named {step_name!r}; found {len(matches)}")
     step = matches[0]
     uses = _value(step, "uses")
-    if not isinstance(uses, ScalarNode) or not re.fullmatch(r"jdx/mise-action@[a-f0-9]{40}", uses.value):
+    if (
+        not isinstance(uses, ScalarNode)
+        or not uses.value.startswith("jdx/mise-action@")
+        or not _hex(uses.value.removeprefix("jdx/mise-action@"), 40)
+    ):
         raise ValueError("selected step must use one SHA-pinned jdx/mise-action")
     inputs = _value(step, "with")
     if not isinstance(inputs, MappingNode):
@@ -131,11 +159,9 @@ def _update_pin(workflow: Path, step_name: str, version: str, expected_sha256: s
         raise ValueError("selected mise step uses YAML aliases outside its own mapping")
     if any(_occurrences(root, node) != 1 for node in (inputs, *values.values()) if node is not None):
         raise ValueError("selected mise inputs are aliased elsewhere in the workflow")
-    if not all(
-        isinstance(node, ScalarNode) and node.style in (None, "'", '"') and re.fullmatch(pattern, node.value)
-        for (key, pattern), node in zip(
-            (("version", r"\d{4}\.\d{1,2}\.\d+"), ("sha256", r"[a-f0-9]{64}")), values.values(), strict=True
-        )
+    if not all(isinstance(node, ScalarNode) and node.style in (None, "'", '"') for node in values.values()) or not (
+        _VERSION.fullmatch(cast(ScalarNode, values["version"]).value)
+        and _hex(cast(ScalarNode, values["sha256"]).value, 64)
     ):
         raise ValueError("selected mise step needs one literal version and sha256")
     current = cast(ScalarNode, values["version"]).value
@@ -169,6 +195,10 @@ def _value(mapping: MappingNode, key: str) -> Node | None:
     if len(matches) > 1:
         raise ValueError(f"duplicate YAML key: {key}")
     return cast(Node, matches[0]) if matches else None
+
+
+def _hex(value: str, length: int) -> bool:
+    return len(value) == length and all(character in "0123456789abcdef" for character in value)
 
 
 def _span(node: Node) -> tuple[int, int]:
