@@ -204,6 +204,95 @@ def test_human_cannot_change_managed_pin(configs: tuple[Path, Path], check_confi
         check_config(base, proposed, False, 7, human=True)
 
 
+@pytest.mark.parametrize(
+    ("proposed_hooks", "accepted"),
+    [
+        pytest.param(
+            "      - id: second\n      - id: first\n        additional_dependencies:\n"
+            '          - "other==1.2.0" # release-creator managed\n',
+            True,
+            id="reorder-same-owner",
+        ),
+        pytest.param(
+            "      - id: first\n      - id: second\n        additional_dependencies:\n"
+            '          - "other==1.2.0" # release-creator managed\n',
+            False,
+            id="relocate-pin",
+        ),
+    ],
+)
+def test_human_managed_pin_stays_with_its_hook(
+    configs: tuple[Path, Path],
+    check_config: Callable[..., None],
+    proposed_hooks: str,
+    accepted: bool,
+) -> None:
+    base, proposed = configs
+    prefix = "repos:\n  - repo: https://example.org/hook\n    rev: old\n    hooks:\n"
+    base.write_text(
+        prefix
+        + "      - id: first\n        additional_dependencies:\n"
+        + '          - "other==1.2.0" # release-creator managed\n'
+        + "      - id: second\n"
+    )
+    proposed.write_text(prefix + proposed_hooks)
+
+    if accepted:
+        check_config(base, proposed, False, 7, human=True)
+    else:
+        with pytest.raises(ValueError, match="managed hook dependencies require the release App"):
+            check_config(base, proposed, False, 7, human=True)
+
+
+@pytest.mark.parametrize(
+    "proposal",
+    [
+        pytest.param(
+            "repos:\n  - repo: local\n    hooks:\n"
+            "      - id: a\n        name: new\n        additional_dependencies:\n"
+            '          - "other==1.2.0" # release-creator managed\n'
+            "      - id: a\n        name: original\n",
+            id="duplicate-hook",
+        ),
+        pytest.param(
+            "repos:\n  - repo: local\n    hooks:\n"
+            "      - id: a\n        name: new\n        additional_dependencies:\n"
+            '          - "other==1.2.0" # release-creator managed\n'
+            "  - repo: local\n    hooks:\n      - id: a\n        name: original\n",
+            id="duplicate-repository",
+        ),
+    ],
+)
+def test_human_cannot_relocate_managed_pin_through_duplicate_identity(
+    configs: tuple[Path, Path], check_config: Callable[..., None], proposal: str
+) -> None:
+    base, proposed = configs
+    base.write_text(
+        "repos:\n  - repo: local\n    hooks:\n"
+        "      - id: a\n        name: original\n        additional_dependencies:\n"
+        '          - "other==1.2.0" # release-creator managed\n'
+    )
+    proposed.write_text(proposal)
+
+    with pytest.raises(ValueError, match="managed hook dependencies need unique repository and hook IDs"):
+        check_config(base, proposed, False, 7, human=True)
+
+
+def test_human_bootstrap_rejects_ambiguous_hook_identity(
+    configs: tuple[Path, Path], check_config: Callable[..., None]
+) -> None:
+    base, proposed = configs
+    base.write_text("repos:\n  - repo: local\n    hooks:\n      - id: a\n")
+    proposed.write_text(
+        "repos:\n  - repo: local\n    hooks:\n"
+        '      - id: a\n        additional_dependencies:\n          - "other==1.2.0" # release-creator managed\n'
+        "      - id: a\n"
+    )
+
+    with pytest.raises(ValueError, match="managed hook dependencies need unique repository and hook IDs"):
+        check_config(base, proposed, False, 7, human=True)
+
+
 def test_human_can_bootstrap_managed_pins_from_release_migration() -> None:
     root = Path(__file__).resolve().parents[2]
     result = subprocess.run(

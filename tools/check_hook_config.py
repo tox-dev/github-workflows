@@ -61,10 +61,9 @@ def check_config(base: Path, proposed: Path, managed: bool, minimum_days: int, *
     if human:
         if not isinstance(old.get("repos"), list) or not isinstance(new.get("repos"), list):
             raise TypeError("hook repositories must be lists")
-        old_managed = Counter(item for group in _dependency_groups(base_source) for item, managed in group if managed)
-        if old_managed and old_managed != Counter(
-            item for group in _dependency_groups(proposed_source) for item, managed in group if managed
-        ):
+        old_managed = _managed_pin_locations(base_source, old)
+        new_managed = _managed_pin_locations(proposed_source, new)
+        if old_managed and old_managed != new_managed:
             raise ValueError("managed hook dependencies require the release App")
         return
     old_content = deepcopy(old)
@@ -93,6 +92,24 @@ def check_config(base: Path, proposed: Path, managed: bool, minimum_days: int, *
             if managed
             else "hook update changes fields beyond revisions"
         )
+
+
+def _managed_pin_locations(source: str, config: dict[str, object]) -> Counter[tuple[str, str, str]]:
+    groups = iter(_dependency_groups(source))
+    locations: Counter[tuple[str, str, str]] = Counter()
+    identities: set[tuple[str, str]] = set()
+    duplicate = False
+    for repository in cast("list[dict[str, object]]", config["repos"]):
+        url = cast("str", repository["repo"])
+        for hook in cast("list[dict[str, object]]", repository["hooks"]):
+            hook_id = cast("str", hook["id"])
+            if (url, hook_id) in identities:
+                duplicate = True
+            identities.add((url, hook_id))
+            locations.update((url, hook_id, item) for item, managed in next(groups) if managed)
+    if locations and duplicate:
+        raise ValueError("managed hook dependencies need unique repository and hook IDs")
+    return locations
 
 
 def _dependency_groups(source: str) -> Iterator[list[tuple[str, bool]]]:
