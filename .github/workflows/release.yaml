@@ -26,6 +26,8 @@ jobs:
           groups: release-check
           venv: .venv
       - name: Check tagged source
+        env:
+          UV_EXCLUDE_NEWER: 7 days
         run: .venv/bin/prek run --all-files
   source:
     runs-on: ubuntu-26.04

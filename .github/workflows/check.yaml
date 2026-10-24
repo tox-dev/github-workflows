@@ -38,6 +38,8 @@ jobs:
           groups: release-check
           venv: .release-tools
       - name: Check repository formatting
+        env:
+          UV_EXCLUDE_NEWER: 7 days
         run: prek run --all-files
   shell:
     runs-on: ubuntu-26.04

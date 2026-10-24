@@ -18,6 +18,21 @@ def test_prepare_workflow_calls_reusable_preparation() -> None:
     assert workflow["jobs"]["prepare"]["uses"] == "$/.github/workflows/prepare-towncrier-release.yaml"
 
 
+@pytest.mark.parametrize(
+    ("workflow", "job", "step_name"),
+    [
+        pytest.param("check.yaml", "check", "Check repository formatting", id="pull-request"),
+        pytest.param("release.yaml", "check", "Check tagged source", id="tagged-release"),
+        pytest.param("validate-python-release.yaml", "source-check", "Run tagged source checks", id="distribution"),
+        pytest.param("prepare-towncrier-release.yaml", "assemble", "Install prek hooks", id="prepare"),
+    ],
+)
+def test_release_hook_installation_has_cooldown(workflow: str, job: str, step_name: str) -> None:
+    document = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows" / workflow).read_text())
+    step = next(item for item in document["jobs"][job]["steps"] if item.get("name") == step_name)
+    assert step["env"]["UV_EXCLUDE_NEWER"] == "7 days"
+
+
 def test_prepare_jobs_transfer_the_uploaded_patch() -> None:
     workflow = yaml.safe_load(
         (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()

@@ -36,6 +36,8 @@ jobs:
           groups: release-check
           venv: ${{ runner.temp }}/release-tools
       - name: Run tagged source checks
+        env:
+          UV_EXCLUDE_NEWER: 7 days
         run: >-
           "$RUNNER_TEMP/release-tools/bin/prek" run --all-files
   constraints:
