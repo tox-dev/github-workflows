@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
 from conftest import action
 
 
@@ -28,22 +29,31 @@ def test_verify_secondary_lock_accepts_cooled_selection(tmp_path: Path, action_s
     assert result.returncode == 0, result.stderr
 
 
-def test_verify_secondary_lock_rejects_direct_source(tmp_path: Path, action_scripts: Path) -> None:
+@pytest.mark.parametrize(
+    ("action_name", "group"),
+    [
+        pytest.param("install-locked-tools", "project-runtime", id="zipapp-runtime"),
+        pytest.param("export-build-constraints", "pgo", id="profile-build"),
+    ],
+)
+def test_verify_secondary_lock_rejects_direct_source(
+    tmp_path: Path, action_scripts: Path, action_name: str, group: str
+) -> None:
     lock = tmp_path / "pylock.zipapp.toml"
     lock.write_text(
         dedent(
-            """\
+            f"""\
             lock-version = "1.0"
             requires-python = ">=3.15"
-            dependency-groups = ["project-runtime"]
+            dependency-groups = ["build", "{group}"]
             created-by = "test"
             [tool.nab]
             created-at = 2026-10-19T00:00:00Z
             [[packages]]
             name = "six"
             version = "1.16.0"
-            marker = '"project-runtime" in dependency_groups'
-            archive = { url = "https://evil.invalid/six.whl", hashes = { sha256 = "0000000000000000000000000000000000000000000000000000000000000000" } }
+            marker = '"{group}" in dependency_groups'
+            archive = {{ url = "https://evil.invalid/six.whl", hashes = {{ sha256 = "0000000000000000000000000000000000000000000000000000000000000000" }} }}
             """
         )
     )
@@ -52,11 +62,10 @@ def test_verify_secondary_lock_rejects_direct_source(tmp_path: Path, action_scri
         Path(__file__).resolve().parents[2],
         tmp_path,
         action_scripts,
-        "install-locked-tools",
+        action_name,
         version="",
-        LOCK_SOURCE="shared",
-        VERIFY_LOCK=str(lock),
-        VERIFY_GROUPS="project-runtime",
+        VERIFY_GROUPS=group,
+        **({"LOCK_SOURCE": "shared", "VERIFY_LOCK": str(lock)} if group == "project-runtime" else {"LOCK": str(lock)}),
     )
 
     assert result.returncode != 0

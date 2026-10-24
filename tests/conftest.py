@@ -608,7 +608,14 @@ def _expression(
     if " && " in expression and " || " in expression:
         condition, alternatives = expression.split(" && ", 1)
         true_value, false_value = alternatives.split(" || ", 1)
-        return (true_value if _condition(condition, environment, inputs, step_outputs) else false_value).strip("'")
+        return _expression(
+            true_value if _condition(condition, environment, inputs, step_outputs) else false_value,
+            environment,
+            inputs,
+            step_outputs,
+        )
+    if expression.startswith("'") and expression.endswith("'"):
+        return expression[1:-1]
     if " == " in expression or " != " in expression:
         return str(_condition(expression, environment, inputs, step_outputs)).lower()
     if " || " in expression:

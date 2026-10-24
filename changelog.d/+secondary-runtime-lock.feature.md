@@ -1,2 +1,2 @@
-`install-locked-tools` can verify a separate runtime lock against PyPI and the seven-day cutoff before its packages are
-bundled into a release artifact.
+`install-locked-tools` and `export-build-constraints` can verify selected groups from a separate lock against PyPI and
+the seven-day cutoff before its packages enter a release artifact.

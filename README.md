@@ -45,6 +45,9 @@ For a zipapp that bundles wheels from a separate runtime lock, check that lock i
       verify-groups: project-runtime
 ```
 
+`export-build-constraints` also accepts `verify-groups`. Pass it when its secondary lock supplies build tools outside
+the `build` group, such as profile-guided optimization tools in a `pgo` group.
+
 ## Check pull request news
 
 `validate-news` reads `tool.towncrier` from `pyproject.toml`. It checks every added or modified fragment in the

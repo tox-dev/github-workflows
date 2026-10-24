@@ -10,6 +10,9 @@ inputs:
   targets:
     description: Space-separated pairs such as 3.15.0:cpython; selected package versions must match
     default: ""
+  verify-groups:
+    description: Additional lock groups whose packages enter the release build
+    default: ""
 outputs:
   path:
     description: Path to the generated constraints for this lock selection
@@ -22,5 +25,7 @@ runs:
       with:
         lock-source: shared
         constraints-lock: ${{ inputs.lock }}
+        verify-lock: ${{ inputs.verify-groups != '' && inputs.lock || '' }}
+        verify-groups: ${{ inputs.verify-groups }}
         target-platform: ${{ inputs.target-platform }}
         targets: ${{ inputs.targets }}
