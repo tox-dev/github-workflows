@@ -99,16 +99,31 @@ def test_cooldown_skips_bot_without_hook_changes(
     ]
 
 
-def test_cooldown_trusts_its_generated_update_branch(
-    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+@pytest.mark.parametrize(
+    ("observed_days", "accepted"),
+    [pytest.param(0, False, id="new"), pytest.param(10, True, id="cooled")],
+)
+def test_cooldown_checks_generated_update_branch(
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    observed_days: int,
+    accepted: bool,
 ) -> None:
     server, environment = github_api
-    expect_pull(server, author="release-app[bot]", branch="automation/update-release-tools")
+    repository = hook_repository(tmp_path)
+    expect_pull(
+        server, author="release-app[bot]", branch="automation/update-release-tools", observed_days=observed_days
+    )
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1")
+    if not accepted:
+        expect_historical_runs(server, older_head=None)
 
     result = run_cooldown(action_scripts, tmp_path, environment)
 
-    assert result.returncode == 0, result.stderr
-    assert [request.path for request, _ in server.log] == ["/api/v3/repos/tox-dev/fixture/pulls/7"]
+    assert (result.returncode == 0) is accepted, result.stderr
+    assert len(server.log) >= 4
 
 
 def test_cooldown_rejects_hook_configuration_change(
@@ -355,11 +370,11 @@ def expect_pull(
             "updated_at": (datetime.now(UTC) - timedelta(days=updated_days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
     )
-    if author.endswith("[bot]") and branch != "automation/update-release-tools":
+    if author.endswith("[bot]"):
         server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7/files", method="GET").respond_with_json(
             [{"filename": ".pre-commit-config.yaml" if hook_update else "pyproject.toml"}]
         )
-    if author.endswith("[bot]") and hook_update and branch != "automation/update-release-tools":
+    if author.endswith("[bot]") and hook_update:
         server.expect_request(
             "/api/v3/repos/tox-dev/fixture/actions/runs",
             method="GET",
@@ -372,7 +387,7 @@ def expect_pull(
                     {
                         "event": "pull_request",
                         "head_repository": {"full_name": "tox-dev/fixture"},
-                        "head_branch": "bot-update",
+                        "head_branch": branch,
                         "head_sha": head,
                         "pull_requests": [{"number": 7}],
                         "created_at": (datetime.now(UTC) - timedelta(days=observed_days)).strftime(

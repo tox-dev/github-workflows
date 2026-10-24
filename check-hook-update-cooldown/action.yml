@@ -31,12 +31,6 @@ runs:
           .head.sha == $head and
           (.user.login | type == "string")
         ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null
-        if jq -e --arg repository "$REPOSITORY" '
-          .user.type == "Bot" and .head.repo.full_name == $repository and
-          .head.ref == "automation/update-release-tools"
-        ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null; then
-          exit 0
-        fi
         if [[ $(jq -r .user.type "$RUNNER_TEMP/hook-update-pr.json") == Bot ]]; then
           gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' \
             >"$RUNNER_TEMP/hook-update-files"
