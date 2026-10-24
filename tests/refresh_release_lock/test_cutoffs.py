@@ -76,6 +76,7 @@ def test_expire_cutoffs_removes_empty_package_table(cutoff_project: Path) -> Non
         pytest.param("2026-10-23T19:54:50Z", id="0.6.5"),
         pytest.param("2026-10-23T20:48:24Z", id="0.6.6"),
         pytest.param("2026-10-23T21:40:06Z", id="0.6.7"),
+        pytest.param("2026-10-24T06:07:46Z", id="1.0.0"),
     ],
 )
 def test_expire_cutoffs_removes_each_reviewed_release_creator_floor(reviewed: str) -> None:
@@ -340,6 +341,8 @@ def test_check_nab_lock_rejects_forged_upload_time(
         pytest.param("release-creator", "2026-10-23T20:48:25Z", False, id="extended-release-creator-0.6.6"),
         pytest.param("release-creator", "2026-10-23T21:40:06Z", True, id="reviewed-release-creator-0.6.7"),
         pytest.param("release-creator", "2026-10-23T21:40:07Z", False, id="extended-release-creator-0.6.7"),
+        pytest.param("release-creator", "2026-10-24T06:07:46Z", True, id="reviewed-release-creator-1.0.0"),
+        pytest.param("release-creator", "2026-10-24T06:07:47Z", False, id="extended-release-creator-1.0.0"),
         pytest.param("unreviewed", "2026-10-22T00:00:00Z", False, id="new-package"),
     ],
 )

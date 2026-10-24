@@ -1704,11 +1704,12 @@ sha256 = "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
 
 [[packages]]
 name = "release-creator"
-version = "0.6.7"
+version = "1.0.0"
 marker = "\"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
 requires-python = ">=3.15"
 dependencies = [
     { name = "docutils" },
+    { name = "markdown-it-py" },
     { name = "mdformat" },
     { name = "mdformat-gfm" },
     { name = "packaging" },
@@ -1718,22 +1719,22 @@ dependencies = [
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "release_creator-0.6.7.tar.gz"
-upload-time = 2026-10-23 21:40:05.750813+00:00
-url = "https://files.pythonhosted.org/packages/69/16/14ae84ee6db2cb86a72b94e3e56f1daa24fb49a69f6cfa0bdafa10e8f4c7/release_creator-0.6.7.tar.gz"
-size = 138420
+name = "release_creator-1.0.0.tar.gz"
+upload-time = 2026-10-24 06:07:45.789370+00:00
+url = "https://files.pythonhosted.org/packages/e2/92/dfc1c6e8f52d50d91a05f77f67592c2408cabd9d96079fedbe551f24530d/release_creator-1.0.0.tar.gz"
+size = 134186
 
 [packages.sdist.hashes]
-sha256 = "deb86d4bbe50906fc971a89b39217ba65e9c4fdfbacf17f6a761e7bb7a1361d9"
+sha256 = "1174e3a3fd39e9117eb9c34e3fbc58a8e32c49f5f65d01f39195231b967807f6"
 
 [[packages.wheels]]
-name = "release_creator-0.6.7-py3-none-any.whl"
-upload-time = 2026-10-23 21:40:04.474402+00:00
-url = "https://files.pythonhosted.org/packages/1a/ff/d3c78822331f7a98f0835cf531e37e5c25e4c8881139e4c1905fb7381dfa/release_creator-0.6.7-py3-none-any.whl"
-size = 48620
+name = "release_creator-1.0.0-py3-none-any.whl"
+upload-time = 2026-10-24 06:07:44.366184+00:00
+url = "https://files.pythonhosted.org/packages/6a/17/b1cd851932786f3e9e9f2187d150bc0860e04adf76cbfd45e6531715bf97/release_creator-1.0.0-py3-none-any.whl"
+size = 53396
 
 [packages.wheels.hashes]
-sha256 = "7b9ab26f3e7e26f26c18a19aa9c7bbf5b6fd64f51c28a97c40fe448969cf1b7d"
+sha256 = "613a26a0d1b0042d9dad60dfc00f3e78208d84ab9f78cec792a407b6a0a75c24"
 
 [[packages]]
 name = "requests"
@@ -2484,9 +2485,10 @@ sha256 = "4e8b4e54979b26554c72a7e669009017a7fdd3fb00bbae0b26f82a86636c289f"
 
 [tool.nab]
 nab-version = "0.0.22"
-created-at = 2026-10-23 21:41:56.960744+00:00
+created-at = 2026-10-24 06:08:31.473006+00:00
 command-line = [
     "nab",
+    "-vv",
     "lock",
     "--no-cache",
     "--groups",
@@ -2504,6 +2506,7 @@ command-line = [
     "release-hook-check",
     "--output",
     "pylock.toml",
+    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"

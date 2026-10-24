@@ -23,6 +23,7 @@ _REVIEWED_VERSIONS: Final = {
     ("release-creator", "0.6.5"): datetime(2026, 10, 23, 19, 54, 50, tzinfo=UTC),
     ("release-creator", "0.6.6"): datetime(2026, 10, 23, 20, 48, 24, tzinfo=UTC),
     ("release-creator", "0.6.7"): datetime(2026, 10, 23, 21, 40, 6, tzinfo=UTC),
+    ("release-creator", "1.0.0"): datetime(2026, 10, 24, 6, 7, 46, tzinfo=UTC),
     ("uv-build", "0.13.4"): datetime(2026, 10, 21, tzinfo=UTC),
 }
 _REVIEWED_EXCEPTIONS: Final = {
