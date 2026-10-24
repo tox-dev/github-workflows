@@ -64,7 +64,7 @@ def test_upgrade_locks_only_selected_groups(lock_repository: Path, tmp_path: Pat
     assert installed.returncode == 0, installed.stderr
     resolved = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
+        upgrade_scripts / "refresh-release-lock-5.sh",
         tmp_path,
         LOCK_GROUPS="release-check",
         MODE="refresh",
@@ -94,7 +94,7 @@ def test_upgrade_check_mode_preserves_lock_bytes(lock_repository: Path, tmp_path
     assert installed.returncode == 0, installed.stderr
     refreshed = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-3.sh",
+        upgrade_scripts / "refresh-release-lock-5.sh",
         tmp_path,
         LOCK_GROUPS="release-check",
         MODE="refresh",
@@ -138,7 +138,7 @@ def test_upgrade_preserves_deliberate_nab_hold(lock_repository: Path, tmp_path: 
         VENV=str(tmp_path / "lock-tools"),
     )
     assert installed.returncode == 0, installed.stderr
-    expired = execute(lock_repository, upgrade_scripts / "refresh-release-lock-2.sh", tmp_path)
+    expired = execute(lock_repository, upgrade_scripts / "refresh-release-lock-4.sh", tmp_path)
     assert expired.returncode == 0, expired.stderr
     assert tomllib.loads(project.read_text())["tool"]["nab"]["package-rules"][0]["uploaded-prior-to"] == (
         "2026-01-01T00:00:00Z"
@@ -158,7 +158,7 @@ def test_upgrade_emits_patch_for_allowed_change(
     (lock_repository / changed_path).write_text((lock_repository / changed_path).read_text() + "\n")
     result = execute(
         lock_repository,
-        upgrade_scripts / "refresh-release-lock-4.sh",
+        upgrade_scripts / "refresh-release-lock-8.sh",
         tmp_path,
         MODE="refresh",
         GITHUB_OUTPUT=str(tmp_path / "output"),

@@ -146,6 +146,7 @@ def test_validate_news_forwards_secondary_lock_inputs() -> None:
         pytest.param("pylock.zipapp.toml", "pylock.zipapp.toml", "true", id="selected-secondary-lock"),
         pytest.param("", "pylock.zipapp.toml", "false", id="unselected-secondary-lock"),
         pytest.param("", "nab.toml", "true", id="nab-policy"),
+        pytest.param("", "meta/pyproject.toml", "true", id="workspace-member"),
     ],
 )
 def test_validate_news_detects_release_input_change(
@@ -162,6 +163,7 @@ def test_validate_news_detects_release_input_change(
     run(repository, "git", "commit", "-m", "Add release locks")
     run(repository, "git", "push", "origin", "main")
     run(repository, "git", "checkout", "-b", "change-secondary-lock")
+    (repository / changed_path).parent.mkdir(parents=True, exist_ok=True)
     (repository / changed_path).write_text(
         "[tool.nab]\nuploaded-prior-to = false\n"
         if changed_path == "nab.toml"

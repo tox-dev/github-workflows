@@ -179,7 +179,7 @@ def test_prepare_installs_hooks_while_building_changelog() -> None:
     wait = next(step for step in steps if step.get("wait") == "hooks")
     finalize = next(step for step in steps if step.get("name") == "Finalize release patch")
     assert hooks["background"] is True
-    assert hooks["run"] == "prek install-hooks"
+    assert hooks["run"].splitlines()[-1] == "prek install-hooks"
     assert [build["with"]["phase"], finalize["with"]["phase"]] == ["build", "finalize"]
     assert steps.index(hooks) < steps.index(build) < steps.index(wait) < steps.index(finalize)
 

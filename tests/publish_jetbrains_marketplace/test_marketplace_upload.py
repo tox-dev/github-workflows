@@ -214,11 +214,242 @@ def test_prior_upload_on_another_commit_blocks_retry(
     assert result.returncode != 0
     assert "earlier Marketplace upload on commit" in result.stderr
     assert any(
-        request.path == "/api/v3/repos/tox-dev/fixture/actions/workflows/release.yaml/runs"
-        and request.query_string == b"per_page=100"
+        request.path == "/api/v3/repos/tox-dev/fixture/actions/runs"
+        and request.query_string == b"branch=v0.1.11&per_page=100"
         for request, _ in github_api[0].log
     )
     assert not httpserver.log
+
+
+def test_prior_upload_from_renamed_workflow_blocks_retry(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        previous_run=True,
+        previous_workflow="old-release.yaml",
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode != 0
+    assert "Reconcile run 41 attempt 1 manually" in result.stderr
+    assert not httpserver.log
+
+
+def test_deleted_prior_run_deployment_blocks_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        previous_deployment=True,
+        previous_deployment_job_missing=True,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode != 0
+    assert "Cannot inspect release deployment" in result.stderr
+    assert not httpserver.log
+
+
+def test_prior_contributor_deployment_blocks_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        previous_deployment=True,
+        previous_deployment_upload=False,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode != 0
+    assert "prior release deployment 70 from run 41 attempt 1" in result.stderr
+    assert not httpserver.log
+
+
+@pytest.mark.parametrize(
+    ("state", "started"),
+    [
+        pytest.param("success", "2026-10-23T00:00:00Z", id="completed"),
+        pytest.param("failure", None, id="partial"),
+    ],
+)
+def test_renamed_prior_upload_deployment_blocks_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+    state: str,
+    started: str | None,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        previous_deployment=True,
+        previous_deployment_step="Publish to Marketplace",
+        previous_deployment_started=started,
+        previous_deployment_state=state,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode != 0
+    assert "prior release deployment 70 from run 41 attempt 1" in result.stderr
+    assert not httpserver.log
+
+
+def test_new_tag_on_old_commit_can_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    httpserver.expect_request("/api/updates/upload", method="POST").respond_with_data("{}")
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        run_history=False,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(httpserver.log) == 1
+
+
+def test_previous_attempt_deployment_blocks_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        previous_deployment=True,
+        previous_deployment_run=42,
+        previous_deployment_attempt=1,
+        current_attempt=2,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode != 0
+    assert "prior release deployment" in result.stderr
+    assert not httpserver.log
+
+
+def test_moved_tag_deployment_blocks_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        previous_deployment=True,
+        previous_deployment_sha="1" * 40,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode != 0
+    assert "release deployment on another commit" in result.stderr
+    assert not httpserver.log
+
+
+def test_missing_current_publisher_deployment_blocks_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        current_deployment_upload=False,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode != 0
+    assert "needs a release environment deployment" in result.stderr
+    assert not httpserver.log
+
+
+def test_current_run_other_deployments_allow_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    httpserver.expect_request("/api/updates/upload", method="POST").respond_with_data("{}")
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        extra_current_deployment=True,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(httpserver.log) == 1
+    assert any(
+        request.path == "/api/v3/repos/tox-dev/fixture/deployments"
+        and request.query_string == b"ref=v0.1.11&environment=release&per_page=100"
+        for request, _ in github_api[0].log
+    )
 
 
 @pytest.mark.parametrize("annotated", [pytest.param(False, id="lightweight"), pytest.param(True, id="annotated")])
@@ -269,18 +500,21 @@ def test_annotated_tag_targets_release_commit(
     assert len(httpserver.log) == 1
 
 
+@pytest.mark.parametrize("previous_workflow", ["release.yaml", "old-release.yaml"])
 def test_prior_acceptance_with_matching_artifacts_skips_upload(
     signed_archive: Path,
     tmp_path: Path,
     marketplace_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     httpserver: HTTPServer,
+    previous_workflow: str,
 ) -> None:
     result = publish_action(
         tmp_path,
         marketplace_scripts,
         github_api,
         previous_run=True,
+        previous_workflow=previous_workflow,
         accepted_archive=signed_archive,
         ARCHIVE=str(signed_archive),
         SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
@@ -391,6 +625,20 @@ def publish_action(
     previous_run: bool = False,
     previous_commit: str = "0" * 40,
     previous_step: str = "Publish signed ZIP",
+    previous_workflow: str = "release.yaml",
+    previous_deployment: bool = False,
+    previous_deployment_run: int = 41,
+    previous_deployment_attempt: int = 1,
+    previous_deployment_upload: bool = True,
+    previous_deployment_step: str = "Publish signed ZIP",
+    previous_deployment_started: str | None = "2026-10-23T00:00:00Z",
+    previous_deployment_state: str = "success",
+    previous_deployment_sha: str = "0" * 40,
+    previous_deployment_job_missing: bool = False,
+    extra_current_deployment: bool = False,
+    current_deployment_upload: bool = True,
+    current_attempt: int = 1,
+    run_history: bool = True,
     accepted_archive: Path | None = None,
     missing_receipt: bool = False,
     receipt_changes: dict[str, str | int] | None = None,
@@ -408,15 +656,70 @@ def publish_action(
         server.expect_request(f"/api/v3/repos/tox-dev/fixture/git/tags/{'f' * 40}").respond_with_json(
             {"object": {"type": "commit", "sha": remote_commit}}
         )
-    server.expect_request("/api/v3/repos/tox-dev/fixture/actions/workflows/release.yaml/runs").respond_with_json(
-        {
-            "workflow_runs": [
-                {"id": 41, "head_branch": "v0.1.11", "head_sha": previous_commit},
-            ]
-            if previous_run
-            else []
-        }
+    runs = (
+        [
+            {
+                "id": 40,
+                "head_branch": "main",
+                "head_sha": "2" * 40,
+                "path": ".github/workflows/check.yaml",
+            }
+        ]
+        if run_history
+        else []
     )
+    if previous_run:
+        runs.append(
+            {
+                "id": 41,
+                "head_branch": "v0.1.11",
+                "head_sha": previous_commit,
+                "path": f".github/workflows/{previous_workflow}",
+            }
+        )
+    server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs").respond_with_json({"workflow_runs": runs})
+    deployments = [{"id": 71, "sha": "0" * 40}]
+    if extra_current_deployment:
+        deployments.append({"id": 72, "sha": "0" * 40})
+    if previous_deployment:
+        deployments.append({"id": 70, "sha": previous_deployment_sha})
+    server.expect_request("/api/v3/repos/tox-dev/fixture/deployments").respond_with_json(deployments)
+    for deployment in deployments:
+        deployment_id = int(deployment["id"])
+        prior = deployment_id == 70
+        run_id = previous_deployment_run if prior else 42
+        attempt = previous_deployment_attempt if prior else current_attempt
+        job_id = deployment_id + 100
+        server.expect_request(f"/api/v3/repos/tox-dev/fixture/deployments/{deployment_id}/statuses").respond_with_json(
+            [
+                {
+                    "log_url": f"https://github.com/tox-dev/fixture/actions/runs/{run_id}/job/{job_id}",
+                    "state": previous_deployment_state if prior else "in_progress",
+                }
+            ]
+        )
+        job_request = server.expect_request(f"/api/v3/repos/tox-dev/fixture/actions/jobs/{job_id}")
+        if prior and previous_deployment_job_missing:
+            job_request.respond_with_data("deleted", status=404)
+        else:
+            job_request.respond_with_json(
+                {
+                    "run_id": run_id,
+                    "run_attempt": attempt,
+                    "steps": [
+                        {
+                            "name": (
+                                previous_deployment_step
+                                if prior and previous_deployment_upload
+                                else "Publish signed ZIP"
+                                if current_deployment_upload and not prior
+                                else "Generate contributors"
+                            ),
+                            "started_at": previous_deployment_started if prior else "2026-10-23T00:00:00Z",
+                        }
+                    ],
+                }
+            )
     if previous_run:
         server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/41/jobs").respond_with_json(
             {"jobs": [{"run_attempt": 1, "steps": [{"name": previous_step, "started_at": "2026-10-23T00:00:00Z"}]}]}
@@ -427,7 +730,10 @@ def publish_action(
                     "id": artifact_id,
                     "name": artifact_name,
                     "expired": False,
-                    "archive_download_url": f"https://localhost:{server.port}/api/v3/repos/tox-dev/fixture/actions/artifacts/{artifact_id}/zip",
+                    "archive_download_url": (
+                        f"https://localhost:{server.port}/api/v3/repos/tox-dev/fixture/actions/"
+                        f"artifacts/{artifact_id}/zip"
+                    ),
                 }
                 for artifact_id, artifact_name in (
                     (61, "marketplace-acceptance-41-1"),
@@ -487,9 +793,10 @@ def publish_action(
         NOTES_ARTIFACT_ID="52",
         NOTES_FILE=str(notes_file),
         GITHUB_REF="refs/tags/v0.1.11",
+        GITHUB_SERVER_URL="https://github.com",
         GITHUB_WORKFLOW_REF="tox-dev/fixture/.github/workflows/release.yaml@refs/tags/v0.1.11",
         GITHUB_RUN_ID="42",
-        GITHUB_RUN_ATTEMPT="1",
+        GITHUB_RUN_ATTEMPT=str(current_attempt),
         **environment,
         **settings,
     )

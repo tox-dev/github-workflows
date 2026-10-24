@@ -108,10 +108,8 @@ def _selected_build(
     selected: dict[str, tuple[Version, set[str]]] = {}
     for index, lock in enumerate(locks):
         if "build" not in (lock.dependency_groups or ()):
-            if len(locks) == 2:
+            if (lock.dependency_groups is not None and len(lock.dependency_groups) > 0) or len(locks) == 2:
                 continue
-            if lock.dependency_groups:
-                raise ValueError("custom lock has dependency groups but no build group")
             groups: set[str] = set()
         else:
             groups = {"build"}
@@ -122,7 +120,7 @@ def _selected_build(
                 {
                     tag
                     for package in lock.packages
-                    for wheel in package.wheels or ()
+                    for wheel in (package.wheels if package.wheels is not None else ())
                     for tag in parse_wheel_filename(wheel.filename)[3]
                 },
                 key=str,

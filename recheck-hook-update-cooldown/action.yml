@@ -1,5 +1,5 @@
 name: Recheck cooled hook updates
-description: Recheck failed bot hook-update cooldown jobs each day
+description: Recheck failed hook-update cooldown jobs each day
 inputs:
   workflow:
     description: Workflow file containing the hook cooldown job
@@ -18,9 +18,8 @@ runs:
         set -euo pipefail
         gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" |
           jq -c --arg repository "$GITHUB_REPOSITORY" '
-            .[] | select(.user.type == "Bot" and
-              .head.repo.full_name == $repository and .base.repo.full_name == $repository) |
-            {number, head: .head.sha, branch: .head.ref}
+            .[] | select(.head.repo.full_name != null and .base.repo.full_name == $repository) |
+            {number, head: .head.sha, branch: .head.ref, headRepository: .head.repo.full_name}
           ' >"$RUNNER_TEMP/hook-pulls.jsonl"
     - name: Rerun the failed hook checks
       shell: bash
@@ -40,9 +39,10 @@ runs:
           fi
           head=$(jq -r .head <<<"$pull")
           branch=$(jq -r .branch <<<"$pull")
+          head_repository=$(jq -r .headRepository <<<"$pull")
           runs=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs" \
             -f event=pull_request -f head_sha="$head" -f per_page=100 |
-            jq -sc --arg repository "$GITHUB_REPOSITORY" --arg branch "$branch" --arg head "$head" \
+            jq -sc --arg repository "$head_repository" --arg branch "$branch" --arg head "$head" \
               --argjson number "$number" '
               [.[].workflow_runs[] | select(
                 .event == "pull_request" and .head_repository.full_name == $repository and

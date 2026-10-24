@@ -24,6 +24,7 @@ _REVIEWED_VERSIONS: Final = {
     ("release-creator", "0.6.6"): datetime(2026, 10, 23, 20, 48, 24, tzinfo=UTC),
     ("release-creator", "0.6.7"): datetime(2026, 10, 23, 21, 40, 6, tzinfo=UTC),
     ("release-creator", "1.0.0"): datetime(2026, 10, 24, 6, 7, 46, tzinfo=UTC),
+    ("release-creator", "1.1.0"): datetime(2026, 10, 24, 9, 8, 40, tzinfo=UTC),
     ("uv-build", "0.13.4"): datetime(2026, 10, 21, tzinfo=UTC),
 }
 _REVIEWED_EXCEPTIONS: Final = {
@@ -65,15 +66,28 @@ def validate_recent_cutoffs(project: str, threshold: datetime) -> None:
             if int(match["days"]) < _MINIMUM_DAYS:
                 raise ValueError(f"Nab cutoff for {name} weakens the seven-day policy: {value}")
             continue
-        if isinstance(value, bool):
-            raise TypeError(f"invalid Nab cutoff for {name}: {value}")
-        timestamp = datetime.fromisoformat(value) if isinstance(value, str) else value
-        if timestamp.tzinfo is None:
-            raise ValueError(f"Nab package cutoff has no timezone: {value}")
+        timestamp = _timestamp(name, value)
         if timestamp > threshold and timestamp not in {
             reviewed for (package, _), reviewed in _REVIEWED_VERSIONS.items() if package == name
         }:
             raise ValueError(f"unreviewed recent Nab cutoff for {name}: {timestamp.isoformat()}")
+
+
+def validate_release_creator_cutoffs(project: str, threshold: datetime) -> None:
+    config = tomllib.loads(project)["tool"]["release-creator"].get("locks", {})
+    if set(config) - {"exclude-newer-package"}:
+        raise ValueError("release-creator lock policy must contain only exclude-newer-package")
+    overrides = config.get("exclude-newer-package", {})
+    if not isinstance(overrides, dict):
+        raise TypeError("release-creator package cutoffs must be a table")
+    for name, value in overrides.items():
+        if not isinstance(value, str):
+            raise TypeError(f"invalid release-creator cutoff for {name}: {value}")
+        timestamp = _timestamp(name, value)
+        if timestamp > threshold and timestamp not in {
+            reviewed for (package, _), reviewed in _REVIEWED_VERSIONS.items() if package == name
+        }:
+            raise ValueError(f"unreviewed recent release-creator cutoff for {name}: {timestamp.isoformat()}")
 
 
 def validate_indexes(nab: dict) -> None:
@@ -94,6 +108,36 @@ def remove_expired_cutoffs(project: str, threshold: datetime) -> str:
     document = tomlkit.parse(project)
     remove_cutoffs(document["tool"]["nab"], names, positions)
     return tomlkit.dumps(document)
+
+
+def remove_expired_release_creator_cutoffs(project: str, threshold: datetime) -> str:
+    import tomlkit
+
+    names = expired_release_creator_cutoffs(project, threshold)
+    if not names:
+        return project
+    document = tomlkit.parse(project)
+    remove_release_creator_cutoffs(document["tool"]["release-creator"]["locks"], names)
+    return tomlkit.dumps(document)
+
+
+def remove_release_creator_cutoffs(locks: dict, names: set[str]) -> None:
+    for name in names:
+        del locks["exclude-newer-package"][name]
+    if not locks["exclude-newer-package"]:
+        del locks["exclude-newer-package"]
+
+
+def expired_release_creator_cutoffs(project: str, threshold: datetime) -> set[str]:
+    overrides = tomllib.loads(project)["tool"]["release-creator"].get("locks", {}).get("exclude-newer-package", {})
+    return {
+        name
+        for name, value in overrides.items()
+        if name in _REVIEWED_EXCEPTIONS
+        and _timestamp(name, value)
+        in {reviewed for (package, _), reviewed in _REVIEWED_VERSIONS.items() if package == name}
+        and _timestamp(name, value) <= threshold
+    }
 
 
 def remove_cutoffs(nab: dict, names: set[str], positions: set[int]) -> None:
@@ -142,19 +186,28 @@ def expired_cutoffs(project: str, threshold: datetime) -> tuple[set[str], set[in
 def _expired(value: str | datetime | bool, threshold: datetime, reviewed: set[datetime]) -> bool:
     if value is False or isinstance(value, str) and _DURATION.fullmatch(value) is not None:
         return False
-    if isinstance(value, bool):
-        raise TypeError(f"invalid Nab cutoff: {value}")
+    timestamp = _timestamp("Nab", value)
+    return timestamp in reviewed and timestamp <= threshold
+
+
+def _timestamp(name: str, value: str | datetime | bool) -> datetime:
+    if not isinstance(value, str | datetime) or isinstance(value, bool):
+        raise TypeError(f"invalid cutoff for {name}: {value}")
     timestamp = datetime.fromisoformat(value) if isinstance(value, str) else value
     if timestamp.tzinfo is None:
-        raise ValueError(f"Nab package cutoff has no timezone: {value}")
-    return timestamp in reviewed and timestamp <= threshold
+        raise ValueError(f"cutoff for {name} has no timezone: {value}")
+    return timestamp
 
 
 __all__ = [
     "expired_cutoffs",
+    "expired_release_creator_cutoffs",
     "remove_cutoffs",
     "remove_expired_cutoffs",
+    "remove_expired_release_creator_cutoffs",
+    "remove_release_creator_cutoffs",
     "reviewed_cutoff",
     "validate_indexes",
     "validate_recent_cutoffs",
+    "validate_release_creator_cutoffs",
 ]

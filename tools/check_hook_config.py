@@ -1,4 +1,4 @@
-"""Check the hook changes allowed in a bot pull request."""
+"""Check the hook changes allowed in a pull request."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import argparse
 import json
 import re
 import ssl
+from collections import Counter
 from collections.abc import Iterator
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -37,15 +38,16 @@ def main() -> None:
     parser.add_argument("base", type=Path)
     parser.add_argument("proposed", type=Path)
     parser.add_argument("--managed", choices=("true", "false", ""), default="")
+    parser.add_argument("--human", choices=("true", "false", ""), default="")
     parser.add_argument("--minimum-days", type=int, default=7)
     args = parser.parse_args()
     try:
-        check_config(args.base, args.proposed, args.managed == "true", args.minimum_days)
+        check_config(args.base, args.proposed, args.managed == "true", args.minimum_days, human=args.human == "true")
     except (InvalidRequirement, KeyError, OSError, TypeError, ValueError, YAMLError) as error:
         parser.error(str(error))
 
 
-def check_config(base: Path, proposed: Path, managed: bool, minimum_days: int) -> None:
+def check_config(base: Path, proposed: Path, managed: bool, minimum_days: int, *, human: bool = False) -> None:
     if minimum_days < 7:
         raise ValueError("hook cooldown must be at least seven days")
     base_source = base.read_text(encoding="utf-8")
@@ -56,6 +58,14 @@ def check_config(base: Path, proposed: Path, managed: bool, minimum_days: int) -
     new = safe_load(proposed_source)
     if not isinstance(old, dict) or not isinstance(new, dict):
         raise TypeError("hook configuration must be a mapping")
+    if human:
+        if not isinstance(old.get("repos"), list) or not isinstance(new.get("repos"), list):
+            raise TypeError("hook repositories must be lists")
+        if Counter(item for group in _dependency_groups(base_source) for item, managed in group if managed) != Counter(
+            item for group in _dependency_groups(proposed_source) for item, managed in group if managed
+        ):
+            raise ValueError("managed hook dependencies require the release App")
+        return
     old_content = deepcopy(old)
     new_content = deepcopy(new)
     old_repos = old_content.get("repos")
@@ -152,20 +162,22 @@ def _check_dependency_group(old: list[tuple[str, bool]], new: list[tuple[str, bo
         ):
             raise ValueError("hook update changes direct dependencies beyond an exact pin")
         _check_pypi(new_requirement, minimum_days)
-    previous_managed = {_requirement_key(Requirement(item)) for item, marked in old if marked}
-    proposed_managed = {_requirement_key(Requirement(item)) for item, marked in new if marked}
-    if previous_managed - proposed_managed:
-        raise ValueError("hook update removes managed dependencies")
-    names = [canonicalize_name(Requirement(item).name) for item, _ in new]
-    if len(names) != len(set(names)):
+    direct_requirements = [Requirement(item) for item in new_direct]
+    direct_names = [canonicalize_name(requirement.name) for requirement in direct_requirements]
+    managed_names = [canonicalize_name(Requirement(item).name) for item, marked in new if marked]
+    managed_set = set(managed_names)
+    if (
+        len(direct_names) != len(set(direct_names))
+        or len(managed_names) != len(managed_set)
+        or any(
+            canonicalize_name(requirement.name) in managed_set and _exact(requirement)
+            for requirement in direct_requirements
+        )
+    ):
         raise ValueError("hook update duplicates a dependency")
     for item, marked in new:
         if marked and item not in {previous for previous, old_marked in old if old_marked}:
             _check_pypi(Requirement(item), minimum_days)
-
-
-def _requirement_key(requirement: Requirement) -> tuple[str, frozenset[str], str]:
-    return canonicalize_name(requirement.name), frozenset(requirement.extras), str(requirement.marker)
 
 
 def _exact(requirement: Requirement) -> bool:

@@ -91,6 +91,43 @@ def test_lock_metadata_matches_pypi(
     assert context.call_args.kwargs == {"cafile": certifi.where()}
 
 
+@pytest.mark.parametrize(
+    ("producer", "uploaded", "accepted"),
+    [
+        pytest.param("release-creator (uv)", "2021-05-05T14:18:17Z", True, id="uv-whole-second"),
+        pytest.param("release-creator (uv)", "2021-05-05T14:18:16Z", False, id="uv-earlier-second"),
+        pytest.param("test", "2021-05-05T14:18:17Z", False, id="nab-needs-fraction"),
+    ],
+)
+def test_lock_metadata_checks_producer_timestamp_precision(
+    lock_case: tuple[Path, Path],
+    pypi_listing: _PyPIListing,
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    producer: str,
+    uploaded: str,
+    accepted: bool,
+) -> None:
+    lock = lock_case[0]
+    text = lock.read_text().replace('created-by = "test"', f'created-by = "{producer}"')
+    if producer == "release-creator (uv)":
+        text = text.replace("[tool.nab]", "[tool.release-creator]")
+    lock.write_text(text.replace("2021-05-05T14:18:17.237677Z", uploaded))
+    request = mocker.patch(
+        "urllib.request.urlopen", side_effect=lambda *_args, **_kwargs: BytesIO(json.dumps(pypi_listing).encode())
+    )
+    mocker.patch("time.sleep")
+
+    if accepted:
+        _run_check(lock_case, monkeypatch, "--verify-pypi")
+        assert request.call_count == 1
+    else:
+        with pytest.raises(SystemExit, match="2"):
+            _run_check(lock_case, monkeypatch, "--verify-pypi")
+        assert "release lock differs from PyPI metadata" in capsys.readouterr().err
+
+
 def test_lock_metadata_rejects_yanked_artifact(
     lock_case: tuple[Path, Path],
     pypi_listing: _PyPIListing,
@@ -374,6 +411,22 @@ def test_lock_metadata_checks_nested_group_marker(
             "marker = '\"release-check\" in dependency_groups'",
             'marker = \'("release-check" in dependency_groups and sys_platform == "win32") or "test" in dependency_groups\'',
         )
+        .replace("files.pythonhosted.org", "evil.invalid")
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--project", str(lock_case[1]))
+
+    assert "non-PyPI artifact" in capsys.readouterr().err
+
+
+def test_lock_metadata_checks_package_excluding_extras(
+    lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lock = lock_case[0]
+    lock.write_text(
+        lock.read_text()
+        .replace("marker = '\"release-check\" in dependency_groups'", "marker = '\"web\" not in extras'")
         .replace("files.pythonhosted.org", "evil.invalid")
     )
 

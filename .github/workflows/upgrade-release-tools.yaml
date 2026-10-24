@@ -3,8 +3,8 @@ on:
   workflow_call:
     inputs:
       lock-groups:
-        description: Release dependency groups selected by the universal lock
-        required: true
+        description: Legacy Nab dependency groups; ignored for full project locks
+        default: ""
         type: string
       additional-lock:
         description: Optional secondary pylock basename for a separate build matrix

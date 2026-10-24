@@ -33,12 +33,12 @@ def _response(name: str, pypi_file: dict[str, object]) -> BytesIO:
 
 
 @pytest.fixture
-def check_config(mocker: MockerFixture, pypi_request: MagicMock) -> Callable[[Path, Path, bool, int], None]:
+def check_config(mocker: MockerFixture, pypi_request: MagicMock) -> Callable[..., None]:
     namespace = runpy.run_path(
         str(Path(__file__).resolve().parents[2] / "tools/check_hook_config.py"), run_name="check_hook_config"
     )
     mocker.patch.dict(namespace["check_config"].__globals__, {"urlopen": pypi_request})
-    return cast("Callable[[Path, Path, bool, int], None]", namespace["check_config"])
+    return cast("Callable[..., None]", namespace["check_config"])
 
 
 @pytest.fixture
@@ -104,6 +104,27 @@ def test_app_update_accepts_cooled_managed_pin(
     assert pypi_request.call_args.args[0].full_url == "https://pypi.org/pypi/other/1.2.0/json"
 
 
+def test_app_update_allows_removed_managed_pin_with_cooled_direct_change(
+    configs: tuple[Path, Path], check_config: Callable[..., None], pypi_request: MagicMock
+) -> None:
+    base, proposed = configs
+    base.write_text(
+        base.read_text().replace(
+            "          - example==1.0.0\n",
+            '          - example==1.0.0\n          - "other==1.0.0" # release-creator managed\n',
+        )
+    )
+    proposed.write_text(
+        base.read_text()
+        .replace("example==1.0.0", "example==1.2.0")
+        .replace('          - "other==1.0.0" # release-creator managed\n', "")
+    )
+
+    check_config(base, proposed, True, 7)
+
+    assert pypi_request.call_args.args[0].full_url == "https://pypi.org/pypi/example/1.2.0/json"
+
+
 @pytest.mark.parametrize(
     ("replacement", "message"),
     [
@@ -130,6 +151,57 @@ def test_other_bot_cannot_change_pin(configs: tuple[Path, Path], check_config: C
         check_config(base, proposed, False, 7)
 
 
+@pytest.mark.parametrize("human", [pytest.param(True, id="human"), pytest.param(False, id="bot")])
+def test_hook_config_allows_human_to_add_repository_and_options(
+    configs: tuple[Path, Path], check_config: Callable[..., None], human: bool
+) -> None:
+    base, proposed = configs
+    proposed.write_text(
+        base.read_text()
+        + "  - repo: https://example.org/another-hook\n    rev: 0123456789012345678901234567890123456789\n"
+        + "    hooks:\n      - id: another\n        args: [--strict]\n"
+    )
+
+    if human:
+        check_config(base, proposed, False, 7, human=True)
+    else:
+        with pytest.raises(ValueError, match="beyond revisions"):
+            check_config(base, proposed, False, 7)
+
+
+def test_hook_config_rejects_duplicate_keys_in_human_change(
+    configs: tuple[Path, Path], check_config: Callable[..., None]
+) -> None:
+    base, proposed = configs
+    proposed.write_text(base.read_text().replace("    rev: old\n", "    rev: old\n    rev: new\n"))
+
+    with pytest.raises(ValueError, match="duplicate mapping keys"):
+        check_config(base, proposed, False, 7, human=True)
+
+
+def test_hook_config_rejects_human_change_without_repositories(
+    configs: tuple[Path, Path], check_config: Callable[..., None]
+) -> None:
+    base, proposed = configs
+    proposed.write_text("repos: null\n")
+
+    with pytest.raises(TypeError, match="hook repositories must be lists"):
+        check_config(base, proposed, False, 7, human=True)
+
+
+def test_human_cannot_change_managed_pin(configs: tuple[Path, Path], check_config: Callable[..., None]) -> None:
+    base, proposed = configs
+    base.write_text(
+        base.read_text().replace(
+            "          - example==1.0.0\n", '          - "example==1.0.0" # release-creator managed\n'
+        )
+    )
+    proposed.write_text(base.read_text().replace("example==1.0.0", "example==1.2.0"))
+
+    with pytest.raises(ValueError, match="managed hook dependencies require the release App"):
+        check_config(base, proposed, False, 7, human=True)
+
+
 def test_app_update_keeps_direct_range(
     configs: tuple[Path, Path], check_config: Callable[..., None], pypi_file: dict[str, object], pypi_request: MagicMock
 ) -> None:
@@ -146,18 +218,28 @@ def test_app_update_keeps_direct_range(
     assert pypi_request.call_args.args[0].full_url == "https://pypi.org/pypi/other/1.2.0/json"
 
 
-def test_app_update_rejects_managed_pin_removal(configs: tuple[Path, Path], check_config: Callable[..., None]) -> None:
+@pytest.mark.parametrize(
+    "marker",
+    [
+        pytest.param('python_version >= "3.15"', id="active"),
+        pytest.param('python_version < "3.15"', id="inactive"),
+    ],
+)
+def test_app_update_accepts_managed_pin_for_ranged_direct_root(
+    configs: tuple[Path, Path], check_config: Callable[..., None], pypi_request: MagicMock, marker: str
+) -> None:
     base, proposed = configs
-    base.write_text(
+    base.write_text(base.read_text().replace("example==1.0.0", f"example>=1; {marker}"))
+    proposed.write_text(
         base.read_text().replace(
-            "          - example==1.0.0\n",
-            '          - example==1.0.0\n          - "other==1.0.0" # release-creator managed\n',
+            f"          - example>=1; {marker}\n",
+            f"          - example>=1; {marker}\n          - 'example==1.2.0; {marker}' # release-creator managed\n",
         )
     )
-    proposed.write_text(configs[0].read_text().replace('          - "other==1.0.0" # release-creator managed\n', ""))
 
-    with pytest.raises(ValueError, match="removes managed dependencies"):
-        check_config(base, proposed, True, 7)
+    check_config(base, proposed, True, 7)
+
+    assert pypi_request.call_args.args[0].full_url == "https://pypi.org/pypi/example/1.2.0/json"
 
 
 def test_app_update_accepts_managed_pin_refresh(

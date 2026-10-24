@@ -43,8 +43,13 @@ def test_recheck_schedule_has_only_required_permissions() -> None:
     ],
 )
 @pytest.mark.parametrize(
-    "bot_login",
-    [pytest.param("pre-commit-ci[bot]", id="pre-commit-ci"), pytest.param("release-app[bot]", id="app")],
+    ("login", "author_type", "head_repository"),
+    [
+        pytest.param("pre-commit-ci[bot]", "Bot", "tox-dev/fixture", id="pre-commit-ci"),
+        pytest.param("release-app[bot]", "Bot", "tox-dev/fixture", id="app"),
+        pytest.param("gaborbernat", "User", "tox-dev/fixture", id="human"),
+        pytest.param("gaborbernat", "User", "gaborbernat/fixture", id="human-fork"),
+    ],
 )
 def test_recheck_reruns_failed_job(
     github_api: tuple[HTTPServer, dict[str, str]],
@@ -57,7 +62,9 @@ def test_recheck_reruns_failed_job(
     configured_job: str,
     workflow: str,
     reruns: int,
-    bot_login: str,
+    login: str,
+    author_type: str,
+    head_repository: str,
 ) -> None:
     server, environment = github_api
     observed_at = (datetime.now(UTC) - timedelta(days=observed_age)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -65,11 +72,11 @@ def test_recheck_reruns_failed_job(
         [
             {
                 "number": 7,
-                "user": {"login": bot_login, "type": "Bot"},
+                "user": {"login": login, "type": author_type},
                 "head": {
                     "sha": "a" * 40,
                     "ref": "pre-commit-ci-update-config",
-                    "repo": {"full_name": "tox-dev/fixture"},
+                    "repo": {"full_name": head_repository},
                 },
                 "base": {"repo": {"full_name": "tox-dev/fixture"}},
                 "updated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -87,7 +94,7 @@ def test_recheck_reruns_failed_job(
                 {
                     "id": 42,
                     "event": "pull_request",
-                    "head_repository": {"full_name": "tox-dev/fixture"},
+                    "head_repository": {"full_name": head_repository},
                     "head_sha": "a" * 40,
                     "head_branch": "pre-commit-ci-update-config",
                     "pull_requests": [{"number": 7}],

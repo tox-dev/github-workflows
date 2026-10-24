@@ -30,6 +30,41 @@ def test_export_build_constraints_uses_checked_in_locks(tmp_path: Path, action_s
     assert output == next(tmp_path.glob("build-constraints-*.txt"))
 
 
+def test_export_build_constraints_accepts_tool_only_project_without_build_group(
+    tmp_path: Path, action_scripts: Path
+) -> None:
+    source = Path(__file__).resolve().parents[2]
+    (tmp_path / "pyproject.toml").write_bytes((source / "pyproject.toml").read_bytes())
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    document["dependency-groups"].remove("build")
+    (tmp_path / "pylock.toml").write_text(tomlkit.dumps(document))
+    outputs: dict[str, str] = {}
+
+    result = action(tmp_path, tmp_path, action_scripts, "export-build-constraints", outputs, version="")
+
+    assert result.returncode == 0, result.stderr
+    assert "setuptools==" in Path(outputs["path"]).read_text()
+
+
+def test_export_build_constraints_writes_empty_file_without_build_selection(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    document["dependency-groups"].remove("build")
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(tomlkit.dumps(document))
+    output = tmp_path / "constraints.txt"
+
+    result = subprocess.run(
+        [sys.executable, str(source / "tools/build_constraints.py"), str(output), str(lock)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == ""
+
+
 @pytest.mark.parametrize(
     "platform",
     [
@@ -75,9 +110,7 @@ def test_export_build_constraints_prefers_compatible_caller_build_pin(
             current = package["version"]
             package["version"] = version
             for wheel in package["wheels"]:
-                wheel["name"] = wheel["name"].replace(current, version)
                 wheel["url"] = wheel["url"].replace(current, version)
-            package["sdist"]["name"] = package["sdist"]["name"].replace(current, version)
             package["sdist"]["url"] = package["sdist"]["url"].replace(current, version)
     caller.write_text(tomlkit.dumps(document))
     output = tmp_path / "constraints.txt"
@@ -183,7 +216,6 @@ def test_export_build_constraints_rejects_invalid_arguments(
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        pytest.param("missing-build-group", "dependency groups but no build group", id="missing-build-group"),
         pytest.param("local-package", "must be an index version", id="local-package"),
         pytest.param("missing-hash", "has no SHA256 hash", id="missing-hash"),
     ],
@@ -193,9 +225,7 @@ def test_export_build_constraints_rejects_untrusted_build_packages(tmp_path: Pat
     lock = tmp_path / "pylock.build.toml"
     write_matrix_lock(lock)
     content = lock.read_text()
-    if change == "missing-build-group":
-        content = content.replace("[[packages]]", 'dependency-groups = ["release"]\n[[packages]]')
-    elif change == "local-package":
+    if change == "local-package":
         content = content.replace('index = "https://pypi.org/simple/"', 'directory = { path = "." }')
         content = content.replace("[[packages.wheels]]", "")
         content = (
@@ -235,7 +265,6 @@ def test_export_build_constraints_rejects_conflicting_versions_without_policy(tm
     current = package["version"]
     package["version"] = "81.0.0"
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = artifact["name"].replace(current, "81.0.0")
         artifact["url"] = artifact["url"].replace(current, "81.0.0")
     caller.write_text(tomlkit.dumps(document))
 

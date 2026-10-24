@@ -352,7 +352,7 @@ def test_verify_files_retries_transient_listing_failure(
 def test_verify_files_retries_response_read_failure(
     distribution: Path, mocker: MockerFixture, failure: TimeoutError | IncompleteRead
 ) -> None:
-    response = mocker.MagicMock()
+    response = mocker.create_autospec(io.BytesIO, instance=True)
     response.__enter__.return_value.read.side_effect = failure
     mocker.patch.object(_MODULE, "urlopen", side_effect=[response, _body(_listing(distribution))])
     mocker.patch.object(_MODULE.time, "sleep")

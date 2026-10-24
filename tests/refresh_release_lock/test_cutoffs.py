@@ -8,6 +8,7 @@ import tomllib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import FunctionType
 from typing import cast
 
 import pytest
@@ -16,7 +17,11 @@ from pytest_mock import MockerFixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tools.check_nab_lock import main as check_nab_lock
-from tools.nab_cutoffs import remove_expired_cutoffs
+from tools.nab_cutoffs import (
+    remove_expired_cutoffs,
+    remove_expired_release_creator_cutoffs,
+    validate_release_creator_cutoffs,
+)
 
 
 @pytest.fixture
@@ -77,6 +82,7 @@ def test_expire_cutoffs_removes_empty_package_table(cutoff_project: Path) -> Non
         pytest.param("2026-10-23T20:48:24Z", id="0.6.6"),
         pytest.param("2026-10-23T21:40:06Z", id="0.6.7"),
         pytest.param("2026-10-24T06:07:46Z", id="1.0.0"),
+        pytest.param("2026-10-24T09:08:40Z", id="1.1.0"),
     ],
 )
 def test_expire_cutoffs_removes_each_reviewed_release_creator_floor(reviewed: str) -> None:
@@ -117,6 +123,85 @@ def test_expire_cutoffs_accepts_toml_datetime(cutoff_project: Path) -> None:
     updated = remove_expired_cutoffs(cutoff_project.read_text(), datetime(2026, 11, 1, tzinfo=UTC))
 
     assert "nab" not in tomllib.loads(updated)["tool"]["nab"]["packages"]
+
+
+@pytest.mark.parametrize(
+    ("cutoff", "accepted"),
+    [
+        pytest.param("2026-10-24T09:08:40Z", True, id="reviewed"),
+        pytest.param("2026-10-24T09:08:41Z", False, id="unreviewed"),
+    ],
+)
+def test_release_creator_cutoffs_require_review(cutoff: str, accepted: bool) -> None:
+    project = f'[tool.release-creator.locks.exclude-newer-package]\nrelease-creator = "{cutoff}"\n'
+
+    if accepted:
+        validate_release_creator_cutoffs(project, datetime(2026, 10, 17, tzinfo=UTC))
+    else:
+        with pytest.raises(ValueError, match="unreviewed recent release-creator cutoff"):
+            validate_release_creator_cutoffs(project, datetime(2026, 10, 17, tzinfo=UTC))
+
+
+@pytest.mark.parametrize(
+    ("project_text", "accepted"),
+    [
+        pytest.param("[tool.release-creator.locks]\n", True, id="release-creator-only"),
+        pytest.param("[tool.other]\n", False, id="no-policy"),
+    ],
+)
+def test_recent_cutoff_cli_checks_project_provider(tmp_path: Path, project_text: str, accepted: bool) -> None:
+    project = tmp_path / "pyproject.toml"
+    project.write_text(project_text)
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parents[2] / "tools/check_recent_cutoffs.py"), str(project)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert (result.returncode == 0) is accepted
+    if not accepted:
+        assert "project has no lock cutoff policy" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("locks", "error"),
+    [
+        pytest.param("unexpected = true", ValueError, id="unknown-setting"),
+        pytest.param('exclude-newer-package = "recent"', TypeError, id="non-table"),
+        pytest.param("[tool.release-creator.locks.exclude-newer-package]\nexample = false", TypeError, id="non-time"),
+    ],
+)
+def test_release_creator_cutoffs_reject_invalid_policy(locks: str, error: type[Exception]) -> None:
+    with pytest.raises(error):
+        validate_release_creator_cutoffs(f"[tool.release-creator.locks]\n{locks}\n", datetime(2026, 10, 17, tzinfo=UTC))
+
+
+def test_expire_release_creator_cutoff_keeps_deliberate_hold() -> None:
+    project = (
+        "[tool.release-creator.locks.exclude-newer-package]\n"
+        'release-creator = "2026-10-24T06:07:46Z"\n'
+        'bad-package = "2026-01-01T00:00:00Z"\n'
+    )
+
+    updated = remove_expired_release_creator_cutoffs(project, datetime(2026, 11, 1, tzinfo=UTC))
+
+    assert tomllib.loads(updated)["tool"]["release-creator"]["locks"]["exclude-newer-package"] == {
+        "bad-package": "2026-01-01T00:00:00Z"
+    }
+
+
+def test_expire_release_creator_cutoff_removes_empty_override() -> None:
+    project = '[tool.release-creator.locks.exclude-newer-package]\nrelease-creator = "2026-10-24T09:08:40Z"\n'
+    updated = remove_expired_release_creator_cutoffs(project, datetime(2026, 11, 1, tzinfo=UTC))
+
+    assert "exclude-newer-package" not in updated
+
+
+def test_expire_release_creator_cutoff_keeps_unexpired_override() -> None:
+    project = '[tool.release-creator.locks.exclude-newer-package]\nrelease-creator = "2026-10-24T09:08:40Z"\n'
+
+    assert remove_expired_release_creator_cutoffs(project, datetime(2026, 10, 17, tzinfo=UTC)) == project
 
 
 def test_verify_cutoff_patch_rejects_deliberate_hold_removal(cutoff_project: Path) -> None:
@@ -186,6 +271,63 @@ def test_verify_cutoff_patch_rejects_early_floor_removal(cutoff_project: Path) -
     )
     assert result.returncode != 0
     assert "changes beyond expired Nab cutoffs" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("remove", "accepted"),
+    [pytest.param("release-creator", True, id="reviewed-expired"), pytest.param("bad-package", False, id="hold")],
+)
+def test_verify_cutoff_patch_limits_release_creator_removal(
+    cutoff_project: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture, remove: str, accepted: bool
+) -> None:
+    cutoff_project.write_text(
+        cutoff_project.read_text()
+        + "[tool.release-creator.locks.exclude-newer-package]\n"
+        + 'release-creator = "2026-10-24T06:07:46Z"\n'
+        + 'bad-package = "2026-01-01T00:00:00Z"\n'
+    )
+    subprocess.run(["git", "add", "pyproject.toml"], cwd=cutoff_project.parent, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Add release policy"], cwd=cutoff_project.parent, check=True, capture_output=True
+    )
+    cutoff_project.write_text(cutoff_project.read_text().replace(f'{remove} = "', f'# {remove} = "'))
+    script = Path(__file__).resolve().parents[2] / "tools/verify_cutoff_patch.py"
+    monkeypatch.syspath_prepend(str(script.parent))
+    main = cast("FunctionType", runpy.run_path(str(script), run_name="cutoff_patch_test")["main"])
+    clock = mocker.create_autospec(datetime)
+    clock.now.return_value = datetime(2026, 11, 1, tzinfo=UTC)
+    main.__globals__["datetime"] = clock
+    monkeypatch.chdir(cutoff_project.parent)
+    monkeypatch.setattr(sys, "argv", [str(script)])
+
+    if accepted:
+        main()
+    else:
+        with pytest.raises(SystemExit, match="2"):
+            main()
+
+
+def test_verify_cutoff_patch_accepts_release_creator_only_policy(
+    cutoff_project: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture
+) -> None:
+    cutoff_project.write_text(
+        '[tool.release-creator.locks.exclude-newer-package]\nrelease-creator = "2026-10-24T09:08:40Z"\n'
+    )
+    subprocess.run(["git", "add", "pyproject.toml"], cwd=cutoff_project.parent, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Add release policy"], cwd=cutoff_project.parent, check=True, capture_output=True
+    )
+    cutoff_project.write_text("[tool.release-creator.locks]\n")
+    script = Path(__file__).resolve().parents[2] / "tools/verify_cutoff_patch.py"
+    monkeypatch.syspath_prepend(str(script.parent))
+    main = cast("FunctionType", runpy.run_path(str(script), run_name="cutoff_patch_test")["main"])
+    clock = mocker.create_autospec(datetime)
+    clock.now.return_value = datetime(2026, 11, 1, tzinfo=UTC)
+    main.__globals__["datetime"] = clock
+    monkeypatch.chdir(cutoff_project.parent)
+    monkeypatch.setattr(sys, "argv", [str(script)])
+
+    main()
 
 
 @pytest.fixture
@@ -459,7 +601,7 @@ def test_verify_cutoff_patch_reports_invalid_boolean(cutoff_project: Path) -> No
         check=False,
     )
     assert result.returncode != 0
-    assert "invalid Nab cutoff: True" in result.stderr
+    assert "invalid cutoff for Nab: True" in result.stderr
 
 
 def test_expire_cutoffs_preserves_disabled_package(cutoff_project: Path) -> None:
@@ -478,7 +620,7 @@ def test_expire_cutoffs_preserves_disabled_package(cutoff_project: Path) -> None
 @pytest.mark.parametrize(
     ("value", "message"),
     [
-        pytest.param("true", "invalid Nab cutoff", id="boolean"),
+        pytest.param("true", "invalid cutoff for example", id="boolean"),
         pytest.param('"2026-01-01T00:00:00"', "has no timezone", id="naive-time"),
     ],
 )
@@ -545,6 +687,23 @@ def test_expire_cutoffs_cli_writes_expired_rule(
     module.main()
 
     assert "package-rules" not in tomllib.loads(project.read_text())["tool"]["nab"]
+
+
+def test_expire_cutoffs_cli_writes_release_creator_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture
+) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "tools"))
+    module = importlib.import_module("expire_cutoffs")
+    project = tmp_path / "pyproject.toml"
+    project.write_text('[tool.release-creator.locks.exclude-newer-package]\nrelease-creator = "2026-10-24T09:08:40Z"\n')
+    mocker.patch.object(
+        module, "datetime", mocker.Mock(now=mocker.Mock(return_value=datetime(2026, 11, 1, tzinfo=UTC)))
+    )
+    monkeypatch.setattr(sys, "argv", ["expire_cutoffs", str(project)])
+
+    module.main()
+
+    assert "exclude-newer-package" not in project.read_text()
 
 
 def test_expire_cutoffs_cli_rejects_missing_project(tmp_path: Path) -> None:

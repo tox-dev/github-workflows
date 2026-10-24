@@ -11,14 +11,14 @@ license-files = [ "LICENSE" ]
 build = [ "Cython>=3.0", "setuptools>=80" ]
 lock-tools = [ "nab==0.0.22", "tomlkit>=0.13" ]
 lock-reader = [ "certifi>=2026.7.22", "packaging>=26.3" ]
-release-notes = [ "release-creator>=1.0.0" ]
-release-news = [ "release-creator>=1.0.0", "towncrier>=26.9" ]
-release-prepare = [ "release-creator>=1.0.0", "towncrier>=26.9", "prek>=0.2" ]
-release-validate = [ "release-creator>=1.0.0", "prek>=0.2" ]
+release-notes = [ "release-creator>=1.1.0" ]
+release-news = [ "release-creator>=1.1.0", "towncrier>=26.9" ]
+release-prepare = [ "release-creator>=1.1.0", "towncrier>=26.9", "prek>=0.2" ]
+release-validate = [ "release-creator>=1.1.0", "prek>=0.2" ]
 release-check = [ "prek>=0.2" ]
 release-attestations = [ "certifi>=2026.7.22", "pypi-attestations>=0.0.30" ]
 release-shell = [ "prek>=0.2", "yq>=4.4.5" ]
-release-hooks = [ "release-creator>=1.0.0", "prek>=0.2" ]
+release-hooks = [ "release-creator>=1.1.0", "prek>=0.2" ]
 release-hook-check = [ "prek>=0.2", "yq>=4.4.5" ]
 test = [
   "certifi",
@@ -27,7 +27,7 @@ test = [
   "hatchling>=1.28",
   "pytest>=9",
   "pytest-httpserver",
-  "pytest-mock>=3.17",
+  "pytest-mock>=3.16",
   "pytest-xdist>=3",
   "pyyaml>=6",
   "tomlkit>=0.13",
@@ -68,7 +68,16 @@ uploaded-prior-to = "2026-10-18T05:45:09Z"
 uploaded-prior-to = "2026-10-18T05:45:09Z"
 
 [tool.nab.packages.release-creator]
-uploaded-prior-to = "2026-10-24T06:07:46Z"
+uploaded-prior-to = "2026-10-24T09:08:40Z"
+
+[tool.release-creator.locks.exclude-newer-package]
+nab = "2026-10-18T05:45:09Z"
+nab-index = "2026-10-18T05:45:09Z"
+nab-markersets = "2026-10-18T05:45:09Z"
+nab-project = "2026-10-18T05:45:09Z"
+nab-provider = "2026-10-18T05:45:09Z"
+nab-resolver = "2026-10-18T05:45:09Z"
+release-creator = "2026-10-24T09:08:40Z"
 
 [tool.ruff]
 line-length = 120

@@ -332,8 +332,9 @@ def build_repository(source_project: Path, nab_executable: Path, monkeypatch: py
     )
     listings = cast("dict[str, list[_PyPIFile]]", json.loads(Path(os.environ["GW_PYPI_METADATA_FILE"]).read_text()))
     for name, files in _lock_metadata(source_project / "pylock.toml").items():
-        existing = {file["filename"] for file in listings.get(name, [])}
-        listings.setdefault(name, []).extend(file for file in files if file["filename"] not in existing)
+        merged = {file["filename"]: file for file in listings.get(name, [])}
+        merged.update({file["filename"]: file for file in files})
+        listings[name] = list(merged.values())
     metadata = source_project.parent / "pypi-metadata.json"
     metadata.write_text(json.dumps(listings))
     monkeypatch.setenv("GW_PYPI_METADATA_FILE", str(metadata))

@@ -5,14 +5,22 @@ repos:
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
     hooks:
       - id: end-of-file-fixer
+        additional_dependencies:
+          - "ruamel-yaml==0.19.1" # release-creator managed
       - id: trailing-whitespace
+        additional_dependencies:
+          - "ruamel-yaml==0.19.1" # release-creator managed
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: 38bfb07c0c64c304f47eb52090f8288150c77730 # v0.17.1
     hooks:
       - id: ruff-check
         args: ["--fix", "--unsafe-fixes", "--exit-non-zero-on-fix"]
+        additional_dependencies:
+          - "ruff==0.17.1" # release-creator managed
       - id: ruff-format
         types_or: [python, pyi]
+        additional_dependencies:
+          - "ruff==0.17.1" # release-creator managed
   - repo: local
     hooks:
       - id: mdformat
@@ -20,7 +28,13 @@ repos:
         entry: mdformat --wrap 120
         language: python
         types: [markdown]
-        additional_dependencies: [mdformat-gfm==1.0.0]
+        additional_dependencies:
+          - mdformat-gfm==1.0.0
+          - "markdown-it-py==4.2.0" # release-creator managed
+          - "mdformat==1.0.0" # release-creator managed
+          - "mdit-py-plugins==0.6.1" # release-creator managed
+          - "mdurl==0.1.2" # release-creator managed
+          - "wcwidth==0.9.2" # release-creator managed
   - repo: https://github.com/scop/pre-commit-shfmt
     rev: 479be5958357ba5ab65ce47172117348516860e9 # v3.14.1-1
     hooks:
@@ -38,3 +52,5 @@ repos:
     rev: c92afdf2c6ca336aaa8f39e2bd8d48f62dbd8e1f # v1.31.1
     hooks:
       - id: zizmor
+        additional_dependencies:
+          - "zizmor==1.31.1" # release-creator managed

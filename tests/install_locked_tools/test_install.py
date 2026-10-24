@@ -291,7 +291,7 @@ def test_install_locked_tools_rejects_uncooled_lock(tmp_path: Path, kind: str, m
     source = Path(__file__).resolve().parents[2]
     document = tomlkit.parse((source / "pylock.toml").read_text())
     if kind == "future-creation":
-        document["tool"]["nab"]["created-at"] = datetime(2099, 10, 23, tzinfo=UTC)
+        document["tool"]["release-creator"]["created-at"] = datetime(2099, 10, 23, tzinfo=UTC)
     else:
         package = next(package for package in document["packages"] if package["name"] == "cython")
         package["wheels"][0]["upload-time"] = datetime(2099, 10, 23, tzinfo=UTC)
@@ -369,6 +369,38 @@ def test_install_locked_tools_skips_unselected_package(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("group", "accepted"),
+    [pytest.param("release-check", True, id="release"), pytest.param("test", False, id="test")],
+)
+def test_install_locked_tools_uses_full_lock_provenance_and_selected_groups(
+    tmp_path: Path, group: str, accepted: bool
+) -> None:
+    source = Path(__file__).resolve().parents[2]
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    document["tool"]["nab"]["created-at"] = datetime(2099, 1, 1, tzinfo=UTC)
+    document["tool"]["release-creator"] = {"created-at": datetime(2026, 10, 24, tzinfo=UTC)}
+    document["dependency-groups"].append("test")
+    package = next(package for package in document["packages"] if package["name"] == "release-creator")
+    package["marker"] = '"test" in dependency_groups'
+    package["wheels"][0]["url"] = package["wheels"][0]["url"].replace("files.pythonhosted.org", "example.org")
+    for artifact in [package["sdist"], *package["wheels"]]:
+        artifact["upload-time"] = datetime(2026, 10, 1, tzinfo=UTC)
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(tomlkit.dumps(document))
+
+    result = subprocess.run(
+        ["python", str(source / "tools/check_lock_groups.py"), str(lock), group],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert (result.returncode == 0) is accepted, result.stderr
+    if not accepted:
+        assert "non-PyPI artifact" in result.stderr
+
+
+@pytest.mark.parametrize(
     "source_kind", ["foreign-host", "insecure-url", "local-path"], ids=["foreign-host", "insecure-url", "local-path"]
 )
 def test_install_locked_tools_rejects_non_pypi_artifact(tmp_path: Path, source_kind: str) -> None:
@@ -381,8 +413,7 @@ def test_install_locked_tools_rejects_non_pypi_artifact(tmp_path: Path, source_k
     elif source_kind == "insecure-url":
         artifact["url"] = artifact["url"].replace("https://", "http://")
     else:
-        del artifact["url"]
-        artifact["path"] = "cython.whl"
+        artifact["path"] = artifact.pop("url").rsplit("/", 1)[-1]
     lock = tmp_path / "pylock.toml"
     lock.write_text(tomlkit.dumps(document))
 
@@ -434,7 +465,7 @@ def test_install_locked_tools_rejects_artifact_version_mismatch(tmp_path: Path) 
     )
 
     assert result.returncode != 0
-    assert "artifact differs from package version" in result.stderr
+    assert "package version" in result.stderr
 
 
 def test_install_locked_tools_rejects_unreviewed_version_under_reviewed_floor(tmp_path: Path) -> None:
@@ -444,7 +475,6 @@ def test_install_locked_tools_rejects_unreviewed_version_under_reviewed_floor(tm
     current_version = str(package["version"])
     package["version"] = "0.6.3"
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = artifact["name"].replace(current_version, "0.6.3")
         artifact["url"] = artifact["url"].replace(current_version, "0.6.3")
     lock = tmp_path / "pylock.toml"
     lock.write_text(tomlkit.dumps(document))
@@ -468,7 +498,6 @@ def test_install_locked_tools_rejects_caller_below_shared_floor(tmp_path: Path, 
     current_version = str(package["version"])
     package["version"] = version
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = artifact["name"].replace(current_version, version)
         artifact["url"] = artifact["url"].replace(current_version, version)
         artifact["upload-time"] = datetime(2026, 10, 15, tzinfo=UTC)
     lock = tmp_path / "pylock.toml"
@@ -496,7 +525,7 @@ def test_install_locked_tools_constraints_only_checks_lock_age(tmp_path: Path, a
     source = Path(__file__).resolve().parents[2]
     (tmp_path / "pyproject.toml").write_bytes((source / "pyproject.toml").read_bytes())
     document = tomlkit.parse((source / "pylock.toml").read_text())
-    document["tool"]["nab"]["created-at"] = datetime(2099, 10, 23, tzinfo=UTC)
+    document["tool"]["release-creator"]["created-at"] = datetime(2099, 10, 23, tzinfo=UTC)
     (tmp_path / "pylock.toml").write_text(tomlkit.dumps(document))
     result = action(tmp_path, tmp_path, action_scripts, "install-locked-tools", version="")
     assert result.returncode != 0
@@ -588,7 +617,6 @@ def test_caller_version_check_uses_highest_shared_platform_floor(tmp_path: Path)
     package["marker"] = '"release-news" in dependency_groups and sys_platform == "win32"'
     package["version"] = "0.1.0"
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = str(artifact["name"]).replace(current_version, "0.1.0")
         artifact["url"] = str(artifact["url"]).replace(current_version, "0.1.0")
         artifact["upload-time"] = datetime(2026, 10, 15, tzinfo=UTC)
     caller = tmp_path / "caller.toml"

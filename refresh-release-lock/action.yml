@@ -1,9 +1,9 @@
 name: Refresh a release-tool lock
-description: Refresh or check the Nab lock for selected release groups
+description: Refresh or check a full project lock and optional Nab matrix lock
 inputs:
   lock-groups:
-    description: Space-separated dependency groups recorded in pylock.toml
-    required: true
+    description: Space-separated dependency groups for legacy Nab locks
+    default: ""
   additional-lock:
     description: Optional secondary pylock basename for a separate build matrix
     default: ""
@@ -32,32 +32,51 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: $/install-locked-tools
-      with:
-        groups: lock-tools
-        lock-source: shared
-        venv: ${{ runner.temp }}/lock-tools
-    - name: Check recent package cutoffs
-      shell: bash
-      run: uv run --no-project --python "$RUNNER_TEMP/lock-tools" python "$GITHUB_ACTION_PATH/../tools/check_recent_cutoffs.py" pyproject.toml
-    - name: Expire reviewed package cutoffs
-      if: inputs.mode == 'refresh'
-      shell: bash
-      run: |
-        set -euo pipefail
-        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
-          "$GITHUB_ACTION_PATH/../tools/expire_cutoffs.py" pyproject.toml
-    - name: Resolve release groups
+    - id: producer
+      name: Identify lock producer
       shell: bash
       env:
-        LOCK_GROUPS: ${{ inputs.lock-groups }}
-        MODE: ${{ inputs.mode }}
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
         ADDITIONAL_GROUPS: ${{ inputs.additional-lock-groups }}
         ADDITIONAL_SELECTION: ${{ inputs.additional-lock-selection }}
         MATRIX_PYTHON: ${{ inputs.additional-matrix-python }}
         MATRIX_PLATFORMS: ${{ inputs.additional-matrix-platforms }}
         MATRIX_IMPLEMENTATIONS: ${{ inputs.additional-matrix-implementations }}
+      run: |
+        set -euo pipefail
+        if [[ -z "$ADDITIONAL_LOCK" &&
+          ("$ADDITIONAL_SELECTION" != build-or-groups ||
+          -n "$ADDITIONAL_GROUPS$MATRIX_PYTHON$MATRIX_PLATFORMS$MATRIX_IMPLEMENTATIONS") ]]; then
+          echo '::error::secondary matrix inputs require additional-lock' >&2
+          exit 1
+        fi
+        provider=$(python3 "$GITHUB_ACTION_PATH/../tools/lock_groups.py" pylock.toml --provider)
+        echo "name=$provider" >>"$GITHUB_OUTPUT"
+    - uses: $/install-locked-tools
+      with:
+        groups: lock-tools
+        lock-source: shared
+        venv: ${{ runner.temp }}/lock-tools
+    - uses: $/install-locked-tools
+      if: steps.producer.outputs.name == 'release-creator'
+      with:
+        groups: release-notes
+        lock-source: shared
+        venv: ${{ runner.temp }}/project-lock-tools
+    - name: Check recent package cutoffs
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../tools/check_recent_cutoffs.py" pyproject.toml
+    - name: Expire reviewed package cutoffs
+      if: inputs.mode == 'refresh'
+      shell: bash
+      run: >-
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python "$GITHUB_ACTION_PATH/../tools/expire_cutoffs.py" pyproject.toml
+    - name: Resolve selected Nab groups
+      if: steps.producer.outputs.name == 'nab'
+      shell: bash
+      env:
+        LOCK_GROUPS: ${{ inputs.lock-groups }}
+        MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
         groups=()
@@ -86,14 +105,42 @@ runs:
           python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" \
             "$RUNNER_TEMP/pylock-before-check.toml" pylock.toml
         fi
-        if [[ -z "$ADDITIONAL_LOCK" ]]; then
-          if [[ "$ADDITIONAL_SELECTION" != build-or-groups ||
-            -n "$ADDITIONAL_GROUPS$MATRIX_PYTHON$MATRIX_PLATFORMS$MATRIX_IMPLEMENTATIONS" ]]; then
-            echo '::error::secondary matrix inputs require additional-lock' >&2
-            exit 1
-          fi
-          exit 0
-        fi
+    - name: Resolve all project groups and extras
+      if: steps.producer.outputs.name == 'release-creator'
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        case "$MODE" in
+        check) uv run --no-project --python "$RUNNER_TEMP/project-lock-tools" release-creator locks --check ;;
+        refresh) uv run --no-project --python "$RUNNER_TEMP/project-lock-tools" release-creator locks ;;
+        *)
+          echo "::error::invalid lock mode: $MODE" >&2
+          exit 1
+          ;;
+        esac
+    - name: Resolve optional Nab matrix
+      if: inputs.additional-lock != ''
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
+        ADDITIONAL_GROUPS: ${{ inputs.additional-lock-groups }}
+        ADDITIONAL_SELECTION: ${{ inputs.additional-lock-selection }}
+        MATRIX_PYTHON: ${{ inputs.additional-matrix-python }}
+        MATRIX_PLATFORMS: ${{ inputs.additional-matrix-platforms }}
+        MATRIX_IMPLEMENTATIONS: ${{ inputs.additional-matrix-implementations }}
+      run: |
+        set -euo pipefail
+        case "$MODE" in
+        check) refresh=() ;;
+        refresh) refresh=(--upgrade) ;;
+        *)
+          echo "::error::invalid lock mode: $MODE" >&2
+          exit 1
+          ;;
+        esac
         if [[ "$ADDITIONAL_LOCK" != pylock.*.toml || "$ADDITIONAL_LOCK" == */* ||
           ! -f "$ADDITIONAL_LOCK" || -z "$MATRIX_PYTHON" ||
           -z "$MATRIX_PLATFORMS" || -z "$MATRIX_IMPLEMENTATIONS" ]]; then

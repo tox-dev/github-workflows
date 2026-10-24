@@ -8,7 +8,7 @@ import ssl
 import time
 import tomllib
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from http.client import IncompleteRead
@@ -19,11 +19,12 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import certifi
+from lock_groups import lock_provider, project_selections
 from nab_cutoffs import reviewed_cutoff, validate_indexes
 from packaging._parser import Variable
 from packaging.markers import Marker
 from packaging.pylock import Package, Pylock, PylockValidationError
-from packaging.utils import canonicalize_name, parse_sdist_filename, parse_wheel_filename
+from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 
@@ -47,12 +48,16 @@ def main() -> None:
             if (args.project.parent / "nab.toml").exists():
                 raise ValueError("project nab.toml can override the reviewed index policy")
             with args.project.open("rb") as stream:
-                validate_indexes(tomllib.load(stream)["tool"]["nab"])
+                project = tomllib.load(stream)
+                if "nab" in project.get("tool", {}):
+                    validate_indexes(project["tool"]["nab"])
+            if lock_provider(lock.tool) == "release-creator":
+                project_selections(args.project)
         if (missing := groups - set(lock.dependency_groups or ())) and not (
             args.build_constraints and missing == {"build"}
         ):
             parser.error(f"missing lock dependency groups: {', '.join(sorted(missing))}")
-        if args.build_constraints and not lock.dependency_groups:
+        if args.build_constraints and "build" not in (lock.dependency_groups or ()):
             groups.clear()
         _check_cooling(lock, groups, local_tool_source=args.local_tool_source)
         if args.verify_pypi:
@@ -70,10 +75,13 @@ def main() -> None:
 
 
 def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = False) -> None:
-    created = lock.tool.get("nab", {}).get("created-at") if lock.tool else None
+    created = (
+        (lock.tool or {}).get("nab" if lock_provider(lock.tool) == "nab" else "release-creator", {}).get("created-at")
+    )
     if not isinstance(created, datetime) or created.tzinfo is None or created > datetime.now(tz=UTC):
         raise ValueError("lock has no valid creation time or was created in the future")
     threshold = created - timedelta(days=7)
+    whole_seconds = lock.created_by == "release-creator (uv)" and lock_provider(lock.tool) == "release-creator"
     for package in _selected_packages(lock, groups, local_tool_source=local_tool_source):
         if package.archive is not None or package.vcs is not None or package.directory is not None:
             raise ValueError(f"release lock has a direct-source package: {package.name}")
@@ -87,16 +95,10 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
             url = urlsplit(artifact.url or "")
             if artifact.path is not None or url.scheme != "https" or url.netloc != "files.pythonhosted.org":
                 raise ValueError(f"release lock has a non-PyPI artifact: {artifact.name}")
-            filename = url.path.rsplit("/", 1)[-1]
-            identity = (
-                parse_wheel_filename(filename)[:2] if filename.endswith(".whl") else parse_sdist_filename(filename)
-            )
-            if identity != (canonicalize_name(package.name), Version(str(package.version))):
-                raise ValueError(f"release lock artifact differs from package version: {filename}")
             if (
                 artifact.upload_time is None
                 or artifact.upload_time.tzinfo is None
-                or artifact.upload_time > min(cutoff, created)
+                or artifact.upload_time + timedelta(seconds=whole_seconds) > min(cutoff, created)
             ):
                 raise ValueError(f"release lock has an uncooled artifact: {artifact.name}")
 
@@ -113,20 +115,32 @@ def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> 
                     artifact.upload_time,
                 )
             )
+    whole_seconds = lock.created_by == "release-creator (uv)" and lock_provider(lock.tool) == "release-creator"
     with ThreadPoolExecutor(max_workers=8) as pool:
-        for _ in pool.map(_verify_package_metadata, expected.items()):
+        for _ in pool.map(
+            _verify_package_metadata, ((name, artifacts, whole_seconds) for name, artifacts in expected.items())
+        ):
             pass
 
 
-def _verify_package_metadata(item: tuple[str, list[tuple[str, str | None, str, datetime | None]]]) -> None:
-    name, artifacts = item
+def _verify_package_metadata(item: tuple[str, list[tuple[str, str | None, str, datetime | None]], bool]) -> None:
+    name, artifacts, whole_seconds = item
     for attempt in range(5):
         _, actual = _pypi_files(name)
         mismatch = next(
             (
                 filename
                 for filename, url, digest, upload_time in artifacts
-                if actual.get(filename) != (url, digest, upload_time)
+                if not (
+                    (record := actual.get(filename)) is not None
+                    and record[:2] == (url, digest)
+                    and (
+                        record[2] == upload_time
+                        or whole_seconds
+                        and record[2] is not None
+                        and record[2].replace(microsecond=0) == upload_time
+                    )
+                )
             ),
             None,
         )
@@ -153,14 +167,14 @@ def _selected_packages(lock: Pylock, groups: set[str], *, local_tool_source: boo
             and package.archive is None
             and package.vcs is None
             and package.sdist is None
-            and not package.wheels
+            and (package.wheels is None or len(package.wheels) == 0)
         ):
             continue
         yield package
 
 
 def _possibly_selected(marker: Marker, groups: set[str]) -> bool:
-    def expression(nodes: list[object]) -> bool:
+    def expression(nodes: Iterable[object]) -> bool:
         alternatives: list[bool] = []
         current = True
         for node in nodes:
@@ -178,6 +192,8 @@ def _possibly_selected(marker: Marker, groups: set[str]) -> bool:
                         isinstance(right, Variable) and str(right) == "dependency_groups" and str(operator) == "not in"
                     ):
                         current &= str(left) not in groups
+                    elif isinstance(right, Variable) and str(right) == "extras":
+                        current &= str(operator) == "not in"
         return any((*alternatives, current))
 
     return expression(marker._markers)
