@@ -572,12 +572,13 @@ def test_caller_version_check_uses_highest_shared_platform_floor(tmp_path: Path)
     document = tomlkit.parse((source / "pylock.toml").read_text())
     package = next(item for item in document["packages"] if item["name"] == "release-creator")
     current = deepcopy(package)
+    current_version = str(package["version"])
     current["marker"] = '"release-news" in dependency_groups and sys_platform == "linux"'
     package["marker"] = '"release-news" in dependency_groups and sys_platform == "win32"'
-    package["version"] = "0.6.6"
+    package["version"] = "0.1.0"
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = str(artifact["name"]).replace("0.6.7", "0.6.6")
-        artifact["url"] = str(artifact["url"]).replace("0.6.7", "0.6.6")
+        artifact["name"] = str(artifact["name"]).replace(current_version, "0.1.0")
+        artifact["url"] = str(artifact["url"]).replace(current_version, "0.1.0")
         artifact["upload-time"] = datetime(2026, 10, 15, tzinfo=UTC)
     caller = tmp_path / "caller.toml"
     caller.write_text(tomlkit.dumps(document))
@@ -600,7 +601,7 @@ def test_caller_version_check_uses_highest_shared_platform_floor(tmp_path: Path)
     )
 
     assert result.returncode != 0
-    assert "relock: release-creator 0.6.7 required" in result.stderr
+    assert f"relock: release-creator {current_version} required" in result.stderr
 
 
 def test_install_locked_tools_shared_group_ignores_missing_caller_group(tmp_path: Path, action_scripts: Path) -> None:
