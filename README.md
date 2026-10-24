@@ -152,6 +152,37 @@ changes release inputs, including a workspace member's `pyproject.toml` or a sec
 formatting job runs `prek`; the writer checks patch paths and modes. Its `changed` output is `true` only when the
 refresh produces a patch. Neither mode pushes a branch or requests a write token.
 
+## Refresh a pinned mise binary
+
+`refresh-mise-pin` updates one named `jdx/mise-action` step in a release workflow. It selects the newest stable mise
+GitHub Release whose publication and Linux executable upload are at least seven days old. The executable must also be
+unchanged for seven days. The Action installs that version through the pinned mise Action and compares the executable
+with the release asset digest. The mise Action verifies the download against mise's minisign-signed checksum file. The
+refresh Action fails if the named step is missing or duplicated, its version or digest is not literal, or the installed
+binary differs from the selected release. It changes only that step's `version` and `sha256` values and leaves the
+verified mise executable on `PATH` for the next step.
+
+Call it in a read-only Ubuntu job after checkout and setup-uv with Python 3.15. The Action installs its YAML parser from
+the shared hash-checked lock. `workflow` is the path under `.github/workflows`; `step-name` is the exact name of the
+mise step in that file. `github-token` needs public release read access. `changed` is `true` only when the two pins
+change; `version` omits the leading `v`, and `sha256` is the Linux x64 executable digest. The Action does not update
+`mise.lock` or open a PR.
+
+```yaml
+  - uses: tox-dev/github-workflows/refresh-mise-pin@SHA
+    id: mise
+    with:
+      workflow: .github/workflows/release.yaml
+      step-name: 🔧 Set up mise (JDKs)
+      github-token: ${{ github.token }}
+  - name: Refresh locked JDKs
+    run: mise lock --bump --minimum-release-age 7d
+```
+
+Include `.github/workflows/release.yaml` and `mise.lock` in the updater's artifact and App writer path allowlists. The
+writer should run in a separate job; this Action does not request its token. The seven-day cutoff is fixed and cannot be
+lowered by an input.
+
 The weekly updater freezes eligible hook revisions with `prek update --freeze --cooldown-days 7`. It then uses
 `release-creator hooks` to pin Python hook dependencies under the same cutoff and writes a patch when
 `.pre-commit-config.yaml` changes. The generation job has read-only repository permissions; the separate publish job

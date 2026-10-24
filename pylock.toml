@@ -9,6 +9,7 @@ dependency-groups = [
     "lock-reader",
     "release-notes",
     "release-resolver",
+    "release-mise-editor",
     "release-news",
     "release-prepare",
     "release-validate",
@@ -3380,7 +3381,7 @@ sha256 = "8a1513379d709975552d202d942d9837758905c8d01eb82b8bcc30918929e7b8"
 [[packages]]
 name = "pyyaml"
 version = "6.0.3"
-marker = "\"release-hook-check\" in dependency_groups or \"release-hooks\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-shell\" in dependency_groups or \"release-validate\" in dependency_groups or \"test\" in dependency_groups"
+marker = "\"release-hook-check\" in dependency_groups or \"release-hooks\" in dependency_groups or \"release-mise-editor\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"release-shell\" in dependency_groups or \"release-validate\" in dependency_groups or \"test\" in dependency_groups"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
@@ -4846,7 +4847,7 @@ size = 30255
 sha256 = "4e8b4e54979b26554c72a7e669009017a7fdd3fb00bbae0b26f82a86636c289f"
 
 [tool.release-creator]
-created-at = 2026-10-24 09:55:17.406208+00:00
+created-at = 2026-10-24 11:11:49.304279+00:00
 
 [tool.nab]
-created-at = 2026-10-24 09:55:17.406208+00:00
+created-at = 2026-10-24 11:11:49.304279+00:00
