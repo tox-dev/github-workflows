@@ -287,9 +287,10 @@ build package versions; otherwise the Action fails instead of writing an ambiguo
 ## Prepare and tag with one reusable workflow
 
 `prepare-towncrier-release.yaml` runs three jobs. `assemble` selects a tag and uploads a Towncrier patch without the App
-key. `validate` applies the uploaded artifact in a separate job and runs `prek`. `push` downloads that artifact by ID,
-checks its paths and file modes, reads the caller's `release-auth` environment, and uses a repository-scoped App token
-to push the release commit and tag together. Only a dispatch from `main` can reach the writer.
+key. `validate` calculates the next tag again from the checked-out source, then applies the uploaded artifact and runs
+`prek`. `push` downloads that artifact by ID, checks its paths and file modes, reads the caller's `release-auth`
+environment, and uses a repository-scoped App token to push the release commit and tag together. Only a dispatch from
+`main` can reach the writer.
 
 ```yaml
 jobs:

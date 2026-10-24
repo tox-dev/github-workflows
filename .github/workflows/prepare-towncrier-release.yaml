@@ -141,6 +141,23 @@ jobs:
           mkdir -p "$RUNNER_TEMP/local-release-cli"
           ln -s "$GITHUB_WORKSPACE/.venv/bin/release-creator" "$RUNNER_TEMP/local-release-cli/release-creator"
           echo "$RUNNER_TEMP/local-release-cli" >>"$GITHUB_PATH"
+      - id: config
+        uses: $/read-towncrier-config
+      - name: Verify selected release version
+        env:
+          BUMP: ${{ inputs.bump }}
+          TAG_PREFIX: ${{ inputs.tag-prefix }}
+          FRAGMENTS: ${{ steps.config.outputs.fragments }}
+          VERSION: ${{ needs.assemble.outputs.version }}
+        run: |
+          set -euo pipefail
+          args=(--next "$BUMP" --directory "$FRAGMENTS")
+          if [[ -n "$TAG_PREFIX" ]]; then args+=(--prefix "$TAG_PREFIX"); fi
+          expected=$(git tag --list | release-creator tags "${args[@]}")
+          if [[ "$VERSION" != "$expected" ]]; then
+            echo "::error::assembled release version differs from $expected" >&2
+            exit 1
+          fi
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.assemble.outputs.artifact-id }}

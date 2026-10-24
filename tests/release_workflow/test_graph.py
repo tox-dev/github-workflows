@@ -54,6 +54,49 @@ def test_prepare_validates_uploaded_patch_before_writer() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("version", "prefix", "accepted"),
+    [
+        pytest.param("1.2.3", "", True, id="calculated-version"),
+        pytest.param("v1.2.3", "v", True, id="prefixed-version"),
+        pytest.param("9.9.9", "", False, id="forged-version"),
+    ],
+)
+def test_prepare_validation_calculates_version_independently(
+    tmp_path: Path, version: str, prefix: str, accepted: bool
+) -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
+    )
+    steps = workflow["jobs"]["validate"]["steps"]
+    verify = next(step for step in steps if step.get("name") == "Verify selected release version")
+    command = tmp_path / "bin/release-creator"
+    command.parent.mkdir()
+    command.write_text(f"#!{sys.executable}\nimport sys\nprint('v1.2.3' if '--prefix' in sys.argv else '1.2.3')\n")
+    command.chmod(0o755)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", verify["run"]],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{command.parent}{os.pathsep}{os.environ['PATH']}",
+            "BUMP": "auto",
+            "TAG_PREFIX": prefix,
+            "FRAGMENTS": "changelog.d",
+            "VERSION": version,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert (result.returncode == 0) is accepted
+    if not accepted:
+        assert "assembled release version differs from 1.2.3" in result.stderr
+
+
 @pytest.mark.parametrize("job", ["assemble", "validate"])
 def test_prepare_builds_local_tool_with_locked_backends(job: str) -> None:
     workflow = yaml.safe_load(
