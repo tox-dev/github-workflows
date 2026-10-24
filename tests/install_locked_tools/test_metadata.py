@@ -99,7 +99,10 @@ def test_lock_metadata_rejects_yanked_artifact(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     pypi_listing["files"][0]["yanked"] = True
-    mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
+    mocker.patch(
+        "urllib.request.urlopen", side_effect=lambda *_args, **_kwargs: BytesIO(json.dumps(pypi_listing).encode())
+    )
+    mocker.patch("time.sleep")
 
     with pytest.raises(SystemExit, match="2"):
         _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
@@ -113,6 +116,22 @@ def test_lock_metadata_retries_transient_network_error(
     request = mocker.patch(
         "urllib.request.urlopen",
         side_effect=[URLError("handshake timed out"), BytesIO(json.dumps(pypi_listing).encode())],
+    )
+    sleep = mocker.patch("time.sleep")
+
+    _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert request.call_count == 2
+    sleep.assert_called_once_with(1)
+
+
+def test_lock_metadata_retries_stale_listing(
+    lock_case: tuple[Path, Path], pypi_listing: _PyPIListing, mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale = {**pypi_listing, "files": []}
+    request = mocker.patch(
+        "urllib.request.urlopen",
+        side_effect=[BytesIO(json.dumps(stale).encode()), BytesIO(json.dumps(pypi_listing).encode())],
     )
     sleep = mocker.patch("time.sleep")
 
@@ -374,7 +393,10 @@ def test_lock_metadata_checks_each_duplicate_artifact(
         f"{head}[[packages]]{package.replace(pypi_listing['files'][0]['hashes']['sha256'], '0' * 64)}"
         f"[[packages]]{package}"
     )
-    mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
+    mocker.patch(
+        "urllib.request.urlopen", side_effect=lambda *_args, **_kwargs: BytesIO(json.dumps(pypi_listing).encode())
+    )
+    mocker.patch("time.sleep")
 
     with pytest.raises(SystemExit, match="2"):
         _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
@@ -408,7 +430,10 @@ def test_lock_metadata_rejects_pypi_mismatch(
         lock.write_text(lock.read_text().replace("2021-05-05T14:18:17.237677Z", "2020-05-05T14:18:17.237677Z"))
     else:
         file["url"] = "https://files.pythonhosted.org/other.whl"
-    mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
+    mocker.patch(
+        "urllib.request.urlopen", side_effect=lambda *_args, **_kwargs: BytesIO(json.dumps(pypi_listing).encode())
+    )
+    mocker.patch("time.sleep")
 
     with pytest.raises(SystemExit, match="2"):
         _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))

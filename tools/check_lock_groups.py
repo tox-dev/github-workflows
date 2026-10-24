@@ -114,10 +114,27 @@ def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> 
                 )
             )
     with ThreadPoolExecutor(max_workers=8) as pool:
-        for name, actual in pool.map(_pypi_files, expected):
-            for filename, url, digest, upload_time in expected[name]:
-                if actual.get(filename) != (url, digest, upload_time):
-                    raise ValueError(f"release lock differs from PyPI metadata: {name}: {filename}")
+        for _ in pool.map(_verify_package_metadata, expected.items()):
+            pass
+
+
+def _verify_package_metadata(item: tuple[str, list[tuple[str, str | None, str, datetime | None]]]) -> None:
+    name, artifacts = item
+    for attempt in range(5):
+        _, actual = _pypi_files(name)
+        mismatch = next(
+            (
+                filename
+                for filename, url, digest, upload_time in artifacts
+                if actual.get(filename) != (url, digest, upload_time)
+            ),
+            None,
+        )
+        if mismatch is None:
+            return
+        if attempt < 4:
+            time.sleep(2**attempt)
+    raise ValueError(f"release lock differs from PyPI metadata: {name}: {mismatch}")
 
 
 def _selected_packages(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> Iterator[Package]:
