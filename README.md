@@ -290,7 +290,9 @@ build:
   uses: >-
     tox-dev/github-workflows/.github/workflows/validate-python-release.yaml@SHA
   permissions:
+    actions: read
     contents: read
+    pull-requests: read
 ```
 
 The caller needs `release-check` for prek and a `build` group for backend constraints. `source` defaults to `.`. Use

@@ -195,7 +195,7 @@ jobs:
               git diff --cached --name-only --no-renames -z >"$RUNNER_TEMP/$artifact-paths"
             while IFS= read -r -d '' path; do
               if [[ "$artifact" == lock && "$path" != pylock.toml && "$path" != pyproject.toml &&
-                "$path" != "$ADDITIONAL_LOCK" && !("$KEEP_UV_LOCK" == true && "$path" == uv.lock) ]] ||
+                "$path" != "$ADDITIONAL_LOCK" && ("$path" != uv.lock || "$KEEP_UV_LOCK" != true) ]] ||
                 [[ "$artifact" == hooks && "$path" != .pre-commit-config.yaml ]]; then
                 echo "::error::unexpected $artifact patch path: $path" >&2
                 exit 1
