@@ -239,6 +239,29 @@ def test_lock_metadata_rejects_invalid_listing(
     assert "invalid PyPI listing for six" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "listing",
+    [
+        pytest.param([], id="non-object-root"),
+        pytest.param({"meta": [], "files": []}, id="non-object-metadata"),
+        pytest.param({"meta": {"api-version": "1.4"}, "name": "six", "files": ["bad"]}, id="non-object-file"),
+    ],
+)
+def test_lock_metadata_rejects_non_object_listing(
+    lock_case: tuple[Path, Path],
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    listing: object,
+) -> None:
+    mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(listing).encode()))
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert "invalid PyPI listing for six" in capsys.readouterr().err
+
+
 def test_lock_metadata_allows_local_release_creator(
     lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

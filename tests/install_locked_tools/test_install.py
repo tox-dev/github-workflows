@@ -690,7 +690,7 @@ def test_install_locked_tools_exporter_does_not_build_pyyaml(tmp_path: Path, act
     )
     assert result.returncode == 0, result.stderr
     imported = subprocess.run(
-        [str(tmp_path / "lock-tools/bin/python"), "-c", "import yaml"],
+        [str(tmp_path / "lock-reader/bin/python"), "-c", "import yaml"],
         text=True,
         capture_output=True,
         check=False,

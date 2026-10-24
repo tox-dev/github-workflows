@@ -186,12 +186,17 @@ def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None,
         time.sleep(2**attempt)
         attempt += 1
     if (
-        not str(listing.get("meta", {}).get("api-version", "")).startswith("1.")
+        not isinstance(listing, dict)
+        or not isinstance(listing.get("meta"), dict)
+        or not isinstance(listing.get("files"), list)
+        or not str(listing["meta"].get("api-version", "")).startswith("1.")
         or canonicalize_name(listing.get("name", "")) != name
     ):
         raise ValueError(f"invalid PyPI listing for {name}")
     files: dict[str, tuple[str | None, str | None, datetime | None]] = {}
     for file in listing["files"]:
+        if not isinstance(file, dict):
+            raise TypeError(f"invalid PyPI listing for {name}")
         if file.get("yanked", False):
             continue
         files[file["filename"]] = (
