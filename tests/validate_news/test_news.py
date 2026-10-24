@@ -141,14 +141,15 @@ def test_validate_news_forwards_secondary_lock_inputs() -> None:
 
 
 @pytest.mark.parametrize(
-    ("additional_lock", "changed"),
+    ("additional_lock", "changed_path", "changed"),
     [
-        pytest.param("pylock.zipapp.toml", "true", id="selected-secondary-lock"),
-        pytest.param("", "false", id="unselected-secondary-lock"),
+        pytest.param("pylock.zipapp.toml", "pylock.zipapp.toml", "true", id="selected-secondary-lock"),
+        pytest.param("", "pylock.zipapp.toml", "false", id="unselected-secondary-lock"),
+        pytest.param("", "nab.toml", "true", id="nab-policy"),
     ],
 )
-def test_validate_news_detects_secondary_lock_only_change(
-    repository: Path, tmp_path: Path, action_scripts: Path, additional_lock: str, changed: str
+def test_validate_news_detects_release_input_change(
+    repository: Path, tmp_path: Path, action_scripts: Path, additional_lock: str, changed_path: str, changed: str
 ) -> None:
     (repository / "pyproject.toml").write_text(
         (repository / "pyproject.toml").read_text() + "\n[dependency-groups]\nrelease-news = []\n"
@@ -161,8 +162,12 @@ def test_validate_news_detects_secondary_lock_only_change(
     run(repository, "git", "commit", "-m", "Add release locks")
     run(repository, "git", "push", "origin", "main")
     run(repository, "git", "checkout", "-b", "change-secondary-lock")
-    (repository / "pylock.zipapp.toml").write_text("lock-version = '1.0'\ncreated-by = 'test'\n")
-    run(repository, "git", "add", "pylock.zipapp.toml")
+    (repository / changed_path).write_text(
+        "[tool.nab]\nuploaded-prior-to = false\n"
+        if changed_path == "nab.toml"
+        else "lock-version = '1.0'\ncreated-by = 'test'\n"
+    )
+    run(repository, "git", "add", changed_path)
     run(repository, "git", "commit", "-m", "Refresh secondary lock")
     output = tmp_path / "lock-change-output"
 

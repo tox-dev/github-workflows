@@ -45,7 +45,7 @@ runs:
         BASE_REF: ${{ github.base_ref }}
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
       run: |
-        paths=(pyproject.toml pylock.toml)
+        paths=(pyproject.toml pylock.toml nab.toml)
         if [[ -n "$ADDITIONAL_LOCK" ]]; then paths+=("$ADDITIONAL_LOCK"); fi
         changed=$(git diff --name-only "origin/$BASE_REF...HEAD" -- "${paths[@]}")
         if [[ -z "$changed" ]]; then
