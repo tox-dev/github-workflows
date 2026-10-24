@@ -667,25 +667,60 @@ artifact after the Action succeeds. Keep the Marketplace token in a different no
 
 `publish-jetbrains-marketplace` uploads one signed ZIP through the
 [Marketplace upload API](https://plugins.jetbrains.com/docs/marketplace/plugin-upload.html). Run it in a fresh job
-without checkout or Gradle. Download the ZIP produced by the signing job and pass that job's SHA256 output; the Action
-checks the downloaded bytes, ZIP integrity, and member names before the token-bearing upload step.
+without checkout or Gradle. The release workflow must serialize runs for the same tag. Download the signed ZIP and
+release notes by the artifact IDs from their producing jobs. The Action checks both before using the upload token.
 
 ```yaml
-  - uses: tox-dev/github-workflows/publish-jetbrains-marketplace@SHA
-    env:
-      PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
-    with:
-      archive: dist/Fish Shell 2-0.1.11-signed.zip
-      sha256: ${{ needs.sign.outputs.sha256 }}
-      plugin-id: '29973'
-      channel: ''
+marketplace-publish:
+  needs: [sign, notes]
+  runs-on: ubuntu-26.04
+  permissions:
+    actions: read
+  environment: release
+  steps:
+    - uses: actions/download-artifact@DOWNLOAD_SHA
+      with:
+        artifact-ids: ${{ needs.sign.outputs.artifact-id }}
+        path: dist
+    - uses: actions/download-artifact@DOWNLOAD_SHA
+      with:
+        artifact-ids: ${{ needs.notes.outputs.artifact-id }}
+        path: ${{ runner.temp }}/notes
+    - name: Publish signed ZIP
+      uses: tox-dev/github-workflows/publish-jetbrains-marketplace@SHA
+      with:
+        archive: dist/Plugin-1.2.3-signed.zip
+        sha256: ${{ needs.sign.outputs.sha256 }}
+        plugin-id: '29973'
+        channel: ''
+        tag: ${{ github.ref_name }}
+        commit: ${{ github.sha }}
+        signed-artifact-id: ${{ needs.sign.outputs.artifact-id }}
+        notes-artifact-id: ${{ needs.notes.outputs.artifact-id }}
+        notes-file: ${{ runner.temp }}/notes/release-notes.md
+        github-token: ${{ github.token }}
+        publish-token: ${{ secrets.PUBLISH_TOKEN }}
 ```
 
-`archive`, `sha256`, and numeric `plugin-id` are required. `channel` is empty for Stable; use a Marketplace channel name
-for a prerelease. **Output:** None. **Remote effect:** One multipart upload to JetBrains Marketplace. The Action does
-not check whether this version was published already; use the keyless release-creator `marketplace --mode stage` check
-before the upload, and `--mode verify` afterward. A retry must compare the published ZIP's member digests before
-skipping an upload because Marketplace can repackage the outer ZIP.
+`channel` is empty for Stable; use a Marketplace channel name for a prerelease. Keep the publishing step named
+`Publish signed ZIP`, since the retry check reads that step from earlier workflow runs. Give the job Actions read access
+and the workflow a concurrency group keyed by tag. The Action verifies that the remote tag still targets the release
+commit, then searches earlier runs for the tag. A prior upload from another commit stops for manual reconciliation. For
+the same commit, an acceptance receipt must match the original artifact IDs, signed ZIP digest, and release notes bytes
+before the Action skips upload. If an earlier attempt reached the upload step without a receipt, it also stops;
+Marketplace may have accepted the upload before the run failed.
+
+**Output:** A `marketplace-acceptance-<run>-<attempt>` Actions artifact after a new upload. It records the tag, commit,
+plugin, channel, signed ZIP artifact and SHA256, and notes artifact and SHA256. **Remote effect:** One multipart upload
+to JetBrains Marketplace when no earlier acceptance exists, plus a GitHub Actions receipt artifact. The Action treats
+any successful HTTP response as acceptance; it does not depend on undocumented response fields. Run the keyless
+release-creator `marketplace --mode stage` check before this job and `--mode verify` after the version is public.
+
+If the Action stops without a receipt, inspect the exact plugin, version, and channel in the Marketplace dashboard. If
+the update is pending review, wait until it is public and verify its member bytes against the original signed ZIP. Then
+rerun the tag workflow: the keyless stage check must skip Marketplace upload before GitHub Release publication. If
+Marketplace rejected the update, resolve the rejection and prepare a new release tag. A 404 alone does not authorize
+another upload of the same tag.
 
 ## Test a caller
 

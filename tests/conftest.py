@@ -428,6 +428,8 @@ def _run_action(
         if (used := step.get("uses")) is not None:
             if used.startswith("astral-sh/setup-uv@"):
                 continue
+            if used.startswith("actions/upload-artifact@"):
+                continue
             if not used.startswith("$/"):
                 msg = f"unsupported nested action: {used}"
                 raise ValueError(msg)

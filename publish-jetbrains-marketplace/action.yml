@@ -1,5 +1,5 @@
 name: Publish JetBrains Marketplace plugin
-description: Upload one verified signed ZIP without checking out or building source
+description: Upload a signed ZIP once per tag and retain an acceptance receipt
 inputs:
   archive:
     description: Signed plugin ZIP from the validated build artifact
@@ -13,6 +13,27 @@ inputs:
   channel:
     description: Marketplace channel; empty selects Stable
     default: ""
+  tag:
+    description: Current release tag
+    required: true
+  commit:
+    description: Commit targeted by the tag
+    required: true
+  signed-artifact-id:
+    description: GitHub artifact ID containing the signed ZIP
+    required: true
+  notes-artifact-id:
+    description: GitHub artifact ID containing the release notes
+    required: true
+  notes-file:
+    description: Release notes downloaded from notes-artifact-id
+    required: true
+  github-token:
+    description: Token with Actions read permission
+    required: true
+  publish-token:
+    description: JetBrains Marketplace upload token
+    required: true
 runs:
   using: composite
   steps:
@@ -32,13 +53,129 @@ runs:
         test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         unzip -tq "$ARCHIVE" >/dev/null
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
+    - name: Verify release identity
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        TAG: ${{ inputs.tag }}
+        COMMIT: ${{ inputs.commit }}
+        SIGNED_ARTIFACT_ID: ${{ inputs.signed-artifact-id }}
+        NOTES_ARTIFACT_ID: ${{ inputs.notes-artifact-id }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+      run: |
+        set -euo pipefail
+        [[ "$GITHUB_REF" == "refs/tags/$TAG" && "$COMMIT" == "$GITHUB_SHA" ]] || exit 1
+        [[ -f "$NOTES_FILE" && ! -L "$NOTES_FILE" ]] || exit 1
+        for artifact_id in "$SIGNED_ARTIFACT_ID" "$NOTES_ARTIFACT_ID"; do
+          case "$artifact_id" in '' | *[!0-9]*) exit 1 ;; esac
+        done
+        target=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object | [.type, .sha] | @tsv')
+        while true; do
+          read -r object_type object_sha <<<"$target"
+          if [[ "$object_type" == commit ]]; then
+            [[ "$object_sha" == "$COMMIT" ]] || exit 1
+            break
+          fi
+          [[ "$object_type" == tag ]] || exit 1
+          target=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" --jq '.object | [.type, .sha] | @tsv')
+        done
+    - name: Find earlier Marketplace upload
+      id: earlier
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        TAG: ${{ inputs.tag }}
+        COMMIT: ${{ inputs.commit }}
+      run: |
+        set -euo pipefail
+        workflow_ref=${GITHUB_WORKFLOW_REF%@*}
+        workflow_file=${workflow_ref##*/}
+        gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_file/runs?per_page=100" \
+          --jq '.workflow_runs[] | [.id, .head_branch, .head_sha] | @tsv' >"$RUNNER_TEMP/marketplace-runs.tsv"
+        prior=0
+        while IFS=$'\t' read -r run branch sha; do
+          [[ "$branch" == "$TAG" ]] || continue
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?filter=all&per_page=100" \
+            --jq ".jobs[] | .run_attempt as \$attempt | .steps[] |
+              select((.name == \"Publish signed ZIP\" or .name == \"Upload signed ZIP\" or
+                .name == \"📤 Publish to JetBrains Marketplace\") and .started_at != null) | \$attempt" \
+            >"$RUNNER_TEMP/marketplace-attempts.txt"
+          while IFS= read -r attempt; do
+            if [[ "$run" == "$GITHUB_RUN_ID" && "$attempt" -ge "$GITHUB_RUN_ATTEMPT" ]]; then continue; fi
+            if [[ "$sha" != "$COMMIT" ]]; then
+              echo "::error::Tag $TAG had an earlier Marketplace upload on commit $sha. Reconcile run $run attempt $attempt manually." >&2
+              exit 1
+            fi
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" \
+              --jq '.artifacts[] | [.name, .id, .expired] | @tsv' >"$RUNNER_TEMP/marketplace-artifacts-$run.tsv"
+            receipt_name="marketplace-acceptance-$run-$attempt"
+            receipt_id=$(awk -F '\t' -v name="$receipt_name" '$1 == name && $3 == "false" { print $2 }' \
+              "$RUNNER_TEMP/marketplace-artifacts-$run.tsv")
+            if [[ -z "$receipt_id" || "$receipt_id" == *$'\n'* || "$prior" == 1 ]]; then
+              echo "::error::Marketplace upload may already be accepted. Reconcile run $run attempt $attempt manually." >&2
+              exit 1
+            fi
+            prior=1
+            {
+              echo "run=$run"
+              echo "receipt-name=$receipt_name"
+              echo "artifacts=$RUNNER_TEMP/marketplace-artifacts-$run.tsv"
+            } >>"$GITHUB_OUTPUT"
+          done <"$RUNNER_TEMP/marketplace-attempts.txt"
+        done <"$RUNNER_TEMP/marketplace-runs.tsv"
+        echo "accepted=$prior" >>"$GITHUB_OUTPUT"
+    - name: Verify earlier Marketplace acceptance
+      if: steps.earlier.outputs.accepted == '1'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        TAG: ${{ inputs.tag }}
+        COMMIT: ${{ inputs.commit }}
+        PLUGIN_ID: ${{ inputs.plugin-id }}
+        CHANNEL: ${{ inputs.channel }}
+        ARCHIVE: ${{ inputs.archive }}
+        EXPECTED_SHA: ${{ inputs.sha256 }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+        RUN: ${{ steps.earlier.outputs.run }}
+        RECEIPT_NAME: ${{ steps.earlier.outputs.receipt-name }}
+        ARTIFACTS: ${{ steps.earlier.outputs.artifacts }}
+      run: |
+        set -euo pipefail
+        mkdir "$RUNNER_TEMP/prior-acceptance" "$RUNNER_TEMP/prior-signed" "$RUNNER_TEMP/prior-notes"
+        gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "$RECEIPT_NAME" \
+          --dir "$RUNNER_TEMP/prior-acceptance"
+        receipt="$RUNNER_TEMP/prior-acceptance/marketplace-acceptance.json"
+        [[ -f "$receipt" && ! -L "$receipt" ]] || exit 1
+        jq -e --arg repository "$GITHUB_REPOSITORY" --arg tag "$TAG" --arg commit "$COMMIT" \
+          --arg version "${TAG#v}" --argjson runId "$RUN" --argjson pluginId "$PLUGIN_ID" \
+          --arg channel "$CHANNEL" --arg archive "${ARCHIVE##*/}" --arg sha "$EXPECTED_SHA" \
+          --arg notesSha "$(sha256sum "$NOTES_FILE" | cut -d' ' -f1)" \
+          '.schema == 2 and .repository == $repository and .tag == $tag and .commit == $commit and
+           .sourceRunId == $runId and .pluginId == $pluginId and .version == $version and
+           .channel == $channel and .signedArchive == $archive and .sha256 == $sha and
+           .notesSha256 == $notesSha and (.signedArtifactId | type == "number") and
+           (.notesArtifactId | type == "number")' "$receipt" >/dev/null
+        signed_id=$(jq -r .signedArtifactId "$receipt")
+        notes_id=$(jq -r .notesArtifactId "$receipt")
+        [[ "$(awk -F '\t' '$1 == "plugin-distribution" && $3 == "false" { print $2 }' "$ARTIFACTS")" == "$signed_id" ]] || exit 1
+        [[ "$(awk -F '\t' '$1 == "release-notes" && $3 == "false" { print $2 }' "$ARTIFACTS")" == "$notes_id" ]] || exit 1
+        gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name plugin-distribution \
+          --dir "$RUNNER_TEMP/prior-signed"
+        gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name release-notes \
+          --dir "$RUNNER_TEMP/prior-notes"
+        [[ -f "$RUNNER_TEMP/prior-signed/${ARCHIVE##*/}" && ! -L "$RUNNER_TEMP/prior-signed/${ARCHIVE##*/}" ]] || exit 1
+        [[ -f "$RUNNER_TEMP/prior-notes/release-notes.md" && ! -L "$RUNNER_TEMP/prior-notes/release-notes.md" ]] || exit 1
+        test "$(sha256sum "$RUNNER_TEMP/prior-signed/${ARCHIVE##*/}" | cut -d' ' -f1)" = "$EXPECTED_SHA"
+        cmp "$NOTES_FILE" "$RUNNER_TEMP/prior-notes/release-notes.md"
     - name: Upload signed ZIP
+      if: steps.earlier.outputs.accepted == '0'
       shell: bash
       env:
         ARCHIVE: ${{ inputs.archive }}
         EXPECTED_SHA: ${{ inputs.sha256 }}
         PLUGIN_ID: ${{ inputs.plugin-id }}
         CHANNEL: ${{ inputs.channel }}
+        PUBLISH_TOKEN: ${{ inputs.publish-token }}
       run: |
         set -euo pipefail
         test -n "$PUBLISH_TOKEN"
@@ -46,11 +183,46 @@ runs:
         cp -- "$ARCHIVE" "$upload_file"
         test "$(sha256sum "$upload_file" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         cd "$RUNNER_TEMP"
-        if ! curl --fail-with-body --max-time 120 --silent --show-error \
+        status=$(curl --fail-with-body --max-time 120 --silent --show-error --write-out '%{http_code}' \
           --output "$RUNNER_TEMP/marketplace-response.json" \
           --config <(printf 'header = "Authorization: Bearer %s"\n' "$PUBLISH_TOKEN") \
           --form "pluginId=$PLUGIN_ID" --form "file=@${upload_file##*/};filename=plugin.zip" --form "channel=$CHANNEL" \
-          https://plugins.jetbrains.com/api/updates/upload; then
+          https://plugins.jetbrains.com/api/updates/upload) || {
+          cat "$RUNNER_TEMP/marketplace-response.json" >&2
+          exit 1
+        }
+        if [[ "$status" != 2?? ]]; then
           cat "$RUNNER_TEMP/marketplace-response.json" >&2
           exit 1
         fi
+    - name: Record Marketplace acceptance
+      if: steps.earlier.outputs.accepted == '0'
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        COMMIT: ${{ inputs.commit }}
+        PLUGIN_ID: ${{ inputs.plugin-id }}
+        CHANNEL: ${{ inputs.channel }}
+        ARCHIVE: ${{ inputs.archive }}
+        EXPECTED_SHA: ${{ inputs.sha256 }}
+        SIGNED_ARTIFACT_ID: ${{ inputs.signed-artifact-id }}
+        NOTES_ARTIFACT_ID: ${{ inputs.notes-artifact-id }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+      run: |
+        set -euo pipefail
+        jq -n --arg repository "$GITHUB_REPOSITORY" --arg tag "$TAG" --arg commit "$COMMIT" \
+          --arg version "${TAG#v}" --argjson runId "$GITHUB_RUN_ID" --argjson pluginId "$PLUGIN_ID" \
+          --arg channel "$CHANNEL" --arg archive "${ARCHIVE##*/}" --arg sha "$EXPECTED_SHA" \
+          --arg notesSha "$(sha256sum "$NOTES_FILE" | cut -d' ' -f1)" \
+          --argjson signedArtifactId "$SIGNED_ARTIFACT_ID" --argjson notesArtifactId "$NOTES_ARTIFACT_ID" \
+          '{schema: 2, repository: $repository, tag: $tag, commit: $commit, sourceRunId: $runId,
+            pluginId: $pluginId, version: $version, channel: $channel, signedArchive: $archive,
+            sha256: $sha, signedArtifactId: $signedArtifactId, notesArtifactId: $notesArtifactId,
+            notesSha256: $notesSha}' >"$RUNNER_TEMP/marketplace-acceptance.json"
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      if: steps.earlier.outputs.accepted == '0'
+      with:
+        name: marketplace-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/marketplace-acceptance.json
+        if-no-files-found: error
+        retention-days: 30
