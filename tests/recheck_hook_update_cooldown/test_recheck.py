@@ -22,16 +22,24 @@ def test_recheck_schedule_has_only_required_permissions() -> None:
 
 
 @pytest.mark.parametrize(
-    ("observed_age", "job_age", "job_conclusion", "job_name", "minimum_days", "reruns"),
+    ("observed_age", "job_age", "job_conclusion", "job_name", "configured_job", "workflow", "reruns"),
     [
-        pytest.param(8, 8, "failure", "hook-cooldown", 7, 1, id="matured-failure"),
-        pytest.param(8, 8, "failure", "Hook update cooldown", 7, 0, id="other-job"),
-        pytest.param(6, 6, "failure", "hook-cooldown", 7, 0, id="recent-pull"),
-        pytest.param(8, 0, "failure", "hook-cooldown", 7, 1, id="failed-rerun"),
-        pytest.param(31, 31, "failure", "hook-cooldown", 7, 0, id="expired-run"),
-        pytest.param(8, 8, "success", "hook-cooldown", 7, 0, id="successful-job"),
-        pytest.param(8, 8, "failure", "hook-cooldown", 14, 0, id="custom-cooldown-pending"),
-        pytest.param(15, 15, "failure", "hook-cooldown", 14, 1, id="custom-cooldown-matured"),
+        pytest.param(8, 8, "failure", "hook-cooldown", "hook-cooldown", "check.yaml", 1, id="matured-failure"),
+        pytest.param(8, 8, "failure", "Hook update cooldown", "hook-cooldown", "check.yaml", 0, id="other-job"),
+        pytest.param(
+            8,
+            8,
+            "failure",
+            "Hook update cooldown",
+            "Hook update cooldown",
+            "pr-gate.yaml",
+            1,
+            id="configured-job-and-workflow",
+        ),
+        pytest.param(6, 6, "failure", "hook-cooldown", "hook-cooldown", "check.yaml", 0, id="recent-pull"),
+        pytest.param(8, 0, "failure", "hook-cooldown", "hook-cooldown", "check.yaml", 1, id="failed-rerun"),
+        pytest.param(31, 31, "failure", "hook-cooldown", "hook-cooldown", "check.yaml", 0, id="expired-run"),
+        pytest.param(8, 8, "success", "hook-cooldown", "hook-cooldown", "check.yaml", 0, id="successful-job"),
     ],
 )
 @pytest.mark.parametrize(
@@ -46,7 +54,8 @@ def test_recheck_reruns_failed_job(
     job_age: int,
     job_conclusion: str,
     job_name: str,
-    minimum_days: int,
+    configured_job: str,
+    workflow: str,
     reruns: int,
     bot_login: str,
 ) -> None:
@@ -71,7 +80,7 @@ def test_recheck_reruns_failed_job(
         [{"filename": ".pre-commit-config.yaml"}]
     )
     server.expect_request(
-        "/api/v3/repos/tox-dev/fixture/actions/workflows/check.yaml/runs", method="GET"
+        f"/api/v3/repos/tox-dev/fixture/actions/workflows/{workflow}/runs", method="GET"
     ).respond_with_json(
         {
             "workflow_runs": [
@@ -88,7 +97,7 @@ def test_recheck_reruns_failed_job(
             ]
         }
     )
-    if minimum_days <= observed_age < 30:
+    if observed_age >= 7 and observed_age < 30:
         server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/42/jobs", method="GET").respond_with_json(
             {
                 "jobs": [
@@ -116,7 +125,8 @@ def test_recheck_reruns_failed_job(
         "recheck-hook-update-cooldown",
         version="",
         GH_TOKEN=environment["GH_ENTERPRISE_TOKEN"],
-        MINIMUM_DAYS=str(minimum_days),
+        JOB_NAME=configured_job,
+        WORKFLOW=workflow,
         **environment,
     )
     assert result.returncode == 0, result.stderr

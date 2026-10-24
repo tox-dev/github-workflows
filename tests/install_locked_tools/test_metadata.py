@@ -15,7 +15,13 @@ from pytest_mock import MockerFixture
 
 _PyPIFile = TypedDict(
     "_PyPIFile",
-    {"filename": str, "url": str, "upload-time": NotRequired[str], "hashes": dict[str, str]},
+    {
+        "filename": str,
+        "url": str,
+        "upload-time": NotRequired[str],
+        "hashes": dict[str, str],
+        "yanked": NotRequired[bool],
+    },
 )
 
 
@@ -79,6 +85,22 @@ def test_lock_metadata_matches_pypi(
     _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
 
     assert request.call_args.args[0].full_url == "https://pypi.org/simple/six/"
+
+
+def test_lock_metadata_rejects_yanked_artifact(
+    lock_case: tuple[Path, Path],
+    pypi_listing: _PyPIListing,
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pypi_listing["files"][0]["yanked"] = True
+    mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert "release lock differs from PyPI metadata" in capsys.readouterr().err
 
 
 def test_lock_metadata_retries_transient_network_error(
@@ -224,6 +246,92 @@ def test_lock_metadata_allows_local_release_creator(
     )
 
     _run_check(lock_case, monkeypatch, "--local-tool-source", "--verify-pypi", "--project", str(lock_case[1]))
+
+
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        pytest.param(
+            'archive = { url = "https://evil.invalid/six.whl", hashes = { sha256 = "' + "0" * 64 + '" } }',
+            "direct-source",
+            id="archive",
+        ),
+        pytest.param('directory = { path = "." }', "direct-source", id="directory"),
+        pytest.param(
+            'vcs = { type = "git", url = "https://evil.invalid/six.git", commit-id = "' + "a" * 40 + '" }',
+            "direct-source",
+            id="vcs",
+        ),
+    ],
+)
+def test_lock_metadata_rejects_unchecked_source(
+    lock_case: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+    message: str,
+) -> None:
+    lock = lock_case[0]
+    lock.write_text(lock.read_text().split('index = "https://pypi.org/simple/"', 1)[0] + source + "\n")
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
+
+    assert message in capsys.readouterr().err
+
+
+def test_lock_metadata_rejects_indexless_wheel(
+    lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lock = lock_case[0]
+    lock.write_text(lock.read_text().replace('index = "https://pypi.org/simple/"\n', ""))
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--project", str(lock_case[1]))
+
+    assert "uncooled non-index package" in capsys.readouterr().err
+
+
+def test_lock_metadata_checks_other_locked_platform(
+    lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lock = lock_case[0]
+    lock.write_text(
+        lock.read_text()
+        .replace(
+            'dependency-groups = ["release-check"]',
+            'dependency-groups = ["release-check"]\nenvironments = [\'sys_platform == "win32"\']',
+        )
+        .replace(
+            "marker = '\"release-check\" in dependency_groups'",
+            'marker = \'"release-check" in dependency_groups and sys_platform == "win32"\'',
+        )
+        .replace("files.pythonhosted.org", "evil.invalid")
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--project", str(lock_case[1]))
+
+    assert "non-PyPI artifact" in capsys.readouterr().err
+
+
+def test_lock_metadata_checks_nested_group_marker(
+    lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lock = lock_case[0]
+    lock.write_text(
+        lock.read_text()
+        .replace(
+            "marker = '\"release-check\" in dependency_groups'",
+            'marker = \'("release-check" in dependency_groups and sys_platform == "win32") or "test" in dependency_groups\'',
+        )
+        .replace("files.pythonhosted.org", "evil.invalid")
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--project", str(lock_case[1]))
+
+    assert "non-PyPI artifact" in capsys.readouterr().err
 
 
 def test_lock_metadata_checks_each_duplicate_artifact(

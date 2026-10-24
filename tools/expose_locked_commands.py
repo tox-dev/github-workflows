@@ -17,7 +17,7 @@ def main() -> None:
             and (os.name != "nt" or command.suffix.casefold() == ".exe")
             and os.access(command, os.X_OK)
             and not name.startswith(("activate", "deactivate", "easy_install", "ensurepip", "pip", "pydoc", "python"))
-            and name not in {"uv", "uvx", "wheel"}
+            and name not in {"bash", "curl", "gh", "git", "openssl", "sh", "ssh", "uv", "uvx", "wheel"}
         ):
             if os.name == "nt":
                 shutil.copy2(command, overlay / command.name)

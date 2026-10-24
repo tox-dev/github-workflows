@@ -1,9 +1,12 @@
 name: Recheck cooled hook updates
 description: Recheck failed bot hook-update cooldown jobs each day
 inputs:
-  minimum-days:
-    description: Minimum age of an eligible hook revision
-    default: "7"
+  workflow:
+    description: Workflow file containing the hook cooldown job
+    default: check.yaml
+  job-name:
+    description: Name of the hook cooldown job
+    default: hook-cooldown
 runs:
   using: composite
   steps:
@@ -23,16 +26,11 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-        MINIMUM_DAYS: ${{ inputs.minimum-days }}
+        WORKFLOW: ${{ inputs.workflow }}
+        JOB_NAME: ${{ inputs.job-name }}
       run: |
         set -euo pipefail
-        case "$MINIMUM_DAYS" in
-        '' | 0* | *[!0-9]*) exit 1 ;;
-        esac
-        if ((MINIMUM_DAYS < 7)); then
-          echo '::error::hook cooldown must be at least seven days' >&2
-          exit 1
-        fi
+        [[ -n "$WORKFLOW" && -n "$JOB_NAME" ]] || exit 1
         while IFS= read -r pull; do
           number=$(jq -r .number <<<"$pull")
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$number/files" --jq '.[].filename' \
@@ -42,7 +40,7 @@ runs:
           fi
           head=$(jq -r .head <<<"$pull")
           branch=$(jq -r .branch <<<"$pull")
-          runs=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/check.yaml/runs" \
+          runs=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs" \
             -f event=pull_request -f head_sha="$head" -f per_page=100 |
             jq -sc --arg repository "$GITHUB_REPOSITORY" --arg branch "$branch" --arg head "$head" \
               --argjson number "$number" '
@@ -51,8 +49,8 @@ runs:
                 .head_branch == $branch and .head_sha == $head and
                 any(.pull_requests[]; .number == $number)
               )]')
-          if ! jq -e --argjson minimum_days "$MINIMUM_DAYS" \
-            '[.[].created_at | fromdateiso8601] | min <= now - $minimum_days * 86400' \
+          if ! jq -e \
+            '[.[].created_at | fromdateiso8601] | min <= now - 7 * 86400' \
             <<<"$runs" >/dev/null; then
             continue
           fi
@@ -65,7 +63,8 @@ runs:
           fi
           job=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/runs/$(jq -r .id <<<"$run")/jobs" \
             -f filter=latest -f per_page=100 |
-            jq -sc '[.[].jobs[] | select(.name == "hook-cooldown" and .conclusion == "failure")] | first // empty')
+            jq -sc --arg job_name "$JOB_NAME" \
+              '[.[].jobs[] | select(.name == $job_name and .conclusion == "failure")] | first // empty')
           if [[ -n "$job" ]]; then
             if ! gh run rerun "$(jq -r .id <<<"$run")" --job "$(jq -r .id <<<"$job")" \
               --repo "$GITHUB_REPOSITORY"; then

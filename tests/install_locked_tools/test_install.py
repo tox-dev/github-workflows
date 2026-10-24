@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -257,7 +258,7 @@ def test_local_tool_source_only_accepts_release_creator(tmp_path: Path, package_
     )
     assert (result.returncode == 0) is accepted, result.stderr
     if not accepted:
-        assert f"uncooled non-index package: {package_name}" in result.stderr
+        assert f"direct-source package: {package_name}" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -429,10 +430,11 @@ def test_install_locked_tools_rejects_unreviewed_version_under_reviewed_floor(tm
     source = Path(__file__).resolve().parents[2]
     document = tomlkit.parse((source / "pylock.toml").read_text())
     package = next(package for package in document["packages"] if package["name"] == "release-creator")
+    current_version = str(package["version"])
     package["version"] = "0.6.3"
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = artifact["name"].replace("0.6.7", "0.6.3")
-        artifact["url"] = artifact["url"].replace("0.6.7", "0.6.3")
+        artifact["name"] = artifact["name"].replace(current_version, "0.6.3")
+        artifact["url"] = artifact["url"].replace(current_version, "0.6.3")
     lock = tmp_path / "pylock.toml"
     lock.write_text(tomlkit.dumps(document))
 
@@ -531,6 +533,74 @@ def test_caller_version_check_uses_shared_package_marker(tmp_path: Path) -> None
     )
     assert result.returncode != 0
     assert "relock: release-creator" in result.stderr
+
+
+def test_caller_version_check_covers_other_platform(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    package = next(item for item in document["packages"] if item["name"] == "release-creator")
+    package["marker"] = '"release-shell" in dependency_groups and sys_platform == "win32"'
+    shared = tmp_path / "shared.toml"
+    shared.write_text(tomlkit.dumps(document))
+    caller = tmp_path / "caller.toml"
+    caller.write_text(
+        'lock-version = "1.0"\nrequires-python = ">=3.15"\n'
+        'dependency-groups = ["release-shell"]\ncreated-by = "test"\npackages = []\n'
+        "[tool.nab]\ncreated-at = 2026-10-19T00:00:00Z\n"
+    )
+
+    result = subprocess.run(
+        [
+            "python",
+            str(source / "tools/check_lock_groups.py"),
+            str(caller),
+            "release-shell",
+            "--shared-lock",
+            str(shared),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "relock: release-creator" in result.stderr
+
+
+def test_caller_version_check_uses_highest_shared_platform_floor(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    document = tomlkit.parse((source / "pylock.toml").read_text())
+    package = next(item for item in document["packages"] if item["name"] == "release-creator")
+    current = deepcopy(package)
+    current["marker"] = '"release-news" in dependency_groups and sys_platform == "linux"'
+    package["marker"] = '"release-news" in dependency_groups and sys_platform == "win32"'
+    package["version"] = "0.6.6"
+    for artifact in [package["sdist"], *package["wheels"]]:
+        artifact["name"] = str(artifact["name"]).replace("0.6.7", "0.6.6")
+        artifact["url"] = str(artifact["url"]).replace("0.6.7", "0.6.6")
+        artifact["upload-time"] = datetime(2026, 10, 15, tzinfo=UTC)
+    caller = tmp_path / "caller.toml"
+    caller.write_text(tomlkit.dumps(document))
+    document["packages"].append(current)
+    shared = tmp_path / "shared.toml"
+    shared.write_text(tomlkit.dumps(document))
+
+    result = subprocess.run(
+        [
+            "python",
+            str(source / "tools/check_lock_groups.py"),
+            str(caller),
+            "release-news",
+            "--shared-lock",
+            str(shared),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "relock: release-creator 0.6.7 required" in result.stderr
 
 
 def test_install_locked_tools_shared_group_ignores_missing_caller_group(tmp_path: Path, action_scripts: Path) -> None:

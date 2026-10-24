@@ -63,6 +63,8 @@ jobs:
           local-tool-source: ${{ inputs.local-tool-source }}
       - name: Install prek hooks
         id: hooks
+        env:
+          UV_EXCLUDE_NEWER: 7 days
         run: prek install-hooks
         background: true
       - name: Build local release tool wheel
@@ -120,7 +122,7 @@ jobs:
       - id: tools
         uses: $/install-locked-tools
         with:
-          groups: release-validate
+          groups: release-validate${{ inputs.local-tool-source && ' project-runtime' || '' }}
           venv: .venv
           local-tool-source: ${{ inputs.local-tool-source }}
       - name: Build local release tool wheel

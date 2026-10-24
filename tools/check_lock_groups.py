@@ -12,11 +12,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from http.client import IncompleteRead
 from pathlib import Path
+from typing import cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from nab_cutoffs import reviewed_cutoff, validate_indexes
+from packaging._parser import Variable
+from packaging.markers import Marker
 from packaging.pylock import Package, Pylock, PylockValidationError
 from packaging.utils import canonicalize_name, parse_sdist_filename, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
@@ -55,9 +58,9 @@ def main() -> None:
         if args.shared_lock:
             with args.shared_lock.open("rb") as stream:
                 shared = Pylock.from_dict(tomllib.load(stream))
-            required = _selected_release_creator(shared, groups)
+            required = max(_selected_release_creators(shared, groups), default=None)
             if required is not None and not args.local_tool_source:
-                installed = _selected_release_creator(lock, groups)
+                installed = min(_selected_release_creators(lock, groups), default=None)
                 if installed is None or installed < required:
                     parser.error(f"relock: release-creator {required} required")
     except (IncompleteRead, InvalidVersion, KeyError, OSError, PylockValidationError, TypeError, ValueError) as error:
@@ -70,6 +73,8 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
         raise ValueError("lock has no valid creation time or was created in the future")
     threshold = created - timedelta(days=7)
     for package in _selected_packages(lock, groups, local_tool_source=local_tool_source):
+        if package.archive is not None or package.vcs is not None or package.directory is not None:
+            raise ValueError(f"release lock has a direct-source package: {package.name}")
         if package.index is None:
             raise ValueError(f"release lock has an uncooled non-index package: {package.name}")
         if package.index != "https://pypi.org/simple/":
@@ -117,12 +122,46 @@ def _selected_packages(lock: Pylock, groups: set[str], *, local_tool_source: boo
     selections = (groups, {"build"}) if "build" in (lock.dependency_groups or ()) else (groups,)
     for package in lock.packages:
         if package.marker is not None and not any(
-            package.marker.evaluate({"dependency_groups": selection}, context="lock_file") for selection in selections
+            _possibly_selected(package.marker, selection) for selection in selections
         ):
             continue
-        if local_tool_source and package.name == "release-creator" and package.index is None:
+        if (
+            local_tool_source
+            and package.name == "release-creator"
+            and package.directory is not None
+            and package.directory.path == "."
+            and package.index is None
+            and package.archive is None
+            and package.vcs is None
+            and package.sdist is None
+            and not package.wheels
+        ):
             continue
         yield package
+
+
+def _possibly_selected(marker: Marker, groups: set[str]) -> bool:
+    def expression(nodes: list[object]) -> bool:
+        alternatives: list[bool] = []
+        current = True
+        for node in nodes:
+            if node == "or":
+                alternatives.append(current)
+                current = True
+            elif node != "and":
+                if isinstance(node, list):
+                    current &= expression(node)
+                else:
+                    left, operator, right = cast("tuple[object, object, object]", node)
+                    if isinstance(right, Variable) and str(right) == "dependency_groups" and str(operator) == "in":
+                        current &= str(left) in groups
+                    elif (
+                        isinstance(right, Variable) and str(right) == "dependency_groups" and str(operator) == "not in"
+                    ):
+                        current &= str(left) not in groups
+        return any((*alternatives, current))
+
+    return expression(marker._markers)
 
 
 def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None, datetime | None]]]:
@@ -151,6 +190,8 @@ def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None,
         raise ValueError(f"invalid PyPI listing for {name}")
     files: dict[str, tuple[str | None, str | None, datetime | None]] = {}
     for file in listing["files"]:
+        if file.get("yanked", False):
+            continue
         files[file["filename"]] = (
             file.get("url"),
             file.get("hashes", {}).get("sha256"),
@@ -159,16 +200,10 @@ def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None,
     return name, files
 
 
-def _selected_release_creator(lock: Pylock, groups: set[str]) -> Version | None:
-    return next(
-        (
-            Version(str(package.version))
-            for package in lock.packages
-            if package.name == "release-creator"
-            and (package.marker is None or package.marker.evaluate({"dependency_groups": groups}, context="lock_file"))
-        ),
-        None,
-    )
+def _selected_release_creators(lock: Pylock, groups: set[str]) -> Iterator[Version]:
+    for package in lock.packages:
+        if package.name == "release-creator" and (package.marker is None or _possibly_selected(package.marker, groups)):
+            yield Version(str(package.version))
 
 
 if __name__ == "__main__":
