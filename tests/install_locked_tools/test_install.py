@@ -123,6 +123,17 @@ def test_install_locked_tools_reuses_existing_environment(tmp_path: Path, action
     assert (tmp_path / "lock-tools" / ("Scripts/nab.exe" if os.name == "nt" else "bin/nab")).is_file()
 
 
+def test_install_locked_tools_keeps_reader_after_nab_sync(tmp_path: Path, action_scripts: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    first = install(source, action_scripts, tmp_path, groups="lock-tools", venv=tmp_path / "lock-tools")
+    second = install(source, action_scripts, tmp_path, groups="release-news", venv=tmp_path / "news-tools")
+
+    assert first.returncode == second.returncode == 0, first.stderr + second.stderr
+    reader = tmp_path / "lock-reader" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    imported = subprocess.run([str(reader), "-c", "import certifi"], capture_output=True, text=True, check=False)
+    assert imported.returncode == 0, imported.stderr
+
+
 def test_install_locked_tools_exposes_release_commands(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     environment = tmp_path / "tools"
@@ -141,7 +152,7 @@ def test_install_locked_tools_uses_minimal_reader(tmp_path: Path, action_scripts
     result = install(source, action_scripts, tmp_path, groups="release-check", venv=tmp_path / "tools")
 
     assert result.returncode == 0, result.stderr
-    reader = tmp_path / "lock-tools" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    reader = tmp_path / "lock-reader" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     packages = subprocess.run(
         [str(reader), "-c", "import importlib.util; print(importlib.util.find_spec('nab') is None)"],
         capture_output=True,
