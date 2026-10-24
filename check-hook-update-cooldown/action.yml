@@ -66,13 +66,18 @@ runs:
           fi
           gh api --paginate -X GET "repos/$REPOSITORY/actions/runs" -f event=pull_request \
             -f head_sha="$HEAD_SHA" -f per_page=100 >"$RUNNER_TEMP/hook-update-runs.jsonl"
+          workflow_path=${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}
+          workflow_path=${workflow_path%@*}
           if jq -se --arg repository "$(jq -r .head.repo.full_name "$RUNNER_TEMP/hook-update-pr.json")" \
             --arg branch "$(jq -r .head.ref "$RUNNER_TEMP/hook-update-pr.json")" \
-            --arg head "$HEAD_SHA" --argjson number "$PR_NUMBER" --argjson days "$MINIMUM_DAYS" '
+            --arg head "$HEAD_SHA" --arg workflow "$workflow_path" \
+            --argjson number "$PR_NUMBER" --argjson days "$MINIMUM_DAYS" \
+            --argjson opened "$(jq -r '.created_at | fromdateiso8601' "$RUNNER_TEMP/hook-update-pr.json")" '
             [.[].workflow_runs[] | select(
               .event == "pull_request" and .head_repository.full_name == $repository and
-              .head_branch == $branch and .head_sha == $head and
-              any(.pull_requests[]; .number == $number)
+              .head_branch == $branch and .head_sha == $head and (.path | split("@")[0]) == $workflow and
+              (any(.pull_requests[]; .number == $number) or
+                (.pull_requests == [] and (.created_at | fromdateiso8601) >= $opened))
             ) | .created_at | fromdateiso8601] as $observed |
             ($observed | length) > 0 and ($observed | min) <= now - ($days * 86400)
           ' "$RUNNER_TEMP/hook-update-runs.jsonl" >/dev/null; then
@@ -80,7 +85,7 @@ runs:
           fi
           echo 'changed=true' >>"$GITHUB_OUTPUT"
         fi
-    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       if: steps.identity.outputs.changed == 'true'
       with:
         version: latest-known
@@ -182,12 +187,17 @@ runs:
         cutoff=$(jq -nr --argjson days "$MINIMUM_DAYS" 'now - $days * 86400 | todateiso8601')
         gh api --paginate -X GET "repos/$REPOSITORY/actions/runs" -f event=pull_request \
           -f branch="$branch" -f "created=<$cutoff" -f per_page=100 >"$RUNNER_TEMP/hook-branch-runs.jsonl"
+        workflow_path=${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}
+        workflow_path=${workflow_path%@*}
         jq -sr --arg repository "$(jq -r .head.repo.full_name "$RUNNER_TEMP/hook-update-pr.json")" \
-          --arg branch "$branch" \
-          --argjson number "$PR_NUMBER" --argjson days "$MINIMUM_DAYS" '
+          --arg branch "$branch" --arg workflow "$workflow_path" \
+          --argjson number "$PR_NUMBER" --argjson days "$MINIMUM_DAYS" \
+          --argjson opened "$(jq -r '.created_at | fromdateiso8601' "$RUNNER_TEMP/hook-update-pr.json")" '
           [.[].workflow_runs[] | select(
             .event == "pull_request" and .head_repository.full_name == $repository and
-            .head_branch == $branch and any(.pull_requests[]; .number == $number) and
+            .head_branch == $branch and (.path | split("@")[0]) == $workflow and
+            (any(.pull_requests[]; .number == $number) or
+              (.pull_requests == [] and (.created_at | fromdateiso8601) >= $opened)) and
             (.created_at | fromdateiso8601) <= now - ($days * 86400)
           ) | .head_sha] | unique[]
         ' "$RUNNER_TEMP/hook-branch-runs.jsonl" >"$RUNNER_TEMP/older-heads"

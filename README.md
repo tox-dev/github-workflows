@@ -95,12 +95,14 @@ The Action expects a pull request base ref and a Markdown or reStructuredText ch
 Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Its read-only jobs refresh the universal
 `pylock.toml` and the frozen pre-commit hooks in parallel. `release-creator locks` exports runtime dependencies, all
 extras, and all dependency groups with a seven-day package cutoff. Reviewed exceptions live in
-`[tool.release-creator.locks.exclude-newer-package]`. The hook updater applies the same cooldown to hook revisions and
-their `additional_dependencies`. Each job uploads a patch. The lock patch may change `pylock.toml`, an explicitly
-configured secondary Nab lock, and `pyproject.toml` for expired reviewed cutoffs. The hook patch may change only
-`.pre-commit-config.yaml`. The writer checks each patch before applying it and verifies cutoff removals before minting
-the App token. It then opens or updates one dependency PR from `automation/update-release-tools` to `main`. A lock or
-hook update runs the normal PR checks before merge.
+`[tool.release-creator.locks.exclude-newer-package]`. Both lock checks and weekly refresh install uv from the shared
+`release-resolver` group, so a setup-uv default change cannot alter the generated lock. The shared weekly updater
+refreshes this direct pin and the lock together; consumer locks use their pinned shared resolver. The hook updater
+applies the same cooldown to hook revisions and their `additional_dependencies`. Each job uploads a patch. The lock
+patch may change `pylock.toml`, an explicitly configured secondary Nab lock, and `pyproject.toml` for expired reviewed
+cutoffs. The hook patch may change only `.pre-commit-config.yaml`. The writer checks each patch before applying it and
+verifies cutoff removals before minting the App token. It then opens or updates one dependency PR from
+`automation/update-release-tools` to `main`. A lock or hook update runs the normal PR checks before merge.
 
 The writer uses a repository-only release App with Contents and Pull requests write access. Install the App on this
 repository, set `RELEASE_APP_CLIENT_ID` as a repository variable, and store `RELEASE_APP_PRIVATE_KEY` in the
@@ -131,16 +133,17 @@ dependency changes. The updater also refreshes a caller's secondary Nab build-ma
 matrix inputs are set.
 
 The optional `commit-message`, `pull-request-title`, and `pull-request-body` inputs retain existing PR wording. The
-workflow does not update `uv.lock` or a checked-in constraints file. Build constraints are generated from the lock's
-`build` group at runtime.
+workflow updates a committed `uv.lock` only when `keep-uv-lock: true`; pass that input to `validate-news` too. Both
+locks are then checked with the same resolver and allowed in the dependency patch. The default leaves `uv.lock` alone.
+Build constraints are generated from the lock's `build` group at runtime.
 
 For a second lock such as `pylock.build.toml`, set `additional-lock`, `additional-matrix-python`,
 `additional-matrix-platforms`, and `additional-matrix-implementations`. `additional-lock-groups` selects dependency
 groups in that lock; with no groups, the updater selects build requirements. Set `additional-lock-selection: project`
 for a lock that selects the project's runtime dependencies instead. The lock must already exist, and the updater writes
-both locks in the same dependency PR. The writer accepts only those locks, `pyproject.toml`, and the hook configuration.
-Pass the same `additional-lock` and matrix inputs to `validate-news` in the PR workflow. It checks changes to either
-lock against the project, including a PR that changes only the secondary lock.
+both locks in the same dependency PR. The writer accepts only those locks, an opted-in `uv.lock`, `pyproject.toml`, and
+the hook configuration. Pass the same `additional-lock` and matrix inputs to `validate-news` in the PR workflow. It
+checks changes to either lock against the project, including a PR that changes only the secondary lock.
 
 `refresh-release-lock` is the read-only half of the updater. In `refresh` mode, it upgrades the full primary lock and
 writes `$RUNNER_TEMP/lock.patch` if a lock or reviewed cutoff changes. In `check` mode, it regenerates at the primary
@@ -160,7 +163,9 @@ required aggregate. It reads its PR number and head SHA from the event, compares
 proposed configuration from that exact head, including a fork head. It checks the complete Python hook dependency
 closure at the configured `minimum-days` cutoff and requires each changed revision to have appeared in a GitHub PR
 workflow run at least that many days earlier. The default is seven days. A force push does not reset an unchanged
-revision's age or give a new revision the old one's age. Human PRs may add hooks or change their options under the same
+revision's age or give a new revision the old one's age. GitHub can omit pull request links from workflow runs. For
+those runs, the Action observes the exact head repository, branch, commit, and workflow after the PR opened; two PRs
+from the same head can share that code observation. Human PRs may add hooks or change their options under the same
 revision and dependency checks. A human PR may add the first managed pins when the base configuration has none; the
 complete closure check still applies. Once the base has managed pins, only the release App may change them. Other bot
 PRs may change revisions only. On `automation/update-release-tools`, the Action verifies the bot against
@@ -168,6 +173,43 @@ PRs may change revisions only. On `automation/update-release-tools`, the Action 
 revision must be a full lowercase commit SHA. A revision with new Python dependencies stays blocked until the App
 updates its managed pins. Tagged source jobs check frozen revisions and the complete Python dependency closure before
 running `prek`.
+
+On a tag, `verify-frozen-hooks` also checks when each new external `(repository, commit)` pair was first present in
+GitHub. It compares the tag with the previous published release in the same tag stream and on the first-parent release
+line. A new pair must come from a merged PR, and either its merge or a PR run containing the exact pair must be at least
+seven days old. The first release has no baseline: every external pair needs that proof. Directly pushed hook changes
+cannot acquire it. This read-only Action has no outputs; it fails before `prek` runs. The tagged source job needs
+`actions: read`, `contents: read`, `pull-requests: read`, and a checkout with `fetch-depth: 0`.
+
+For a release dispatched from `main` with a tag input, pass that tag to the Action. It checks that the checkout is the
+tag's commit; a dispatch on `main` with the wrong checkout fails.
+
+```yaml
+  - uses: tox-dev/github-workflows/verify-frozen-hooks@SHA
+    with:
+      tag: ${{ inputs.tag }}
+```
+
+The shared prepare and tagged validator run `refresh-release-lock` in `check` mode before release checks or publishing.
+Pass `keep-uv-lock: true` when the repository commits a native `uv.lock`. For a secondary Nab lock, pass its path,
+selected groups, selection type, and matrix inputs to both workflows. A stale primary, native, or secondary lock stops
+the release before artifacts are built.
+
+For example, a tagged source job that also publishes from a PGO lock checks both files before installing build tools:
+
+```yaml
+  - uses: tox-dev/github-workflows/refresh-release-lock@SHA
+    with:
+      mode: check
+      additional-lock: pylock.pgo.toml
+      additional-lock-groups: pgo
+      additional-matrix-python: '>=3.11,<3.16'
+      additional-matrix-platforms: linux_x86_64 linux_aarch64
+      additional-matrix-implementations: cpython pypy
+```
+
+For a committed native uv lock, set `keep-uv-lock: true` in this step. The full project lock and `uv.lock` must then
+agree with the same project configuration.
 
 ```yaml
 hook-cooldown:

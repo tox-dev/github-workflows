@@ -52,9 +52,26 @@ def test_validator_isolates_release_tools_from_build() -> None:
         (Path(__file__).resolve().parents[2] / ".github/workflows/validate-python-release.yaml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    assert set(workflow["on"]["workflow_call"]["inputs"]) == {"source", "artifact-prefix"}
+    assert set(workflow["on"]["workflow_call"]["inputs"]) == {
+        "source",
+        "artifact-prefix",
+        "keep-uv-lock",
+        "additional-lock",
+        "additional-lock-groups",
+        "additional-lock-selection",
+        "additional-matrix-python",
+        "additional-matrix-platforms",
+        "additional-matrix-implementations",
+    }
     assert set(workflow["jobs"]) == {"source-check", "constraints", "build", "validate"}
-    assert workflow["jobs"]["build"]["needs"] == "constraints"
+    assert workflow["jobs"]["build"]["needs"] == ["source-check", "constraints"]
+    lock_check = next(
+        step for step in workflow["jobs"]["source-check"]["steps"] if step.get("uses") == "$/refresh-release-lock"
+    )
+    assert lock_check["with"]["mode"] == "check"
+    for option in workflow["on"]["workflow_call"]["inputs"]:
+        if option not in {"source", "artifact-prefix"}:
+            assert lock_check["with"][option] == f"${{{{ inputs.{option} }}}}"
     assert not any(step.get("uses", "").startswith("$/install-") for step in workflow["jobs"]["build"]["steps"])
     assert workflow["jobs"]["validate"]["needs"] == "build"
     assert not any(step.get("uses") == "$/install-locked-tools" for step in workflow["jobs"]["validate"]["steps"])
@@ -63,6 +80,47 @@ def test_validator_isolates_release_tools_from_build() -> None:
     )
     assert "twine>=7" in validator["run"]
     assert "check-wheel-contents>=0.6.3" in validator["run"]
+
+
+def test_tagged_source_has_history_and_read_access_for_hook_proof(release_workflow: dict[str, Any]) -> None:
+    source = release_workflow["jobs"]["source-check"]
+    assert source["permissions"] == {"actions": "read", "contents": "read", "pull-requests": "read"}
+    assert next(step for step in source["steps"] if "checkout" in step.get("uses", ""))["with"]["fetch-depth"] == 0
+    assert [step.get("uses") for step in source["steps"]].index("$/refresh-release-lock") < [
+        step.get("uses") for step in source["steps"]
+    ].index("$/verify-frozen-hooks")
+
+
+def test_tagged_source_rejects_stale_project_requirement(tmp_path: Path, release_workflow: dict[str, Any]) -> None:
+    source = Path(__file__).resolve().parents[2]
+    project = tmp_path / "pyproject.toml"
+    project.write_text(
+        '[project]\nname = "probe"\nversion = "1.0.0"\nrequires-python = ">=3.15"\ndependencies = []\n'
+        "[dependency-groups]\nrelease-check = []\n"
+        "[tool.release-creator.locks]\n"
+    )
+    tool = source / ".release-tools/bin/release-creator"
+    locked = subprocess.run([str(tool), "locks"], cwd=tmp_path, text=True, capture_output=True, check=False)
+    assert locked.returncode == 0, locked.stderr
+    project.write_text(project.read_text().replace("dependencies = []", 'dependencies = ["prek>=999"]'))
+    selected = subprocess.run(
+        [sys.executable, str(source / "tools/check_lock_groups.py"), "pylock.toml", "release-check"],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    freshness = subprocess.run(
+        [str(tool), "locks", "--check"], cwd=tmp_path, text=True, capture_output=True, check=False
+    )
+
+    assert selected.returncode == 0, selected.stderr
+    assert freshness.returncode != 0
+    assert "prek>=999" in freshness.stderr
+    assert any(
+        step.get("uses") == "$/refresh-release-lock" and step.get("with", {}).get("mode") == "check"
+        for step in release_workflow["jobs"]["source-check"]["steps"]
+    )
 
 
 def test_validator_builds_reproducible_distributions_and_checks_them(

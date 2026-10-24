@@ -79,6 +79,7 @@ def test_recheck_reruns_failed_job(
                     "repo": {"full_name": head_repository},
                 },
                 "base": {"repo": {"full_name": "tox-dev/fixture"}},
+                "created_at": (datetime.now(UTC) - timedelta(days=20)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "updated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
         ]
@@ -142,6 +143,82 @@ def test_recheck_reruns_failed_job(
     ) == reruns
 
 
+@pytest.mark.parametrize(
+    ("head_repository", "opened_days", "reruns"),
+    [
+        pytest.param("tox-dev/fixture", 20, 1, id="same-repository-unlinked"),
+        pytest.param("gaborbernat/fixture", 20, 1, id="fork-unlinked"),
+        pytest.param("gaborbernat/fixture", 5, 0, id="observation-predates-pr"),
+    ],
+)
+def test_recheck_observes_unlinked_exact_head(
+    github_api: tuple[HTTPServer, dict[str, str]],
+    action_scripts: Path,
+    tmp_path: Path,
+    head_repository: str,
+    opened_days: int,
+    reruns: int,
+) -> None:
+    server, environment = github_api
+    observed_at = (datetime.now(UTC) - timedelta(days=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    server.expect_request("/api/v3/repos/tox-dev/fixture/pulls", method="GET").respond_with_json(
+        [
+            {
+                "number": 7,
+                "head": {"sha": "a" * 40, "ref": "update", "repo": {"full_name": head_repository}},
+                "base": {"repo": {"full_name": "tox-dev/fixture"}},
+                "created_at": (datetime.now(UTC) - timedelta(days=opened_days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        ]
+    )
+    server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7/files", method="GET").respond_with_json(
+        [{"filename": ".pre-commit-config.yaml"}]
+    )
+    server.expect_request(
+        "/api/v3/repos/tox-dev/fixture/actions/workflows/check.yaml/runs", method="GET"
+    ).respond_with_json(
+        {
+            "workflow_runs": [
+                {
+                    "id": 42,
+                    "event": "pull_request",
+                    "head_repository": {"full_name": head_repository},
+                    "head_sha": "a" * 40,
+                    "head_branch": "update",
+                    "pull_requests": [],
+                    "status": "completed",
+                    "created_at": observed_at,
+                }
+            ]
+        }
+    )
+    if reruns:
+        server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/42/jobs", method="GET").respond_with_json(
+            {"jobs": [{"id": 99, "name": "hook-cooldown", "conclusion": "failure"}]}
+        )
+        server.expect_request("/api/v3/repos/tox-dev/fixture/actions/jobs/99", method="GET").respond_with_json(
+            {"id": 99, "run_id": 42, "name": "hook-cooldown", "status": "completed", "conclusion": "failure"}
+        )
+        server.expect_request("/api/v3/repos/tox-dev/fixture/actions/jobs/99/rerun", method="POST").respond_with_data(
+            status=201
+        )
+
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "recheck-hook-update-cooldown",
+        version="",
+        GH_TOKEN=environment["GH_ENTERPRISE_TOKEN"],
+        **environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert [request.path for request, _ in server.log].count(
+        "/api/v3/repos/tox-dev/fixture/actions/jobs/99/rerun"
+    ) == reruns
+
+
 def test_recheck_continues_after_failed_rerun(
     github_api: tuple[HTTPServer, dict[str, str]], action_scripts: Path, tmp_path: Path
 ) -> None:
@@ -154,6 +231,7 @@ def test_recheck_continues_after_failed_rerun(
                 "user": {"login": "release-app[bot]", "type": "Bot"},
                 "head": {"sha": str(number) * 40, "ref": f"update-{number}", "repo": {"full_name": "tox-dev/fixture"}},
                 "base": {"repo": {"full_name": "tox-dev/fixture"}},
+                "created_at": (datetime.now(UTC) - timedelta(days=20)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
             for number in (7, 8)
         ]

@@ -138,19 +138,28 @@ def test_validate_news_forwards_secondary_lock_inputs() -> None:
     assert secondary
     assert all(refresh["with"][name] == "${{ inputs." + name + " }}" for name in secondary)
     assert refresh["with"]["mode"] == "check"
+    assert refresh["with"]["keep-uv-lock"] == "${{ inputs.keep-uv-lock }}"
 
 
 @pytest.mark.parametrize(
-    ("additional_lock", "changed_path", "changed"),
+    ("additional_lock", "keep_uv_lock", "changed_path", "changed"),
     [
-        pytest.param("pylock.zipapp.toml", "pylock.zipapp.toml", "true", id="selected-secondary-lock"),
-        pytest.param("", "pylock.zipapp.toml", "false", id="unselected-secondary-lock"),
-        pytest.param("", "nab.toml", "true", id="nab-policy"),
-        pytest.param("", "meta/pyproject.toml", "true", id="workspace-member"),
+        pytest.param("pylock.zipapp.toml", False, "pylock.zipapp.toml", "true", id="selected-secondary-lock"),
+        pytest.param("", False, "pylock.zipapp.toml", "false", id="unselected-secondary-lock"),
+        pytest.param("", False, "nab.toml", "true", id="nab-policy"),
+        pytest.param("", False, "meta/pyproject.toml", "true", id="workspace-member"),
+        pytest.param("", True, "uv.lock", "true", id="selected-native-uv-lock"),
+        pytest.param("", False, "uv.lock", "false", id="unselected-native-uv-lock"),
     ],
 )
 def test_validate_news_detects_release_input_change(
-    repository: Path, tmp_path: Path, action_scripts: Path, additional_lock: str, changed_path: str, changed: str
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    additional_lock: str,
+    keep_uv_lock: bool,
+    changed_path: str,
+    changed: str,
 ) -> None:
     (repository / "pyproject.toml").write_text(
         (repository / "pyproject.toml").read_text() + "\n[dependency-groups]\nrelease-news = []\n"
@@ -159,6 +168,7 @@ def test_validate_news_detects_release_input_change(
         '[tool.nab]\ncommand-line = ["nab", "lock", "--groups", "release-news", "--output", "pylock.toml"]\n'
     )
     (repository / "pylock.zipapp.toml").write_text("lock-version = '1.0'\n")
+    (repository / "uv.lock").write_text("version = 1\n")
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Add release locks")
     run(repository, "git", "push", "origin", "main")
@@ -180,6 +190,7 @@ def test_validate_news_detects_release_input_change(
         | {
             "BASE_REF": "main",
             "ADDITIONAL_LOCK": additional_lock,
+            "KEEP_UV_LOCK": str(keep_uv_lock).lower(),
             "GITHUB_OUTPUT": str(output),
             "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "validate-news"),
         },

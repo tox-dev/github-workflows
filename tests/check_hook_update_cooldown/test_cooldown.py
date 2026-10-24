@@ -160,6 +160,144 @@ def test_cooldown_checks_fork_head_configuration(
 
 
 @pytest.mark.parametrize(
+    ("head_repository", "observed_repository", "opened_days", "observed_days", "workflow_path", "accepted"),
+    [
+        pytest.param(
+            "gaborbernat/fixture", None, 20, 10, ".github/workflows/check.yaml", True, id="fork-observed-after-open"
+        ),
+        pytest.param(
+            "gaborbernat/fixture", None, 20, 0, ".github/workflows/check.yaml", False, id="fork-observed-too-recently"
+        ),
+        pytest.param(
+            "gaborbernat/fixture", None, 5, 10, ".github/workflows/check.yaml", False, id="old-run-before-new-pr"
+        ),
+        pytest.param(
+            "tox-dev/fixture", None, 20, 10, ".github/workflows/check.yaml", True, id="same-repository-unlinked-run"
+        ),
+        pytest.param(
+            "gaborbernat/fixture",
+            "another/fixture",
+            20,
+            10,
+            ".github/workflows/check.yaml",
+            False,
+            id="same-branch-other-fork",
+        ),
+        pytest.param(
+            "gaborbernat/fixture", None, 20, 10, ".github/workflows/news.yaml", False, id="unrelated-workflow"
+        ),
+    ],
+)
+def test_cooldown_checks_unlinked_run_identity(
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    head_repository: str,
+    observed_repository: str | None,
+    opened_days: int,
+    observed_days: int,
+    workflow_path: str,
+    accepted: bool,
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(
+        server,
+        author="gaborbernat",
+        head_repository=head_repository,
+        opened_days=opened_days,
+        observed_days=observed_days,
+        associated_pull_request=None,
+        observed_repository=observed_repository,
+        workflow_path=workflow_path,
+    )
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1", source_repository=head_repository)
+    if not accepted:
+        expect_historical_runs(server, older_head=None)
+
+    result = run_cooldown(action_scripts, tmp_path, environment)
+
+    assert (result.returncode == 0) is accepted, result.stderr
+    if not accepted:
+        assert "hook revision has not been observed" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("head_repository", "opened_days", "observed_repository", "workflow_path", "accepted"),
+    [
+        pytest.param(
+            "gaborbernat/fixture", 20, "gaborbernat/fixture", ".github/workflows/check.yaml", True, id="fork-history"
+        ),
+        pytest.param(
+            "tox-dev/fixture", 20, "tox-dev/fixture", ".github/workflows/check.yaml", True, id="same-repository-history"
+        ),
+        pytest.param(
+            "gaborbernat/fixture",
+            5,
+            "gaborbernat/fixture",
+            ".github/workflows/check.yaml",
+            False,
+            id="earlier-pr-same-branch",
+        ),
+        pytest.param(
+            "gaborbernat/fixture",
+            20,
+            "another/fixture",
+            ".github/workflows/check.yaml",
+            False,
+            id="same-branch-other-fork",
+        ),
+        pytest.param(
+            "gaborbernat/fixture",
+            20,
+            "gaborbernat/fixture",
+            ".github/workflows/news.yaml",
+            False,
+            id="unrelated-workflow",
+        ),
+    ],
+)
+def test_cooldown_checks_unlinked_history(
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    head_repository: str,
+    opened_days: int,
+    observed_repository: str,
+    workflow_path: str,
+    accepted: bool,
+) -> None:
+    server, environment = github_api
+    repository = hook_repository(tmp_path)
+    expect_pull(
+        server,
+        author="gaborbernat",
+        head_repository=head_repository,
+        opened_days=opened_days,
+        observed_days=0,
+        associated_pull_request=None,
+    )
+    expect_config(server, "b" * 40, repository, "v0")
+    expect_config(server, "a" * 40, repository, "v1", source_repository=head_repository)
+    expect_historical_runs(
+        server,
+        older_head="c" * 40,
+        head_repository=observed_repository,
+        pull_request=None,
+        workflow_path=workflow_path,
+    )
+    if accepted:
+        expect_config(server, "c" * 40, repository, "v1", source_repository=head_repository)
+
+    result = run_cooldown(action_scripts, tmp_path, environment)
+
+    assert (result.returncode == 0) is accepted, result.stderr
+    if not accepted:
+        assert "hook revision has not been observed" in result.stderr
+
+
+@pytest.mark.parametrize(
     ("minimum_days", "accepted"),
     [pytest.param("7", True, id="default"), pytest.param("1000", False, id="configured-cooldown")],
 )
@@ -584,6 +722,7 @@ def run_cooldown(
         GITHUB_EVENT_NAME=event_name,
         GITHUB_EVENT_PATH=str(path),
         GITHUB_OUTPUT=str(tmp_path / "outputs"),
+        GITHUB_WORKFLOW_REF="tox-dev/fixture/.github/workflows/check.yaml@refs/pull/7/merge",
         **environment,
     )
 
@@ -599,6 +738,10 @@ def expect_pull(
     branch: str = "bot-update",
     app_client_id: str = "Iv1.release",
     head_repository: str = "tox-dev/fixture",
+    opened_days: int = 20,
+    associated_pull_request: int | None = 7,
+    observed_repository: str | None = None,
+    workflow_path: str = ".github/workflows/check.yaml",
 ) -> None:
     server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7", method="GET").respond_with_json(
         {
@@ -606,6 +749,7 @@ def expect_pull(
             "base": {"repo": {"full_name": "tox-dev/fixture"}, "sha": "b" * 40},
             "head": {"sha": head, "ref": branch, "repo": {"full_name": head_repository}},
             "user": {"login": author, "type": "Bot" if author.endswith("[bot]") else "User"},
+            "created_at": (datetime.now(UTC) - timedelta(days=opened_days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "updated_at": (datetime.now(UTC) - timedelta(days=updated_days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
     )
@@ -628,10 +772,13 @@ def expect_pull(
                 else [
                     {
                         "event": "pull_request",
-                        "head_repository": {"full_name": head_repository},
+                        "head_repository": {"full_name": observed_repository or head_repository},
                         "head_branch": branch,
                         "head_sha": head,
-                        "pull_requests": [{"number": 7}],
+                        "pull_requests": []
+                        if associated_pull_request is None
+                        else [{"number": associated_pull_request}],
+                        "path": workflow_path,
                         "created_at": (datetime.now(UTC) - timedelta(days=observed_days)).strftime(
                             "%Y-%m-%dT%H:%M:%SZ"
                         ),
@@ -648,6 +795,7 @@ def expect_config(
     revision: str | tuple[str, ...],
     *,
     hook: str = "      - id: sample\n",
+    source_repository: str = "tox-dev/fixture",
 ) -> None:
     revisions = (revision,) if isinstance(revision, str) else revision
     frozen = tuple(
@@ -662,7 +810,9 @@ def expect_config(
         for item in revisions
     )
     server.expect_request(
-        "/api/v3/repos/tox-dev/fixture/contents/.pre-commit-config.yaml", method="GET", query_string=f"ref={sha}"
+        f"/api/v3/repos/{source_repository}/contents/.pre-commit-config.yaml",
+        method="GET",
+        query_string=f"ref={sha}",
     ).respond_with_json(
         {
             "content": base64.b64encode(
@@ -678,7 +828,12 @@ def expect_config(
 
 
 def expect_historical_runs(
-    server: HTTPServer, *, older_head: str | tuple[str, ...] | None, pull_request: int = 7
+    server: HTTPServer,
+    *,
+    older_head: str | tuple[str, ...] | None,
+    pull_request: int | None = 7,
+    head_repository: str = "tox-dev/fixture",
+    workflow_path: str = ".github/workflows/check.yaml",
 ) -> None:
     heads = () if older_head is None else (older_head,) if isinstance(older_head, str) else older_head
     server.expect_request(
@@ -689,10 +844,11 @@ def expect_historical_runs(
             "workflow_runs": [
                 {
                     "event": "pull_request",
-                    "head_repository": {"full_name": "tox-dev/fixture"},
+                    "head_repository": {"full_name": head_repository},
                     "head_branch": "bot-update",
                     "head_sha": head,
-                    "pull_requests": [{"number": pull_request}],
+                    "pull_requests": [] if pull_request is None else [{"number": pull_request}],
+                    "path": workflow_path,
                     "created_at": (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 }
                 for head in heads

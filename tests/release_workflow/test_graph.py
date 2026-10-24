@@ -33,6 +33,17 @@ def test_release_hook_installation_has_cooldown(workflow: str, job: str, step_na
     assert step["env"]["UV_EXCLUDE_NEWER"] == "7 days"
 
 
+def test_tagged_release_checks_the_committed_lock() -> None:
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
+    check = workflow["jobs"]["check"]
+    assert next(step for step in check["steps"] if step.get("uses") == "$/refresh-release-lock")["with"] == {
+        "mode": "check"
+    }
+    assert "check" in workflow["jobs"]["publish"]["needs"]
+    assert check["permissions"] == {"actions": "read", "contents": "read", "pull-requests": "read"}
+    assert next(step for step in check["steps"] if "checkout" in step.get("uses", ""))["with"]["fetch-depth"] == 0
+
+
 def test_prepare_jobs_transfer_the_uploaded_patch() -> None:
     workflow = yaml.safe_load(
         (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()

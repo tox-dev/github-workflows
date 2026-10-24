@@ -1,5 +1,9 @@
 name: Verify frozen hooks
 description: Check immutable revisions and the complete cooled Python dependency closure
+inputs:
+  tag:
+    description: Explicit release tag when the workflow is dispatched from a branch
+    default: ""
 runs:
   using: composite
   steps:
@@ -16,3 +20,15 @@ runs:
     - name: Check Python hook dependencies
       shell: bash
       run: uv run --no-project --python "$RUNNER_TEMP/frozen-hook-tools" release-creator hooks --check
+    - name: Check tagged hook revision provenance
+      if: inputs.tag != '' || startsWith(github.ref, 'refs/tags/')
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ inputs.tag || github.ref_name }}
+      run: |
+        set -euo pipefail
+        test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
+        uv run --no-project --python "$RUNNER_TEMP/frozen-hook-tools" python \
+          "$GITHUB_ACTION_PATH/../tools/check_tagged_hook_age.py" \
+          "$GITHUB_REPOSITORY" "$TAG"

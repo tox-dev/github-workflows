@@ -25,6 +25,12 @@ inputs:
   mode:
     description: Refresh the lock or check that the committed lock is current
     default: refresh
+  keep-uv-lock:
+    description: Refresh and check uv.lock alongside pylock.toml for projects that use both
+    default: "false"
+  upgrade-resolver:
+    description: Upgrade the shared uv pin before refreshing this repository's lock
+    default: "false"
 outputs:
   changed:
     description: Whether the lock or expired package cutoffs differ from the checkout
@@ -42,6 +48,7 @@ runs:
         MATRIX_PYTHON: ${{ inputs.additional-matrix-python }}
         MATRIX_PLATFORMS: ${{ inputs.additional-matrix-platforms }}
         MATRIX_IMPLEMENTATIONS: ${{ inputs.additional-matrix-implementations }}
+        KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
       run: |
         set -euo pipefail
         if [[ -z "$ADDITIONAL_LOCK" &&
@@ -51,7 +58,16 @@ runs:
           exit 1
         fi
         provider=$(python3 "$GITHUB_ACTION_PATH/../tools/lock_groups.py" pylock.toml --provider)
+        if [[ "$KEEP_UV_LOCK" == true && "$provider" != release-creator ]]; then
+          echo '::error::keep-uv-lock requires a release-creator lock' >&2
+          exit 1
+        fi
+        if [[ "$KEEP_UV_LOCK" == true ]] && ! git ls-files --error-unmatch uv.lock >/dev/null 2>&1; then
+          echo '::error::keep-uv-lock requires a committed uv.lock' >&2
+          exit 1
+        fi
         echo "name=$provider" >>"$GITHUB_OUTPUT"
+        echo "groups=$(python3 "$GITHUB_ACTION_PATH/../tools/lock_groups.py" pylock.toml)" >>"$GITHUB_OUTPUT"
     - uses: $/install-locked-tools
       with:
         groups: lock-tools
@@ -63,6 +79,12 @@ runs:
         groups: release-notes
         lock-source: shared
         venv: ${{ runner.temp }}/project-lock-tools
+    - uses: $/install-locked-tools
+      if: steps.producer.outputs.name == 'release-creator'
+      with:
+        groups: release-resolver
+        lock-source: shared
+        venv: ${{ runner.temp }}/release-resolver
     - name: Check recent package cutoffs
       shell: bash
       run: python3 "$GITHUB_ACTION_PATH/../tools/check_recent_cutoffs.py" pyproject.toml
@@ -71,11 +93,22 @@ runs:
       shell: bash
       run: >-
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" python "$GITHUB_ACTION_PATH/../tools/expire_cutoffs.py" pyproject.toml
+    - name: Widen the shared uv pin
+      if: inputs.mode == 'refresh' && inputs.upgrade-resolver == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        [[ "$GITHUB_REPOSITORY" == tox-dev/github-workflows ]] || {
+          echo '::error::only github-workflows can upgrade the shared resolver' >&2
+          exit 1
+        }
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
+          "$GITHUB_ACTION_PATH/../tools/refresh_uv_resolver.py" widen pyproject.toml pylock.toml
     - name: Resolve selected Nab groups
       if: steps.producer.outputs.name == 'nab'
       shell: bash
       env:
-        LOCK_GROUPS: ${{ inputs.lock-groups }}
+        LOCK_GROUPS: ${{ inputs.lock-groups || steps.producer.outputs.groups }}
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
@@ -110,16 +143,42 @@ runs:
       shell: bash
       env:
         MODE: ${{ inputs.mode }}
+        KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
       run: |
         set -euo pipefail
+        export PATH="$RUNNER_TEMP/release-resolver/bin:$PATH"
+        options=()
+        if [[ "$KEEP_UV_LOCK" == true ]]; then options+=(--keep-uv-lock); fi
         case "$MODE" in
-        check) uv run --no-project --python "$RUNNER_TEMP/project-lock-tools" release-creator locks --check ;;
-        refresh) uv run --no-project --python "$RUNNER_TEMP/project-lock-tools" release-creator locks ;;
+        check) uv run --no-project --python "$RUNNER_TEMP/project-lock-tools" release-creator locks --check "${options[@]}" ;;
+        refresh) uv run --no-project --python "$RUNNER_TEMP/project-lock-tools" release-creator locks "${options[@]}" ;;
         *)
           echo "::error::invalid lock mode: $MODE" >&2
           exit 1
           ;;
         esac
+    - name: Pin the updated uv resolver
+      if: inputs.mode == 'refresh' && inputs.upgrade-resolver == 'true'
+      shell: bash
+      run: >-
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python "$GITHUB_ACTION_PATH/../tools/refresh_uv_resolver.py" pin pyproject.toml pylock.toml
+    - uses: $/install-locked-tools
+      if: inputs.mode == 'refresh' && inputs.upgrade-resolver == 'true'
+      with:
+        groups: release-resolver
+        venv: ${{ runner.temp }}/updated-release-resolver
+    - name: Resolve with the updated uv resolver
+      if: inputs.mode == 'refresh' && inputs.upgrade-resolver == 'true'
+      shell: bash
+      env:
+        KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
+      run: |
+        set -euo pipefail
+        export PATH="$RUNNER_TEMP/updated-release-resolver/bin:$PATH"
+        options=()
+        if [[ "$KEEP_UV_LOCK" == true ]]; then options+=(--keep-uv-lock); fi
+        uv run --no-project --python "$RUNNER_TEMP/project-lock-tools" release-creator locks "${options[@]}"
+        uv run --no-project --python "$RUNNER_TEMP/project-lock-tools" release-creator locks --check "${options[@]}"
     - name: Resolve optional Nab matrix
       if: inputs.additional-lock != ''
       shell: bash
@@ -200,10 +259,12 @@ runs:
       env:
         MODE: ${{ inputs.mode }}
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
+        KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
       run: |
         set -euo pipefail
         paths=(pylock.toml pyproject.toml)
         if [[ -n "$ADDITIONAL_LOCK" ]]; then paths+=("$ADDITIONAL_LOCK"); fi
+        if [[ "$KEEP_UV_LOCK" == true ]]; then paths+=(uv.lock); fi
         if [[ "$MODE" == check ]]; then
           git diff --exit-code -- "${paths[@]}"
           echo 'changed=false' >>"$GITHUB_OUTPUT"

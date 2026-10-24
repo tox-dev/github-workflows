@@ -18,6 +18,34 @@ on:
         description: Install release-creator from the tagged checkout for its own release
         type: boolean
         default: false
+      keep-uv-lock:
+        description: Check a committed native uv.lock alongside pylock.toml
+        type: boolean
+        default: false
+      additional-lock:
+        description: Secondary Nab lock to check before release preparation
+        type: string
+        default: ""
+      additional-lock-groups:
+        description: Groups selected by the secondary lock
+        type: string
+        default: ""
+      additional-lock-selection:
+        description: Project or build-or-groups selection for the secondary lock
+        type: string
+        default: build-or-groups
+      additional-matrix-python:
+        description: Python range for the secondary lock
+        type: string
+        default: ""
+      additional-matrix-platforms:
+        description: Space-separated Nab platform IDs for the secondary lock
+        type: string
+        default: ""
+      additional-matrix-implementations:
+        description: Space-separated implementations for the secondary lock
+        type: string
+        default: ""
       annotated:
         description: Create an annotated tag
         type: boolean
@@ -50,11 +78,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
+      - uses: $/refresh-release-lock
+        with:
+          mode: check
+          keep-uv-lock: ${{ inputs.keep-uv-lock }}
+          additional-lock: ${{ inputs.additional-lock }}
+          additional-lock-groups: ${{ inputs.additional-lock-groups }}
+          additional-lock-selection: ${{ inputs.additional-lock-selection }}
+          additional-matrix-python: ${{ inputs.additional-matrix-python }}
+          additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
+          additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
       - id: tools
         uses: $/install-locked-tools
         with:
@@ -121,7 +159,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"

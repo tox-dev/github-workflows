@@ -20,6 +20,7 @@ from tools.check_nab_lock import main as check_nab_lock
 from tools.nab_cutoffs import (
     remove_expired_cutoffs,
     remove_expired_release_creator_cutoffs,
+    validate_recent_cutoffs,
     validate_release_creator_cutoffs,
 )
 
@@ -140,6 +141,27 @@ def test_release_creator_cutoffs_require_review(cutoff: str, accepted: bool) -> 
     else:
         with pytest.raises(ValueError, match="unreviewed recent release-creator cutoff"):
             validate_release_creator_cutoffs(project, datetime(2026, 10, 17, tzinfo=UTC))
+
+
+@pytest.mark.parametrize(
+    ("cutoff", "accepted"),
+    [
+        pytest.param("2026-10-22T01:32:34Z", True, id="reviewed"),
+        pytest.param("2026-10-22T01:32:35Z", False, id="unreviewed"),
+    ],
+)
+def test_uv_resolver_cutoff_requires_review(cutoff: str, accepted: bool) -> None:
+    nab = f'[tool.nab]\nuploaded-prior-to = "P7D"\n[tool.nab.packages.uv]\nuploaded-prior-to = "{cutoff}"\n'
+    release_creator = f'[tool.release-creator.locks.exclude-newer-package]\nuv = "{cutoff}"\n'
+
+    if accepted:
+        validate_recent_cutoffs(nab, datetime(2026, 10, 17, tzinfo=UTC))
+        validate_release_creator_cutoffs(release_creator, datetime(2026, 10, 17, tzinfo=UTC))
+    else:
+        with pytest.raises(ValueError, match="unreviewed recent Nab cutoff"):
+            validate_recent_cutoffs(nab, datetime(2026, 10, 17, tzinfo=UTC))
+        with pytest.raises(ValueError, match="unreviewed recent release-creator cutoff"):
+            validate_release_creator_cutoffs(release_creator, datetime(2026, 10, 17, tzinfo=UTC))
 
 
 @pytest.mark.parametrize(
