@@ -7,9 +7,6 @@ inputs:
   patch:
     description: Path to the downloaded patch
     required: true
-  working-directory:
-    description: Checkout to validate and apply the patch in
-    default: .
   checks:
     description: Run release-creator and prek after applying the patch
     default: "true"
@@ -18,7 +15,6 @@ runs:
   steps:
     - name: Verify release source
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
         git fetch origin main
@@ -28,7 +24,6 @@ runs:
         fi
     - name: Apply release patch
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       env:
         PATCH: ${{ inputs.patch }}
         CHECKS: ${{ inputs.checks }}
@@ -41,11 +36,8 @@ runs:
         git apply --index "$PATCH"
     - id: config
       uses: $/read-towncrier-config
-      with:
-        working-directory: ${{ inputs.working-directory }}
     - name: Check release patch paths
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       env:
         CHANGELOG: ${{ steps.config.outputs.changelog }}
         FRAGMENTS: ${{ steps.config.outputs.fragments }}
@@ -73,11 +65,9 @@ runs:
     - name: Check consumed fragments
       if: inputs.checks == 'true'
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       run: release-creator validate-fragment-deletions
     - name: Check release patch file modes
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
         git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/release-modes"
@@ -113,7 +103,6 @@ runs:
     - name: Check RST conflict markers
       if: inputs.checks == 'true' && steps.config.outputs.format == 'rst'
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       env:
         CHANGELOG: ${{ steps.config.outputs.changelog }}
       run: |
@@ -131,7 +120,6 @@ runs:
     - name: Check rendered release section
       if: inputs.checks == 'true'
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       env:
         VERSION: ${{ inputs.version }}
         CHANGELOG: ${{ steps.config.outputs.changelog }}
@@ -139,7 +127,6 @@ runs:
     - name: Run prek on release patch
       if: inputs.checks == 'true'
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
         if ! prek run --all-files; then

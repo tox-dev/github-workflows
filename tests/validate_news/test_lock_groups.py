@@ -8,7 +8,9 @@ import pytest
 
 
 def test_lock_groups_reads_recorded_selection(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text("[dependency-groups]\nrelease-news = []\nrelease-check = []\n")
+    (tmp_path / "pyproject.toml").write_text(
+        "[dependency-groups]\nrelease = []\nrelease-news = []\nrelease-check = []\n"
+    )
     lock = tmp_path / "pylock.toml"
     lock.write_text(
         '[tool.nab]\ncommand-line = ["nab", "lock", "--groups", "release-news", "release-check", '

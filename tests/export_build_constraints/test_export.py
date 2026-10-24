@@ -72,12 +72,13 @@ def test_export_build_constraints_prefers_compatible_caller_build_pin(
     document = tomlkit.parse(shared.read_text())
     for package in document["packages"]:
         if package["name"] == "setuptools":
+            current = package["version"]
             package["version"] = version
             for wheel in package["wheels"]:
-                wheel["name"] = wheel["name"].replace("84.0.0", version)
-                wheel["url"] = wheel["url"].replace("84.0.0", version)
-            package["sdist"]["name"] = package["sdist"]["name"].replace("84.0.0", version)
-            package["sdist"]["url"] = package["sdist"]["url"].replace("84.0.0", version)
+                wheel["name"] = wheel["name"].replace(current, version)
+                wheel["url"] = wheel["url"].replace(current, version)
+            package["sdist"]["name"] = package["sdist"]["name"].replace(current, version)
+            package["sdist"]["url"] = package["sdist"]["url"].replace(current, version)
     caller.write_text(tomlkit.dumps(document))
     output = tmp_path / "constraints.txt"
     result = subprocess.run(
@@ -231,10 +232,11 @@ def test_export_build_constraints_rejects_conflicting_versions_without_policy(tm
     caller = tmp_path / "pylock.toml"
     document = tomlkit.parse(shared.read_text())
     package = next(package for package in document["packages"] if package["name"] == "setuptools")
+    current = package["version"]
     package["version"] = "81.0.0"
     for artifact in [package["sdist"], *package["wheels"]]:
-        artifact["name"] = artifact["name"].replace("84.0.0", "81.0.0")
-        artifact["url"] = artifact["url"].replace("84.0.0", "81.0.0")
+        artifact["name"] = artifact["name"].replace(current, "81.0.0")
+        artifact["url"] = artifact["url"].replace(current, "81.0.0")
     caller.write_text(tomlkit.dumps(document))
 
     result = subprocess.run(

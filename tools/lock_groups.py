@@ -29,7 +29,7 @@ def main() -> None:
             declared = tomllib.load(stream)["dependency-groups"]
         if not all(group.isascii() and group.replace("-", "").isalnum() and group in declared for group in groups):
             raise ValueError("Nab lock selects an invalid or undeclared group")
-        required = {name for name in declared if name.startswith("release")}
+        required = {name for name in declared if name.startswith("release-")}
         if missing := required - set(groups):
             raise ValueError(f"Nab lock omits release groups: {', '.join(sorted(missing))}")
         print(" ".join(groups))

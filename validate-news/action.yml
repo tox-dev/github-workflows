@@ -1,5 +1,24 @@
 name: Validate changelog news
 description: Require a fragment for human changes and validate any fragment supplied by a bot
+inputs:
+  additional-lock:
+    description: Secondary pylock basename to check on a pull request
+    default: ""
+  additional-lock-groups:
+    description: Groups selected by the secondary lock
+    default: ""
+  additional-lock-selection:
+    description: Project or build-or-groups selection for the secondary lock
+    default: build-or-groups
+  additional-matrix-python:
+    description: Python range for the secondary lock
+    default: ""
+  additional-matrix-platforms:
+    description: Space-separated Nab platform IDs for the secondary lock
+    default: ""
+  additional-matrix-implementations:
+    description: Space-separated implementations for the secondary lock
+    default: ""
 runs:
   using: composite
   steps:
@@ -24,8 +43,11 @@ runs:
       shell: bash
       env:
         BASE_REF: ${{ github.base_ref }}
+        ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
       run: |
-        changed=$(git diff --name-only "origin/$BASE_REF...HEAD" -- pyproject.toml pylock.toml)
+        paths=(pyproject.toml pylock.toml)
+        if [[ -n "$ADDITIONAL_LOCK" ]]; then paths+=("$ADDITIONAL_LOCK"); fi
+        changed=$(git diff --name-only "origin/$BASE_REF...HEAD" -- "${paths[@]}")
         if [[ -z "$changed" ]]; then
           echo 'changed=false' >>"$GITHUB_OUTPUT"
           exit 0
@@ -46,4 +68,10 @@ runs:
       uses: $/refresh-release-lock
       with:
         lock-groups: ${{ steps.lock-change.outputs.groups }}
+        additional-lock: ${{ inputs.additional-lock }}
+        additional-lock-groups: ${{ inputs.additional-lock-groups }}
+        additional-lock-selection: ${{ inputs.additional-lock-selection }}
+        additional-matrix-python: ${{ inputs.additional-matrix-python }}
+        additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
+        additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
         mode: check

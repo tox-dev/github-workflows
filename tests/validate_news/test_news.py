@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from conftest import action, run
 
 
@@ -125,3 +128,58 @@ def test_validate_news_requires_pr_base(repository: Path, tmp_path: Path, action
     )
     assert result.returncode != 0
     assert "news validation needs a PR base" in result.stderr
+
+
+def test_validate_news_forwards_secondary_lock_inputs() -> None:
+    config = yaml.safe_load((Path(__file__).resolve().parents[2] / "validate-news/action.yml").read_text())
+    refresh = next(step for step in config["runs"]["steps"] if step.get("uses") == "$/refresh-release-lock")
+    secondary = [name for name in config["inputs"] if name.startswith("additional-")]
+
+    assert secondary
+    assert all(refresh["with"][name] == "${{ inputs." + name + " }}" for name in secondary)
+    assert refresh["with"]["mode"] == "check"
+
+
+@pytest.mark.parametrize(
+    ("additional_lock", "changed"),
+    [
+        pytest.param("pylock.zipapp.toml", "true", id="selected-secondary-lock"),
+        pytest.param("", "false", id="unselected-secondary-lock"),
+    ],
+)
+def test_validate_news_detects_secondary_lock_only_change(
+    repository: Path, tmp_path: Path, action_scripts: Path, additional_lock: str, changed: str
+) -> None:
+    (repository / "pyproject.toml").write_text(
+        (repository / "pyproject.toml").read_text() + "\n[dependency-groups]\nrelease-news = []\n"
+    )
+    (repository / "pylock.toml").write_text(
+        '[tool.nab]\ncommand-line = ["nab", "lock", "--groups", "release-news", "--output", "pylock.toml"]\n'
+    )
+    (repository / "pylock.zipapp.toml").write_text("lock-version = '1.0'\n")
+    run(repository, "git", "add", ".")
+    run(repository, "git", "commit", "-m", "Add release locks")
+    run(repository, "git", "push", "origin", "main")
+    run(repository, "git", "checkout", "-b", "change-secondary-lock")
+    (repository / "pylock.zipapp.toml").write_text("lock-version = '1.0'\ncreated-by = 'test'\n")
+    run(repository, "git", "add", "pylock.zipapp.toml")
+    run(repository, "git", "commit", "-m", "Refresh secondary lock")
+    output = tmp_path / "lock-change-output"
+
+    result = subprocess.run(
+        ["bash", str(action_scripts / "validate-news-2.sh")],
+        cwd=repository,
+        env=os.environ
+        | {
+            "BASE_REF": "main",
+            "ADDITIONAL_LOCK": additional_lock,
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "validate-news"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"changed={changed}\n" in output.read_text()

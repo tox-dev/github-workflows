@@ -1,9 +1,5 @@
 name: Read Towncrier configuration
 description: Read release paths, format, and fragment categories from the committed Towncrier configuration
-inputs:
-  working-directory:
-    description: Checkout containing the configuration
-    default: .
 outputs:
   changelog:
     description: Changelog path relative to the repository
@@ -20,7 +16,6 @@ runs:
     - name: Read committed Towncrier configuration
       id: config
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
         config_dir=$(mktemp -d "$RUNNER_TEMP/towncrier-config.XXXXXX")
