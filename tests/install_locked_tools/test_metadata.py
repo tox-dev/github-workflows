@@ -141,7 +141,7 @@ def test_lock_metadata_retries_stale_listing(
     sleep.assert_called_once_with(1)
 
 
-def test_lock_metadata_stops_after_three_network_errors(
+def test_lock_metadata_stops_after_five_network_errors(
     lock_case: tuple[Path, Path],
     mocker: MockerFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -153,11 +153,14 @@ def test_lock_metadata_stops_after_three_network_errors(
     with pytest.raises(SystemExit, match="2"):
         _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
 
-    assert request.call_count == 3
+    assert request.call_count == 5
     assert "handshake timed out" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("status", [pytest.param(429, id="rate-limit"), pytest.param(503, id="server-error")])
+@pytest.mark.parametrize(
+    "status",
+    [pytest.param(404, id="not-yet-listed"), pytest.param(429, id="rate-limit"), pytest.param(503, id="server-error")],
+)
 def test_lock_metadata_retries_transient_http_error(
     lock_case: tuple[Path, Path],
     pypi_listing: _PyPIListing,
@@ -181,7 +184,7 @@ def test_lock_metadata_retries_transient_http_error(
 
 @pytest.mark.parametrize(
     ("status", "calls"),
-    [pytest.param(404, 1, id="not-found"), pytest.param(503, 3, id="repeated-server-error")],
+    [pytest.param(404, 5, id="not-found"), pytest.param(503, 5, id="repeated-server-error")],
 )
 def test_lock_metadata_rejects_http_error(
     lock_case: tuple[Path, Path],

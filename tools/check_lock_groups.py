@@ -195,10 +195,10 @@ def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None,
                 listing = json.load(response)
             break
         except HTTPError as error:
-            if (error.code != 429 and error.code < 500) or attempt == 2:
+            if (error.code not in (404, 429) and error.code < 500) or attempt == 4:
                 raise
         except IncompleteRead, TimeoutError, URLError:
-            if attempt == 2:
+            if attempt == 4:
                 raise
         time.sleep(2**attempt)
         attempt += 1
