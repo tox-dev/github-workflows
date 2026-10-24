@@ -13,6 +13,7 @@ runs:
       env:
         MINIMUM_DAYS: ${{ inputs.minimum-days }}
         GH_TOKEN: ${{ github.token }}
+        RELEASE_APP_CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
       run: |
         set -euo pipefail
         REPOSITORY=$GITHUB_REPOSITORY
@@ -28,7 +29,7 @@ runs:
         gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" >"$RUNNER_TEMP/hook-update-pr.json"
         jq -e --arg repository "$REPOSITORY" --arg head "$HEAD_SHA" '
           .state == "open" and .base.repo.full_name == $repository and
-          .head.sha == $head and
+          .head.repo.full_name == $repository and .head.sha == $head and
           (.user.login | type == "string")
         ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null
         if [[ $(jq -r .user.type "$RUNNER_TEMP/hook-update-pr.json") == Bot ]]; then
@@ -37,6 +38,22 @@ runs:
         fi
         if [[ -f "$RUNNER_TEMP/hook-update-files" ]] &&
           grep -Fxq .pre-commit-config.yaml "$RUNNER_TEMP/hook-update-files"; then
+          if [[ $(jq -r .head.ref "$RUNNER_TEMP/hook-update-pr.json") == automation/update-release-tools ]]; then
+            author=$(jq -r .user.login "$RUNNER_TEMP/hook-update-pr.json")
+            [[ "$author" == *'[bot]' && -n "$RELEASE_APP_CLIENT_ID" ]] || {
+              echo '::error::release tool branch requires the configured release App' >&2
+              exit 1
+            }
+            slug=${author%'[bot]'}
+            gh api "apps/$slug" >"$RUNNER_TEMP/release-app.json"
+            jq -e --arg slug "$slug" --arg client "$RELEASE_APP_CLIENT_ID" '
+              .slug == $slug and .client_id == $client
+            ' "$RUNNER_TEMP/release-app.json" >/dev/null || {
+              echo '::error::release tool branch has a different App identity' >&2
+              exit 1
+            }
+            echo 'managed=true' >>"$GITHUB_OUTPUT"
+          fi
           gh api --paginate -X GET "repos/$REPOSITORY/actions/runs" -f event=pull_request \
             -f head_sha="$HEAD_SHA" -f per_page=100 >"$RUNNER_TEMP/hook-update-runs.jsonl"
           if jq -se --arg repository "$REPOSITORY" \
@@ -62,7 +79,7 @@ runs:
     - uses: $/install-locked-tools
       if: steps.identity.outputs.bot == 'true'
       with:
-        groups: release-hook-check
+        groups: release-hook-check lock-reader
         lock-source: shared
         venv: ${{ runner.temp }}/hook-tools
     - name: Read the base and proposed hook configurations
@@ -84,17 +101,15 @@ runs:
     - name: Reject non-revision hook changes
       if: steps.identity.outputs.bot == 'true'
       shell: bash
+      env:
+        MANAGED: ${{ steps.identity.outputs.managed }}
+        MINIMUM_DAYS: ${{ inputs.minimum-days }}
       run: |
         set -euo pipefail
-        for config in base proposed; do
-          uv run --no-project --python "$RUNNER_TEMP/hook-tools" yq -c '
-            .repos |= map(if has("rev") then .rev = null else . end)
-          ' "$RUNNER_TEMP/$config-hooks.yaml" | jq -S . >"$RUNNER_TEMP/$config-hook-content.json"
-        done
-        if ! cmp -s "$RUNNER_TEMP/base-hook-content.json" "$RUNNER_TEMP/proposed-hook-content.json"; then
-          echo '::error::hook update changes fields beyond revisions' >&2
-          exit 1
-        fi
+        uv run --no-project --python "$RUNNER_TEMP/hook-tools" python \
+          "$GITHUB_ACTION_PATH/../tools/check_hook_config.py" \
+          "$RUNNER_TEMP/base-hooks.yaml" "$RUNNER_TEMP/proposed-hooks.yaml" \
+          --managed "$MANAGED" --minimum-days "$MINIMUM_DAYS"
     - name: Select eligible hook revisions
       if: steps.identity.outputs.bot == 'true'
       shell: bash

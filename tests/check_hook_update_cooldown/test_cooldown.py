@@ -120,10 +120,43 @@ def test_cooldown_checks_generated_update_branch(
     if not accepted:
         expect_historical_runs(server, older_head=None)
 
-    result = run_cooldown(action_scripts, tmp_path, environment)
+    result = run_cooldown(action_scripts, tmp_path, environment | {"RELEASE_APP_CLIENT_ID": "Iv1.release"})
 
     assert (result.returncode == 0) is accepted, result.stderr
     assert len(server.log) >= 4
+
+
+@pytest.mark.parametrize(
+    ("client_id", "head_repository"),
+    [
+        pytest.param("Iv1.other", "tox-dev/fixture", id="another-app"),
+        pytest.param("Iv1.release", "other/fixture", id="fork-head"),
+    ],
+)
+def test_cooldown_rejects_untrusted_updater_identity(
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    client_id: str,
+    head_repository: str,
+) -> None:
+    server, environment = github_api
+    expect_pull(
+        server,
+        author="release-app[bot]",
+        branch="automation/update-release-tools",
+        app_client_id=client_id,
+        head_repository=head_repository,
+    )
+
+    result = run_cooldown(action_scripts, tmp_path, environment | {"RELEASE_APP_CLIENT_ID": "Iv1.release"})
+
+    assert result.returncode != 0
+    assert (
+        "different App identity" in result.stderr
+        if head_repository == "tox-dev/fixture"
+        else [request.path for request, _ in server.log] == ["/api/v3/repos/tox-dev/fixture/pulls/7"]
+    )
 
 
 def test_cooldown_rejects_hook_configuration_change(
@@ -151,13 +184,20 @@ def test_cooldown_rejects_changed_head(
     assert len(server.log) == 1
 
 
-def test_cooldown_rejects_short_minimum(
-    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+@pytest.mark.parametrize(
+    "minimum_days",
+    [
+        pytest.param("6", id="short"),
+        pytest.param("07", id="leading-zero"),
+        pytest.param("bad", id="non-numeric"),
+    ],
+)
+def test_cooldown_rejects_invalid_minimum(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]], minimum_days: str
 ) -> None:
     server, environment = github_api
-    result = run_cooldown(action_scripts, tmp_path, environment, minimum_days="6")
+    result = run_cooldown(action_scripts, tmp_path, environment, minimum_days=minimum_days)
     assert result.returncode != 0
-    assert "hook cooldown must be at least seven days" in result.stderr
     assert not server.log
 
 
@@ -360,12 +400,14 @@ def expect_pull(
     updated_days: int = 0,
     hook_update: bool = True,
     branch: str = "bot-update",
+    app_client_id: str = "Iv1.release",
+    head_repository: str = "tox-dev/fixture",
 ) -> None:
     server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7", method="GET").respond_with_json(
         {
             "state": "open",
             "base": {"repo": {"full_name": "tox-dev/fixture"}, "sha": "b" * 40},
-            "head": {"sha": head, "ref": branch, "repo": {"full_name": "tox-dev/fixture"}},
+            "head": {"sha": head, "ref": branch, "repo": {"full_name": head_repository}},
             "user": {"login": author, "type": "Bot" if author.endswith("[bot]") else "User"},
             "updated_at": (datetime.now(UTC) - timedelta(days=updated_days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
@@ -375,6 +417,10 @@ def expect_pull(
             [{"filename": ".pre-commit-config.yaml" if hook_update else "pyproject.toml"}]
         )
     if author.endswith("[bot]") and hook_update:
+        if branch == "automation/update-release-tools":
+            server.expect_request("/api/v3/apps/release-app", method="GET").respond_with_json(
+                {"slug": "release-app", "client_id": app_client_id}
+            )
         server.expect_request(
             "/api/v3/repos/tox-dev/fixture/actions/runs",
             method="GET",
