@@ -278,7 +278,12 @@ def test_verify_cutoff_patch_rejects_early_floor_removal(cutoff_project: Path) -
     [pytest.param("release-creator", True, id="reviewed-expired"), pytest.param("bad-package", False, id="hold")],
 )
 def test_verify_cutoff_patch_limits_release_creator_removal(
-    cutoff_project: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture, remove: str, accepted: bool
+    cutoff_project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    capsys: pytest.CaptureFixture[str],
+    remove: str,
+    accepted: bool,
 ) -> None:
     cutoff_project.write_text(
         cutoff_project.read_text()
@@ -288,7 +293,19 @@ def test_verify_cutoff_patch_limits_release_creator_removal(
     )
     subprocess.run(["git", "add", "pyproject.toml"], cwd=cutoff_project.parent, check=True, capture_output=True)
     subprocess.run(
-        ["git", "commit", "-m", "Add release policy"], cwd=cutoff_project.parent, check=True, capture_output=True
+        [
+            "git",
+            "-c",
+            "user.name=Release test",
+            "-c",
+            "user.email=release@example.org",
+            "commit",
+            "-m",
+            "Add release policy",
+        ],
+        cwd=cutoff_project.parent,
+        check=True,
+        capture_output=True,
     )
     cutoff_project.write_text(cutoff_project.read_text().replace(f'{remove} = "', f'# {remove} = "'))
     script = Path(__file__).resolve().parents[2] / "tools/verify_cutoff_patch.py"
@@ -305,6 +322,7 @@ def test_verify_cutoff_patch_limits_release_creator_removal(
     else:
         with pytest.raises(SystemExit, match="2"):
             main()
+        assert "changes beyond expired package cutoffs" in capsys.readouterr().err
 
 
 def test_verify_cutoff_patch_accepts_release_creator_only_policy(
@@ -315,7 +333,19 @@ def test_verify_cutoff_patch_accepts_release_creator_only_policy(
     )
     subprocess.run(["git", "add", "pyproject.toml"], cwd=cutoff_project.parent, check=True, capture_output=True)
     subprocess.run(
-        ["git", "commit", "-m", "Add release policy"], cwd=cutoff_project.parent, check=True, capture_output=True
+        [
+            "git",
+            "-c",
+            "user.name=Release test",
+            "-c",
+            "user.email=release@example.org",
+            "commit",
+            "-m",
+            "Add release policy",
+        ],
+        cwd=cutoff_project.parent,
+        check=True,
+        capture_output=True,
     )
     cutoff_project.write_text("[tool.release-creator.locks]\n")
     script = Path(__file__).resolve().parents[2] / "tools/verify_cutoff_patch.py"

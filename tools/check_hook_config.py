@@ -61,7 +61,8 @@ def check_config(base: Path, proposed: Path, managed: bool, minimum_days: int, *
     if human:
         if not isinstance(old.get("repos"), list) or not isinstance(new.get("repos"), list):
             raise TypeError("hook repositories must be lists")
-        if Counter(item for group in _dependency_groups(base_source) for item, managed in group if managed) != Counter(
+        old_managed = Counter(item for group in _dependency_groups(base_source) for item, managed in group if managed)
+        if old_managed and old_managed != Counter(
             item for group in _dependency_groups(proposed_source) for item, managed in group if managed
         ):
             raise ValueError("managed hook dependencies require the release App")

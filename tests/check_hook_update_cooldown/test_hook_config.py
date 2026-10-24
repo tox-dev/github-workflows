@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import runpy
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
@@ -200,6 +202,29 @@ def test_human_cannot_change_managed_pin(configs: tuple[Path, Path], check_confi
 
     with pytest.raises(ValueError, match="managed hook dependencies require the release App"):
         check_config(base, proposed, False, 7, human=True)
+
+
+def test_human_can_bootstrap_managed_pins_from_release_migration() -> None:
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "tools/check_hook_config.py"),
+            str(Path(__file__).parent / "fixtures/pre-bootstrap.yaml"),
+            str(root / ".pre-commit-config.yaml"),
+            "--managed",
+            "",
+            "--human",
+            "true",
+            "--minimum-days",
+            "7",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_app_update_keeps_direct_range(

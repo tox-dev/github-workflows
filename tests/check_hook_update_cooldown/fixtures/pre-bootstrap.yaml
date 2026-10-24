@@ -1,0 +1,40 @@
+default_language_version:
+  python: python3.15
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 38bfb07c0c64c304f47eb52090f8288150c77730 # v0.17.1
+    hooks:
+      - id: ruff-check
+        args: ["--fix", "--unsafe-fixes", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+        types_or: [python, pyi]
+  - repo: local
+    hooks:
+      - id: mdformat
+        name: mdformat
+        entry: mdformat --wrap 120
+        language: python
+        types: [markdown]
+        additional_dependencies: [mdformat-gfm==1.0.0]
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: 479be5958357ba5ab65ce47172117348516860e9 # v3.14.1-1
+    hooks:
+      - id: shfmt
+        args: ["-i", "2", "-d"]
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: 745eface02aef23e168a8afb6b5737818efbea95 # v0.11.0.1
+    hooks:
+      - id: shellcheck
+  - repo: https://github.com/google/yamlfmt
+    rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # v0.21.0
+    hooks:
+      - id: yamlfmt
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: c92afdf2c6ca336aaa8f39e2bd8d48f62dbd8e1f # v1.31.1
+    hooks:
+      - id: zizmor
