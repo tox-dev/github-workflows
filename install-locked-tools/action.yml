@@ -16,6 +16,12 @@ inputs:
   constraints-lock:
     description: Lock used to export build constraints; defaults to the selected install lock
     default: ""
+  verify-lock:
+    description: Another lock whose selected packages will be included in a release artifact
+    default: ""
+  verify-groups:
+    description: Whitespace-separated groups to verify in verify-lock
+    default: ""
   target-platform:
     description: Nab platform ID for the exported build constraints
     default: ""
@@ -92,6 +98,26 @@ runs:
             "${lock_check[@]}"
         fi
         printf 'lock=%s\n' "$lock" >>"$GITHUB_OUTPUT"
+    - name: Verify additional release lock
+      if: inputs.verify-lock != '' || inputs.verify-groups != ''
+      shell: bash
+      env:
+        VERIFY_LOCK: ${{ inputs.verify-lock }}
+        VERIFY_GROUPS: ${{ inputs.verify-groups }}
+      run: |
+        set -euo pipefail
+        groups=()
+        while IFS= read -r line; do
+          read -ra selected <<<"$line"
+          groups+=("${selected[@]}")
+        done <<<"$VERIFY_GROUPS"
+        if [[ -z "$VERIFY_LOCK" || ${#groups[@]} -eq 0 ]]; then
+          echo '::error::verify-lock and verify-groups must be set together' >&2
+          exit 1
+        fi
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
+          "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$VERIFY_LOCK" "${groups[@]}" \
+          --verify-pypi --project pyproject.toml
     - id: constraints
       name: Export locked build requirements
       shell: bash

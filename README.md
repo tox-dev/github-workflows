@@ -23,6 +23,8 @@ constraints generated from the lock's `build` group under the runner's temporary
   caller's lock then needs the selected groups but does not need a release-creator package entry.
 - `constraints-lock`: lock used to export build constraints; defaults to the selected install lock. Use a secondary lock
   when the build matrix differs from the release-tool matrix.
+- `verify-lock` and `verify-groups`: check another lock's selected packages against PyPI and the seven-day cutoff
+  without installing them. Use this before bundling packages from a separate runtime lock, such as a zipapp.
 - `target-platform` and `targets`: Nab platform ID and space-separated `full-version:implementation` pairs for build
   constraints. Pass both when exporting constraints for a specific build target; otherwise the runner selects the
   target.
