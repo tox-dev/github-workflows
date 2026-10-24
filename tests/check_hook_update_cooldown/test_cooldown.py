@@ -103,6 +103,18 @@ def test_cooldown_skips_bot_without_hook_changes(
     ]
 
 
+def test_cooldown_allows_human_fork(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    expect_pull(server, author="gaborbernat", head_repository="gaborbernat/fixture")
+
+    result = run_cooldown(action_scripts, tmp_path, environment)
+
+    assert result.returncode == 0, result.stderr
+    assert [request.path for request, _ in server.log] == ["/api/v3/repos/tox-dev/fixture/pulls/7"]
+
+
 @pytest.mark.parametrize(
     ("observed_days", "accepted"),
     [pytest.param(0, False, id="new"), pytest.param(10, True, id="cooled")],

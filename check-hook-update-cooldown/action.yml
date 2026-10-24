@@ -32,10 +32,15 @@ runs:
         gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" >"$RUNNER_TEMP/hook-update-pr.json"
         jq -e --arg repository "$REPOSITORY" --arg head "$HEAD_SHA" '
           .state == "open" and .base.repo.full_name == $repository and
-          .head.repo.full_name == $repository and .head.sha == $head and
+          .head.sha == $head and
           (.user.login | type == "string")
         ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null
         if [[ $(jq -r .user.type "$RUNNER_TEMP/hook-update-pr.json") == Bot ]]; then
+          jq -e --arg repository "$REPOSITORY" '.head.repo.full_name == $repository' \
+            "$RUNNER_TEMP/hook-update-pr.json" >/dev/null || {
+            echo '::error::bot hook updates must come from this repository' >&2
+            exit 1
+          }
           gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' \
             >"$RUNNER_TEMP/hook-update-files"
         fi
