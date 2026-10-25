@@ -243,7 +243,7 @@ def test_recheck_continues_after_failed_rerun(
         server.expect_request(
             "/api/v3/repos/tox-dev/fixture/actions/workflows/check.yaml/runs",
             method="GET",
-            query_string=f"event=pull_request&head_sha={str(number) * 40}&per_page=100",
+            query_string=f"branch=update-{number}&event=pull_request&per_page=100",
         ).respond_with_json(
             {
                 "workflow_runs": [
@@ -285,3 +285,75 @@ def test_recheck_continues_after_failed_rerun(
         "/api/v3/repos/tox-dev/fixture/actions/jobs/97/rerun",
         "/api/v3/repos/tox-dev/fixture/actions/jobs/98/rerun",
     ]
+
+
+@pytest.mark.parametrize(
+    ("older_head_age", "reruns"),
+    [pytest.param(8, 1, id="older-head-matured"), pytest.param(3, 0, id="all-heads-recent")],
+)
+def test_recheck_counts_observations_on_earlier_heads(
+    github_api: tuple[HTTPServer, dict[str, str]],
+    action_scripts: Path,
+    tmp_path: Path,
+    older_head_age: int,
+    reruns: int,
+) -> None:
+    server, environment = github_api
+    server.expect_request("/api/v3/repos/tox-dev/fixture/pulls", method="GET").respond_with_json(
+        [
+            {
+                "number": 7,
+                "head": {"sha": "a" * 40, "ref": "update", "repo": {"full_name": "tox-dev/fixture"}},
+                "base": {"repo": {"full_name": "tox-dev/fixture"}},
+                "created_at": (datetime.now(UTC) - timedelta(days=20)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        ]
+    )
+    server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7/files", method="GET").respond_with_json(
+        [{"filename": ".pre-commit-config.yaml"}]
+    )
+    server.expect_request(
+        "/api/v3/repos/tox-dev/fixture/actions/workflows/check.yaml/runs",
+        method="GET",
+        query_string="branch=update&event=pull_request&per_page=100",
+    ).respond_with_json(
+        {
+            "workflow_runs": [
+                {
+                    "id": run_id,
+                    "event": "pull_request",
+                    "head_repository": {"full_name": "tox-dev/fixture"},
+                    "head_sha": head,
+                    "head_branch": "update",
+                    "pull_requests": [{"number": 7}],
+                    "status": "completed",
+                    "created_at": (datetime.now(UTC) - timedelta(days=age)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+                for run_id, head, age in ((41, "b" * 40, older_head_age), (42, "a" * 40, 1))
+            ]
+        }
+    )
+    server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/42/jobs", method="GET").respond_with_json(
+        {"jobs": [{"id": 99, "name": "hook-cooldown", "conclusion": "failure"}]}
+    )
+    server.expect_request("/api/v3/repos/tox-dev/fixture/actions/jobs/99", method="GET").respond_with_json(
+        {"id": 99, "run_id": 42, "name": "hook-cooldown", "status": "completed", "conclusion": "failure"}
+    )
+    server.expect_request("/api/v3/repos/tox-dev/fixture/actions/jobs/99/rerun", method="POST").respond_with_data(
+        status=201
+    )
+
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "recheck-hook-update-cooldown",
+        version="",
+        GH_TOKEN=environment["GH_ENTERPRISE_TOKEN"],
+        **environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert [request.path for request, _ in server.log].count(
+        "/api/v3/repos/tox-dev/fixture/actions/jobs/99/rerun"
+    ) == reruns

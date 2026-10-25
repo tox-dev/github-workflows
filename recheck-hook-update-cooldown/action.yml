@@ -41,13 +41,14 @@ runs:
           branch=$(jq -r .branch <<<"$pull")
           head_repository=$(jq -r .headRepository <<<"$pull")
           opened=$(jq -r '.opened | fromdateiso8601' <<<"$pull")
+          # The check also accepts revisions observed on earlier heads, so maturity counts every head of the branch.
           runs=$(gh api --paginate -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs" \
-            -f event=pull_request -f head_sha="$head" -f per_page=100 |
-            jq -sc --arg repository "$head_repository" --arg branch "$branch" --arg head "$head" \
+            -f event=pull_request -f branch="$branch" -f per_page=100 |
+            jq -sc --arg repository "$head_repository" --arg branch "$branch" \
               --argjson number "$number" --argjson opened "$opened" '
               [.[].workflow_runs[] | select(
                 .event == "pull_request" and .head_repository.full_name == $repository and
-                .head_branch == $branch and .head_sha == $head and
+                .head_branch == $branch and
                 (any(.pull_requests[]; .number == $number) or
                   (.pull_requests == [] and (.created_at | fromdateiso8601) >= $opened))
               )]')
@@ -56,7 +57,9 @@ runs:
             <<<"$runs" >/dev/null; then
             continue
           fi
-          run=$(jq -c '[.[] | select(.status == "completed")] | sort_by(.created_at) | last // empty' <<<"$runs")
+          run=$(jq -c --arg head "$head" '
+            [.[] | select(.head_sha == $head and .status == "completed")] | sort_by(.created_at) | last // empty
+          ' <<<"$runs")
           if [[ -z "$run" ]]; then
             continue
           fi
