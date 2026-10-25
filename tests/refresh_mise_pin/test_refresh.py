@@ -22,7 +22,7 @@ def _release(
     prerelease: bool = False,
     draft: bool = False,
     asset: bool = True,
-    digest: str = "sha256:" + "a" * 64,
+    digest: str | None = "sha256:" + "a" * 64,
     asset_days: int | None = None,
     archive: bool = True,
     recent_archive: str = "",
@@ -453,6 +453,26 @@ def test_action_checks_executable_digest_before_mise_runs(tmp_path: Path, publis
         assert binary.with_name("mise-version").read_text() == "2026.10.13"
 
 
+def test_update_keeps_crlf_line_endings(tmp_path: Path, mise_binary: tuple[Path, str]) -> None:
+    binary, digest = mise_binary
+    workflow = tmp_path / ".github" / "workflows" / "release.yaml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_bytes(("jobs:\n  build:\n    steps:\n" + _step("2026.10.12", "0" * 64)).replace("\n", "\r\n").encode())
+    result = _run(
+        tmp_path,
+        "update",
+        ".github/workflows/release.yaml",
+        "🔧 Set up mise (JDKs)",
+        "2026.10.13",
+        digest,
+        str(binary),
+    )
+    assert result.returncode == 0, result.stderr
+    assert workflow.read_bytes() == (
+        ("jobs:\n  build:\n    steps:\n" + _step("2026.10.13", digest)).replace("\n", "\r\n").encode()
+    )
+
+
 def test_action_keeps_linux_executable_and_archives_in_release_listing() -> None:
     action = yaml.safe_load((Path(__file__).resolve().parents[2] / "refresh-mise-pin" / "action.yml").read_text())
     query = action["runs"]["steps"][0]["run"].split("--jq '", 1)[1].split("'", 1)[0]
@@ -478,6 +498,7 @@ def test_action_keeps_linux_executable_and_archives_in_release_listing() -> None
         pytest.param([_release("2026.10.13", days=8, asset=False)], "no unique Linux", id="missing-asset"),
         pytest.param([_release("2026.10.13", days=8, archive=False)], "no unique Linux", id="missing-archive"),
         pytest.param([_release("2026.10.13", days=8, digest="sha256:bad")], "no unique Linux", id="bad-asset-digest"),
+        pytest.param([_release("2026.10.13", days=8, digest=None)], "no unique Linux", id="null-asset-digest"),
     ],
 )
 def test_select_rejects_invalid_release(tmp_path: Path, releases: list[dict[str, object]], message: str) -> None:

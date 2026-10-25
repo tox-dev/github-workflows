@@ -18,7 +18,7 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 class _Asset(TypedDict):
     name: str
-    digest: str
+    digest: str | None
     created_at: str
     updated_at: str
 
@@ -91,6 +91,7 @@ def _select_release(path: Path) -> tuple[str, str]:
             matches = [asset for asset in release["assets"] if asset["name"] == name]
             if (
                 len(matches) != 1
+                or not isinstance(matches[0]["digest"], str)
                 or not matches[0]["digest"].startswith("sha256:")
                 or not _hex(matches[0]["digest"][7:], 64)
             ):
@@ -117,7 +118,8 @@ def _update_pin(workflow: Path, step_name: str, version: str, expected_sha256: s
     with binary.open("rb") as stream:
         if file_digest(stream, "sha256").hexdigest() != expected_sha256:
             raise ValueError("verified mise binary differs from the GitHub release asset digest")
-    source = workflow.read_text()
+    with workflow.open(newline="") as stream:
+        source = stream.read()
     root = yaml.compose(source)
     if not isinstance(root, MappingNode):
         raise TypeError("workflow needs a jobs mapping")
@@ -181,7 +183,7 @@ def _update_pin(workflow: Path, step_name: str, version: str, expected_sha256: s
         return False
     descriptor, name = tempfile.mkstemp(dir=workflow.parent, prefix=f".{workflow.name}.")
     try:
-        with os.fdopen(descriptor, "w") as stream:
+        with os.fdopen(descriptor, "w", newline="") as stream:
             stream.write(updated)
         os.chmod(name, stat.S_IMODE(workflow.stat().st_mode))
         os.replace(name, workflow)
