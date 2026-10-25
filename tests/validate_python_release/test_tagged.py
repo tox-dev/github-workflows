@@ -120,7 +120,6 @@ def test_validator_rejects_backend_hash_mismatch(
     [
         pytest.param("lightweight", "refs/tags/0.2.0", True, id="lightweight-tag"),
         pytest.param("annotated", "refs/tags/0.2.0", True, id="annotated-tag"),
-        pytest.param("lightweight", "refs/heads/0.2.0", False, id="branch-event-on-tagged-commit"),
         pytest.param("branch", "refs/tags/0.2.0", False, id="same-name-branch"),
         pytest.param("off-main", "refs/tags/0.2.0", False, id="tagged-off-main-commit"),
     ],
@@ -161,6 +160,55 @@ def test_validator_requires_exact_tag(
         check=False,
     )
     assert (result.returncode == 0) is accepted, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("location", "accepted"),
+    [
+        pytest.param("check-tagged-source/action.yml", True, id="source-check"),
+        pytest.param("validate-python-release:build", False, id="build"),
+        pytest.param("release:source", False, id="self-release"),
+    ],
+)
+def test_validator_branch_event_on_tagged_commit(repository: Path, location: str, *, accepted: bool) -> None:
+    run(repository, "git", "tag", "0.2.0")
+
+    result = _run_tag_check(repository, location, "refs/heads/main", run(repository, "git", "rev-parse", "HEAD").stdout)
+
+    assert (result.returncode == 0) is accepted, result.stderr
+
+
+def test_source_check_rejects_dispatch_off_the_tag(repository: Path) -> None:
+    run(repository, "git", "tag", "0.2.0")
+    run(repository, "git", "commit", "--allow-empty", "-m", "Later change")
+    run(repository, "git", "push", "origin", "main")
+
+    result = _run_tag_check(
+        repository,
+        "check-tagged-source/action.yml",
+        "refs/heads/main",
+        run(repository, "git", "rev-parse", "HEAD").stdout,
+    )
+
+    assert result.returncode != 0
+
+
+def test_source_check_reads_the_dispatched_tag() -> None:
+    assert (
+        _tag_check("check-tagged-source/action.yml")["env"]["TAG"]
+        == "${{ github.event.inputs.tag || github.ref_name }}"
+    )
+
+
+def _run_tag_check(repository: Path, location: str, event_ref: str, event_sha: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", "-c", _tag_check(location)["run"]],
+        cwd=repository,
+        env=os.environ | {"GITHUB_REF": event_ref, "TAG": "0.2.0", "GITHUB_SHA": event_sha.strip()},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
 
 @pytest.mark.parametrize(
@@ -225,11 +273,11 @@ def test_validator_requires_tag_at_the_event_commit(repository: Path, location: 
     assert result.returncode != 0
 
 
-def _tag_check(location: str) -> dict[str, str]:
+def _tag_check(location: str) -> dict[str, Any]:
     root = Path(__file__).resolve().parents[2]
     if location.endswith(".yml"):
         steps = yaml.safe_load((root / location).read_text())["runs"]["steps"]
     else:
         workflow, job = location.split(":")
         steps = yaml.safe_load((root / ".github/workflows" / f"{workflow}.yaml").read_text())["jobs"][job]["steps"]
-    return cast("dict[str, str]", next(step for step in steps if step.get("name") == "Verify the exact release tag"))
+    return cast("dict[str, Any]", next(step for step in steps if step.get("name") == "Verify the exact release tag"))
