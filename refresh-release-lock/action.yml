@@ -22,6 +22,9 @@ inputs:
   mode:
     description: Refresh the lock or check that the committed lock is current
     default: refresh
+  nab-git-commit:
+    description: Temporary full commit SHA of notatallshaw/nab to install instead of the Nab release
+    default: ""
   exclude-newer:
     description: Upload cutoff for the tools this Action installs from PyPI
     default: 7 days
@@ -44,8 +47,13 @@ runs:
         MATRIX_PYTHON: ${{ inputs.additional-matrix-python }}
         MATRIX_PLATFORMS: ${{ inputs.additional-matrix-platforms }}
         MATRIX_IMPLEMENTATIONS: ${{ inputs.additional-matrix-implementations }}
+        NAB_GIT_COMMIT: ${{ inputs.nab-git-commit }}
       run: |
         set -euo pipefail
+        if [[ -n "$NAB_GIT_COMMIT" && ! "$NAB_GIT_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+          echo '::error::nab-git-commit must be a full 40-character commit SHA' >&2
+          exit 1
+        fi
         if [[ -z "$ADDITIONAL_LOCK" &&
           ("$ADDITIONAL_SELECTION" != build-or-groups ||
           -n "$ADDITIONAL_GROUPS$MATRIX_PYTHON$MATRIX_PLATFORMS$MATRIX_IMPLEMENTATIONS") ]]; then
@@ -57,7 +65,12 @@ runs:
       env:
         EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
         EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
-      run: '"$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-tools" nab==0.0.22'
+        NAB_GIT_COMMIT: ${{ inputs.nab-git-commit }}
+      run: |
+        set -euo pipefail
+        requirement=nab==0.0.22
+        if [[ -n "$NAB_GIT_COMMIT" ]]; then requirement=git+https://github.com/notatallshaw/nab@$NAB_GIT_COMMIT; fi
+        "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-tools" "$requirement"
     - name: Resolve all project groups and extras
       shell: bash
       env:

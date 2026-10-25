@@ -215,3 +215,43 @@ def test_refresh_installs_nab_under_cutoff(lock_project: Path, tmp_path: Path, a
 
     assert result.returncode != 0
     assert "nab==0.0.22" in result.stderr
+
+
+@pytest.mark.parametrize("commit", ["abc123", "g" * 40, "a" * 41], ids=["short", "not-hex", "long"])
+def test_refresh_rejects_invalid_nab_commit(tmp_path: Path, action_scripts: Path, commit: str) -> None:
+    result = action(tmp_path, tmp_path, action_scripts, "refresh-release-lock", version="", NAB_GIT_COMMIT=commit)
+
+    assert result.returncode != 0
+    assert "nab-git-commit must be a full 40-character commit SHA" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("commit", "requirement"),
+    [
+        pytest.param("", "nab==0.0.22", id="release"),
+        pytest.param("0123456789abcdef0123456789abcdef01234567", None, id="git-commit"),
+    ],
+)
+def test_refresh_installs_selected_nab(
+    tmp_path: Path, action_scripts: Path, commit: str, requirement: str | None
+) -> None:
+    installer = tmp_path / "tools/install_live_tools.sh"
+    installer.parent.mkdir()
+    installer.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$RUNNER_TEMP/installed"\n')
+    installer.chmod(0o755)
+    (tmp_path / "action").mkdir()
+
+    result = _run_step(
+        action_scripts,
+        "Install Nab",
+        tmp_path,
+        tmp_path / "bin/uv",
+        GITHUB_ACTION_PATH=str(tmp_path / "action"),
+        NAB_GIT_COMMIT=commit,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "installed").read_text().splitlines() == [
+        f"{tmp_path}/lock-tools",
+        requirement or f"git+https://github.com/notatallshaw/nab@{commit}",
+    ]

@@ -73,6 +73,12 @@ once it is older than the cutoff. Every Action and reusable workflow that instal
 The tools the caller's release jobs run, such as release-creator, Towncrier, and prek, still come hash-checked from the
 caller's `pylock.toml`.
 
+`nab-git-commit` is a temporary input of `refresh-release-lock`, `prepare-towncrier-release.yaml`,
+`upgrade-release-tools.yaml`, and `validate-python-release.yaml`. It is empty by default. When set, it must be a full
+40-character commit SHA, and Nab is installed from `git+https://github.com/notatallshaw/nab@<sha>` instead of the
+release. That commit gets no cooldown: `exclude-newer` applies only to its dependencies. It exists until a Nab release
+carries the needed fix and will be removed then.
+
 ## Check pull request news
 
 `validate-news` reads `tool.towncrier` from `pyproject.toml`. It checks every added or modified fragment in the
