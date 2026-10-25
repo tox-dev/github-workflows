@@ -72,8 +72,7 @@ def test_prepare_validates_uploaded_patch_before_writer() -> None:
     assert jobs["validate"]["needs"] == "assemble"
     assert jobs["push"]["needs"] == ["assemble", "validate"]
     assert not any(step.get("uses") == "$/validate-release-patch" for step in jobs["assemble"]["steps"])
-    validation = next(step for step in jobs["validate"]["steps"] if step.get("uses") == "$/validate-release-patch")
-    assert validation["with"]["patch"] == "${{ runner.temp }}/release-patch/release.patch"
+    assert any(step.get("uses") == "$/validate-release-patch" for step in jobs["validate"]["steps"])
     assert (
         next(step for step in jobs["push"]["steps"] if step.get("uses") == "$/validate-release-patch")["with"]["checks"]
         == "false"

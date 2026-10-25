@@ -210,7 +210,6 @@ jobs:
       - uses: $/validate-release-patch
         with:
           version: ${{ needs.assemble.outputs.version }}
-          patch: ${{ runner.temp }}/release-patch/release.patch
   push:
     needs: [assemble, validate]
     runs-on: ubuntu-26.04
@@ -231,7 +230,6 @@ jobs:
       - uses: $/validate-release-patch
         with:
           version: ${{ needs.assemble.outputs.version }}
-          patch: ${{ runner.temp }}/release-patch/release.patch
           checks: "false"
       - id: repository
         name: Select the current repository

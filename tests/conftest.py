@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import ssl
 import subprocess
 import sys
@@ -362,6 +363,9 @@ def action(
         and not (repository / "pyproject.toml").exists()
     ):
         (repository / "pyproject.toml").write_text('[tool.nab]\nuploaded-prior-to = "P7D"\n')
+    if name == "validate-release-patch" and (prepared := tmp_path / "release.patch").exists():
+        (tmp_path / "release-patch").mkdir(exist_ok=True)
+        shutil.copyfile(prepared, tmp_path / "release-patch/release.patch")
     action_config = yaml.safe_load((Path(__file__).resolve().parents[1] / name / "action.yml").read_text())
     head = run(repository, "git", "rev-parse", "HEAD").stdout.strip() if (repository / ".git").exists() else "0" * 40
     input_values = {
@@ -372,7 +376,6 @@ def action(
         "CHANGELOG": "CHANGELOG.md",
         "FRAGMENTS": "changelog.d",
         "FORMAT": action_config.get("inputs", {}).get("format", {}).get("default", "none"),
-        "PATCH": str(tmp_path / "release.patch"),
         "EXPECTED_SHA": head,
         "CHECKS": "true",
         "BRANCH": "main",

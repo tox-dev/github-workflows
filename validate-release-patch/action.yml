@@ -1,11 +1,8 @@
 name: Validate release patch
-description: Check and apply a prepared release patch, with optional release-tool validation
+description: Check and apply the release patch downloaded to $RUNNER_TEMP/release-patch, with optional release-tool validation
 inputs:
   version:
     description: Release version
-    required: true
-  patch:
-    description: Path to the downloaded patch
     required: true
   checks:
     description: Run release-creator and prek after applying the patch
@@ -25,7 +22,6 @@ runs:
     - name: Apply release patch
       shell: bash
       env:
-        PATCH: ${{ inputs.patch }}
         CHECKS: ${{ inputs.checks }}
       run: |
         set -euo pipefail
@@ -33,7 +29,7 @@ runs:
           echo '::error::checks must be true or false' >&2
           exit 1
         fi
-        git apply --index "$PATCH"
+        git apply --index "$RUNNER_TEMP/release-patch/release.patch"
     - id: config
       uses: $/read-towncrier-config
     - name: Check release patch paths

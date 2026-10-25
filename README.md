@@ -467,18 +467,17 @@ those changes.
 `validate-release-patch` runs in the caller's fresh checkout of the original branch commit. It rejects a `main` branch
 that moved, applies the uploaded patch, checks its changed paths and file modes, then asks `release-creator` to verify
 that every deleted file is a configured Towncrier fragment. It renders the requested version and runs `prek`. It leaves
-the patch staged for the commit Action. Run it in a keyless validation job. The App-key job repeats the branch, path,
-and mode checks with `checks: "false"`, without installing release tools.
+the patch staged for the commit Action. Download the patch artifact to `${{ runner.temp }}/release-patch` first. Run it
+in a keyless validation job. The App-key job repeats the branch, path, and mode checks with `checks: "false"`, without
+installing release tools.
 
 ```yaml
   - uses: tox-dev/github-workflows/validate-release-patch@SHA
     with:
       version: ${{ needs.assemble.outputs.version }}
-      patch: ${{ runner.temp }}/release-patch/release.patch
 ```
 
 - `version` **(required)**: Exact tag chosen by preparation. `release-creator notes` must find one valid section for it.
-- `patch` **(required)**: Local path of the downloaded patch artifact, not an artifact name or URL.
 - `checks`: `true` (default) runs `release-creator` and `prek`; `false` only applies and checks the validated patch.
 
 **Output:** No named output. **Working-tree effect:** Applies and stages the patch. The Action reads the changelog path,
