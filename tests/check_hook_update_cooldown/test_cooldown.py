@@ -488,6 +488,26 @@ def test_cooldown_accepts_managed_pin_with_python_marker(
 
 
 @pytest.mark.parametrize(
+    ("author", "client_id"),
+    [
+        pytest.param("gaborbernat", "Iv1.release", id="human-author"),
+        pytest.param("release-app[bot]", "", id="unconfigured-app"),
+    ],
+)
+def test_cooldown_requires_configured_app_on_updater_branch(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]], author: str, client_id: str
+) -> None:
+    server, environment = github_api
+    expect_pull(server, author=author, branch="automation/update-release-tools")
+
+    result = run_cooldown(action_scripts, tmp_path, environment | {"RELEASE_APP_CLIENT_ID": client_id})
+
+    assert result.returncode != 0
+    assert "release tool branch requires the configured release App" in result.stderr
+    assert "/api/v3/apps/release-app" not in [request.path for request, _ in server.log]
+
+
+@pytest.mark.parametrize(
     ("client_id", "head_repository"),
     [
         pytest.param("Iv1.other", "tox-dev/fixture", id="another-app"),
