@@ -82,7 +82,9 @@ def pypi_listing() -> _PyPIListing:
 def test_lock_metadata_matches_pypi(
     lock_case: tuple[Path, Path], pypi_listing: _PyPIListing, mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    request = mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
+    request = mocker.patch(
+        "urllib.request.urlopen", autospec=True, return_value=BytesIO(json.dumps(pypi_listing).encode())
+    )
     context = mocker.patch.object(ssl, "create_default_context", autospec=True)
 
     _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
@@ -184,7 +186,7 @@ def test_lock_metadata_stops_after_five_network_errors(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    request = mocker.patch("urllib.request.urlopen", side_effect=URLError("handshake timed out"))
+    request = mocker.patch("urllib.request.urlopen", autospec=True, side_effect=URLError("handshake timed out"))
     mocker.patch("time.sleep")
 
     with pytest.raises(SystemExit, match="2"):
@@ -290,7 +292,7 @@ def test_lock_metadata_rejects_invalid_listing(
         pypi_listing["meta"]["api-version"] = "2.0"
     else:
         pypi_listing["name"] = "other"
-    mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(pypi_listing).encode()))
+    mocker.patch("urllib.request.urlopen", autospec=True, return_value=BytesIO(json.dumps(pypi_listing).encode()))
 
     with pytest.raises(SystemExit, match="2"):
         _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))
@@ -313,7 +315,7 @@ def test_lock_metadata_rejects_non_object_listing(
     capsys: pytest.CaptureFixture[str],
     listing: object,
 ) -> None:
-    mocker.patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(listing).encode()))
+    mocker.patch("urllib.request.urlopen", autospec=True, return_value=BytesIO(json.dumps(listing).encode()))
 
     with pytest.raises(SystemExit, match="2"):
         _run_check(lock_case, monkeypatch, "--verify-pypi", "--project", str(lock_case[1]))

@@ -68,7 +68,7 @@ def test_verify_files_matches_complete_release(distribution: Path, mocker: Mocke
 
 
 def test_verify_files_uses_pinned_trust_store(distribution: Path, mocker: MockerFixture) -> None:
-    request = mocker.patch.object(_MODULE, "urlopen", return_value=_body(_listing(distribution)))
+    request = mocker.patch.object(_MODULE, "urlopen", autospec=True, return_value=_body(_listing(distribution)))
     context = mocker.patch.object(ssl, "create_default_context", autospec=True)
 
     verify_files("fixture", "1.0", distribution)
@@ -116,7 +116,7 @@ def test_main_reports_invalid_directory(
 def test_script_entrypoint_prints_distribution_paths(
     distribution: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    mocker.patch("urllib.request.urlopen", return_value=_body(_listing(distribution)))
+    mocker.patch("urllib.request.urlopen", autospec=True, return_value=_body(_listing(distribution)))
     mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution)])
 
     runpy.run_path(str(Path(__file__).resolve().parents[2] / "tools/verify_pypi_files.py"), run_name="__main__")
@@ -147,7 +147,7 @@ def test_verify_files_rejects_directory_entry(distribution: Path) -> None:
 def test_verify_files_ignores_other_release_wheel(distribution: Path, mocker: MockerFixture) -> None:
     files = _listing(distribution)
     files.append({"filename": "fixture-0.9-py3-none-any.whl", "hashes": {"sha256": "0" * 64}, "yanked": False})
-    mocker.patch.object(_MODULE, "urlopen", return_value=_body(files))
+    mocker.patch.object(_MODULE, "urlopen", autospec=True, return_value=_body(files))
 
     assert verify_files("fixture", "1.0", distribution) == [
         distribution / "fixture-1.0-py3-none-any.whl",
@@ -175,7 +175,7 @@ def test_verify_files_propagates_http_error(distribution: Path, mocker: MockerFi
 
 
 def test_verify_files_propagates_exhausted_connection_error(distribution: Path, mocker: MockerFixture) -> None:
-    mocker.patch.object(_MODULE, "urlopen", side_effect=URLError("offline"))
+    mocker.patch.object(_MODULE, "urlopen", autospec=True, side_effect=URLError("offline"))
 
     with pytest.raises(URLError, match="offline"):
         verify_files("fixture", "1.0", distribution)
@@ -200,7 +200,7 @@ def test_verify_files_reports_missing_release_after_404(distribution: Path, mock
     ],
 )
 def test_verify_files_rejects_invalid_listing(distribution: Path, mocker: MockerFixture, payload: _Json) -> None:
-    mocker.patch.object(_MODULE, "urlopen", return_value=io.BytesIO(json.dumps(payload).encode()))
+    mocker.patch.object(_MODULE, "urlopen", autospec=True, return_value=io.BytesIO(json.dumps(payload).encode()))
 
     with pytest.raises(
         (TypeError, ValueError), match="invalid Simple API response|unsupported PyPI Simple API version"
@@ -231,7 +231,7 @@ def test_verify_files_rejects_invalid_file_entry(distribution: Path, mocker: Moc
 def test_verify_files_ignores_legacy_egg_from_older_release(distribution: Path, mocker: MockerFixture) -> None:
     files = _listing(distribution)
     files.append({"filename": "fixture-0.8.1-py2.4.egg", "hashes": {"sha256": "0" * 64}, "yanked": False})
-    mocker.patch.object(_MODULE, "urlopen", return_value=_body(files))
+    mocker.patch.object(_MODULE, "urlopen", autospec=True, return_value=_body(files))
 
     assert verify_files("fixture", "1.0", distribution) == [
         distribution / "fixture-1.0-py3-none-any.whl",
@@ -254,7 +254,7 @@ def test_verify_files_ignores_legacy_files_from_other_versions(
         path.rename(path.with_name(path.name.replace("1.0", "0.9")))
     files = _listing(distribution)
     files.append({"filename": filename, "hashes": {"sha256": "0" * 64}, "yanked": False})
-    mocker.patch.object(_MODULE, "urlopen", return_value=_body(files))
+    mocker.patch.object(_MODULE, "urlopen", autospec=True, return_value=_body(files))
 
     assert verify_files("fixture", "0.9", distribution) == [
         distribution / "fixture-0.9-py3-none-any.whl",
@@ -343,7 +343,9 @@ def test_verify_files_retries_transient_listing_failure(
     failure: OSError | IncompleteRead | json.JSONDecodeError,
     waiting_clock: None,
 ) -> None:
-    response = mocker.patch.object(_MODULE, "urlopen", side_effect=[failure, _body(_listing(distribution))])
+    response = mocker.patch.object(
+        _MODULE, "urlopen", autospec=True, side_effect=[failure, _body(_listing(distribution))]
+    )
 
     assert verify_files("fixture", "1.0", distribution) == [
         distribution / "fixture-1.0-py3-none-any.whl",
@@ -364,7 +366,7 @@ def test_verify_files_retries_response_read_failure(
 ) -> None:
     response = mocker.create_autospec(io.BytesIO, instance=True)
     response.__enter__.return_value.read.side_effect = failure
-    mocker.patch.object(_MODULE, "urlopen", side_effect=[response, _body(_listing(distribution))])
+    mocker.patch.object(_MODULE, "urlopen", autospec=True, side_effect=[response, _body(_listing(distribution))])
 
     assert verify_files("fixture", "1.0", distribution) == [
         distribution / "fixture-1.0-py3-none-any.whl",
@@ -389,7 +391,7 @@ def test_verify_files_retries_truncated_json_response(
 def test_main_reports_exhausted_incomplete_read(
     distribution: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    mocker.patch.object(_MODULE, "urlopen", side_effect=IncompleteRead(b"partial", 10))
+    mocker.patch.object(_MODULE, "urlopen", autospec=True, side_effect=IncompleteRead(b"partial", 10))
     mocker.patch.object(_MODULE.time, "monotonic", side_effect=[0, 121])
     mocker.patch("sys.argv", ["verify_pypi_files", "fixture", "1.0", str(distribution)])
 
@@ -433,7 +435,7 @@ def _serve(mocker: MockerFixture, distribution: Path, *, change: str = "") -> No
         files.append(files[0].copy())
     elif change == "invalid-name":
         files.append({"filename": "fixture-1.0.invalid", "hashes": {"sha256": "0" * 64}, "yanked": False})
-    mocker.patch.object(_MODULE, "urlopen", return_value=_body(files))
+    mocker.patch.object(_MODULE, "urlopen", autospec=True, return_value=_body(files))
 
 
 def _listing(distribution: Path) -> list[_ListingFile]:

@@ -17,11 +17,12 @@ def test_expose_locked_commands_copies_windows_executable(tmp_path: Path, mocker
     scripts.mkdir(parents=True)
     (scripts / "release.exe").write_bytes(b"tool")
     github_path = tmp_path / "github-path"
-    platform = mocker.patch.object(expose_locked_commands, "os")
-    platform.name = "nt"
-    platform.environ = {"RUNNER_TEMP": str(tmp_path), "GITHUB_PATH": str(github_path)}
-    platform.X_OK = os.X_OK
+    platform = mocker.create_autospec(
+        os, environ={"RUNNER_TEMP": str(tmp_path), "GITHUB_PATH": str(github_path)}, X_OK=os.X_OK
+    )
     platform.access.return_value = True
+    platform.name = "nt"  # Mock reserves the name keyword, so the platform name is set afterwards.
+    mocker.patch.object(expose_locked_commands, "os", platform)
     mocker.patch.object(sys, "argv", ["expose_locked_commands", str(environment)])
 
     expose_locked_commands.main()
