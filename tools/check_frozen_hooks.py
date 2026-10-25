@@ -26,6 +26,13 @@ def check_frozen(path: Path) -> None:
     for repository in config["repos"]:
         if not isinstance(repository, dict) or not isinstance(repository.get("repo"), str):
             raise TypeError("hook repository must be a mapping with a URL")
+        hooks = repository.get("hooks", [])
+        if not isinstance(hooks, list) or not all(isinstance(hook, dict) for hook in hooks):
+            raise TypeError(f"hooks must be a list of mappings: {repository['repo']}")
+        for hook in hooks:
+            # release-creator pins and cools only Python hook dependencies; other ecosystems would install unpinned.
+            if hook.get("additional_dependencies") and hook.get("language") not in {None, "python"}:
+                raise ValueError(f"only Python hooks may declare additional_dependencies: {hook.get('id')}")
         if repository["repo"] in {"local", "meta"}:
             continue
         revision = repository.get("rev")
