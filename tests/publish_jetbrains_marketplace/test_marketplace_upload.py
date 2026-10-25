@@ -269,6 +269,41 @@ def test_deleted_prior_run_deployment_blocks_upload(
     assert not httpserver.log
 
 
+@pytest.mark.parametrize(
+    ("log_url", "job_run"),
+    [
+        pytest.param("https://example.org/tox-dev/fixture/actions/runs/41/job/170", None, id="foreign-host"),
+        pytest.param("https://github.com/tox-dev/fixture/actions/runs/41/attempts/1", None, id="not-a-job"),
+        pytest.param(None, 40, id="job-from-another-run"),
+    ],
+)
+def test_unidentified_prior_deployment_blocks_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+    log_url: str | None,
+    job_run: int | None,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        previous_deployment=True,
+        previous_deployment_log_url=log_url,
+        previous_deployment_job_run=job_run,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode != 0
+    assert "Cannot identify release deployment 70" in result.stderr
+    assert not httpserver.log
+
+
 def test_prior_contributor_deployment_blocks_upload(
     signed_archive: Path,
     tmp_path: Path,
@@ -708,6 +743,8 @@ def publish_action(
     previous_deployment_state: str = "success",
     previous_deployment_sha: str = "0" * 40,
     previous_deployment_job_missing: bool = False,
+    previous_deployment_log_url: str | None = None,
+    previous_deployment_job_run: int | None = None,
     extra_current_deployment: bool = False,
     current_deployment_upload: bool = True,
     current_attempt: int = 1,
@@ -780,7 +817,9 @@ def publish_action(
         server.expect_request(f"/api/v3/repos/tox-dev/fixture/deployments/{deployment_id}/statuses").respond_with_json(
             [
                 {
-                    "log_url": f"https://github.com/tox-dev/fixture/actions/runs/{run_id}/job/{job_id}",
+                    "log_url": previous_deployment_log_url
+                    if prior and previous_deployment_log_url is not None
+                    else f"https://github.com/tox-dev/fixture/actions/runs/{run_id}/job/{job_id}",
                     "state": previous_deployment_state if prior else "in_progress",
                 }
             ]
@@ -791,7 +830,7 @@ def publish_action(
         else:
             job_request.respond_with_json(
                 {
-                    "run_id": run_id,
+                    "run_id": previous_deployment_job_run if prior and previous_deployment_job_run else run_id,
                     "run_attempt": attempt,
                     "steps": [
                         {
