@@ -38,6 +38,14 @@ on:
         description: Space-separated implementations for the secondary lock
         default: ""
         type: string
+      exclude-newer:
+        description: Upload cutoff for the tools the shared Actions install from PyPI
+        default: 7 days
+        type: string
+      exclude-newer-package:
+        description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+        default: ""
+        type: string
 permissions:
   contents: read
 jobs:
@@ -66,6 +74,8 @@ jobs:
           additional-matrix-python: ${{ inputs.additional-matrix-python }}
           additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
           additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
+          exclude-newer: ${{ inputs.exclude-newer }}
+          exclude-newer-package: ${{ inputs.exclude-newer-package }}
   constraints:
     runs-on: ubuntu-26.04
     outputs:
@@ -84,6 +94,9 @@ jobs:
           enable-cache: false
       - id: constraints
         uses: $/install-locked-tools
+        with:
+          exclude-newer: ${{ inputs.exclude-newer }}
+          exclude-newer-package: ${{ inputs.exclude-newer-package }}
       - name: Stage build constraints
         env:
           SOURCE: ${{ steps.constraints.outputs.build-constraints }}

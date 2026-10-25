@@ -143,25 +143,10 @@ def pypi_metadata_environment(pypi_metadata: Path, monkeypatch: pytest.MonkeyPat
 
 @pytest.fixture(scope="session")
 def nab_executable(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    root = Path(__file__).resolve().parents[1]
     environment = tmp_path_factory.mktemp("nab-tools")
-    subprocess.run(["uv", "venv", "--python", "3.15", str(environment)], check=True, capture_output=True)
     subprocess.run(
-        [
-            "uv",
-            "pip",
-            "sync",
-            "--preview-features",
-            "pylock",
-            "--python",
-            str(environment / "bin/python"),
-            "--group",
-            "lock-tools",
-            "--only-binary",
-            ":all:",
-            "--require-hashes",
-            str(root / "pylock.toml"),
-        ],
+        [str(Path(__file__).resolve().parents[1] / "tools/install_live_tools.sh"), str(environment), "nab==0.0.22"],
+        env=os.environ | {"EXCLUDE_NEWER": "7 days"},
         check=True,
         capture_output=True,
     )
@@ -262,9 +247,9 @@ def source_project(repository: Path) -> Path:
 def build_repository(source_project: Path, nab_executable: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("SSL_CERT_FILE", raising=False)
     project = source_project / "pyproject.toml"
-    release_requirement = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())[
-        "dependency-groups"
-    ]["release-notes"][0]
+    release_requirement = tomllib.loads((CALLER / "pyproject.toml").read_text())["dependency-groups"]["release-notes"][
+        0
+    ]
     project.write_text(
         project.read_text()
         + f"\n[dependency-groups]\nrelease-notes = [{json.dumps(release_requirement)}]\n"
@@ -305,12 +290,6 @@ def action(
     version: str,
     **extra_env: str,
 ) -> subprocess.CompletedProcess[str]:
-    if (
-        name in {"install-locked-tools", "export-build-constraints"}
-        and (repository / "pylock.toml").exists()
-        and not (repository / "pyproject.toml").exists()
-    ):
-        (repository / "pyproject.toml").write_text('[tool.nab]\nuploaded-prior-to = "P7D"\n')
     if name == "validate-release-patch" and (prepared := tmp_path / "release.patch").exists():
         (tmp_path / "release-patch").mkdir(exist_ok=True)
         shutil.copyfile(prepared, tmp_path / "release-patch/release.patch")
@@ -563,8 +542,6 @@ def _expression(
     if expression.startswith("steps."):
         _, step_id, _, output_name = expression.split(".")
         return step_outputs.get(step_id, {}).get(output_name, "")
-    if expression == "runner.temp":
-        return environment["RUNNER_TEMP"]
     if expression == "github.repository":
         return environment["GITHUB_REPOSITORY"]
     if expression == "github.base_ref":

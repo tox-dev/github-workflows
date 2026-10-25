@@ -6,41 +6,37 @@ keeps its dispatch form, publisher, GitHub environment, and required check names
 
 ## Install locked tools
 
-`install-locked-tools` creates a virtual environment and installs selected groups from the caller's `pylock.toml` by
-default. `lock-source: shared` selects this Action repository's `pylock.toml` for shared jobs such as hook maintenance
-that do not need the caller's release tools. The caller's full project lock records runtime dependencies, every extra,
-and every dependency group across supported Python versions and platforms. CI resolves test, type, and documentation
-dependencies fresh; release jobs install only the selected release groups. The Action rejects missing groups and leaves
-tracked files unchanged. Source builds use constraints generated from the lock's `build` group under the runner's
-temporary directory.
+`install-locked-tools` creates a virtual environment and installs selected groups from the caller's `pylock.toml`. The
+caller's full project lock records runtime dependencies, every extra, and every dependency group across supported Python
+versions and platforms. CI resolves test, type, and documentation dependencies fresh; release jobs install only the
+selected release groups. The Action rejects missing groups and leaves tracked files unchanged. Source builds use
+constraints generated from the lock's `build` group under the runner's temporary directory. A lock without a `build`
+group exports an empty constraints file.
 
 Every selected package must come from PyPI with the recorded hashes and upload times, and must have been uploaded at
 least seven days before the lock was created. A package that the caller's `[tool.nab.packages.<name>]` or
 `[[tool.nab.package-rules]]` table gives an `uploaded-prior-to` override may be as new as that override allows: a
 timestamp, a `PnD` duration before the lock's creation, or `false` for no cutoff.
 
-Select the groups each job needs. The shared workflows use `release-news release-shell`, `release-prepare`, and
-`release-validate`. A full lock records each group and extra, but a new combination still needs an install check before
-a caller uses it.
+Select the groups each job needs. The shared workflows use `release-prepare` and `release-validate`. A full lock records
+each group and extra, but a new combination still needs an install check before a caller uses it.
 
 - `venv`: directory for the virtual environment when `groups` is set.
 - `groups`: whitespace-separated release dependency groups. Leave empty to export build constraints without installing
   release tools.
-- `lock-source`: `caller` (default) installs from the checkout's lock; `shared` installs from the pinned Action's lock.
-  Both paths use the pinned Action's lock-tool bootstrap. The Action checks that every selected group exists in the
-  selected lock and applies hashed build constraints.
-- `constraints-lock`: lock used to export build constraints; defaults to the selected install lock. Use a secondary lock
-  when the build matrix differs from the release-tool matrix.
+- `constraints-lock`: lock used to export build constraints; defaults to `pylock.toml`. Use a secondary lock when the
+  build matrix differs from the release-tool matrix. Without `groups`, the Action checks only this lock.
 - `verify-lock` and `verify-groups`: check another lock's selected packages against PyPI and the seven-day cutoff
   without installing them. Use this before bundling packages from a separate runtime lock, such as a zipapp.
 - `target-platform` and `targets`: Nab platform ID and space-separated `full-version:implementation` pairs for build
   constraints. Pass both when exporting constraints for a specific build target; otherwise the runner selects the
   target.
+- `exclude-newer` and `exclude-newer-package`: cutoffs for the lock reader the Action installs from PyPI, see
+  [Tools the Actions install](#tools-the-actions-install).
 
 The `build-constraints` output names the hashed constraints file. The Action adds installed command launchers to
 `GITHUB_PATH` for later steps while leaving the runner's `python`, `pip`, and `uv` commands on their original paths. Run
-`actions/checkout` and `astral-sh/setup-uv` with Python 3.15 before it. It bootstraps its lock reader from the shared,
-hash-checked lock.
+`actions/checkout` and `astral-sh/setup-uv` with Python 3.15 before it.
 
 For a zipapp that bundles wheels from a separate runtime lock, check that lock in the same job before building it:
 
@@ -55,6 +51,27 @@ For a zipapp that bundles wheels from a separate runtime lock, check that lock i
 
 `export-build-constraints` also accepts `verify-groups`. Pass it when its secondary lock supplies build tools outside
 the `build` group, such as profile-guided optimization tools in a `pgo` group.
+
+## Tools the Actions install
+
+The Actions install the tools they run themselves, such as Nab, `packaging`, `certifi`, and `pypi-attestations`, from
+PyPI with `uv pip install --exclude-newer`, without hashes. There is no shared lock, so a tool release reaches callers
+once it is older than the cutoff. Every Action and reusable workflow that installs such a tool takes two inputs:
+
+- `exclude-newer`: the cutoff, `7 days` by default. uv accepts a timestamp or a duration.
+- `exclude-newer-package`: newline-separated `name=date` pairs, each passed to uv as `--exclude-newer-package`, to let a
+  single package past the cutoff in an emergency.
+
+```yaml
+  - uses: tox-dev/github-workflows/refresh-release-lock@SHA
+    with:
+      mode: check
+      exclude-newer-package: |
+        nab=2026-10-24T00:00:00Z
+```
+
+The tools the caller's release jobs run, such as release-creator, Towncrier, and prek, still come hash-checked from the
+caller's `pylock.toml`.
 
 ## Check pull request news
 
@@ -483,9 +500,10 @@ invalid attestation fails. The GitHub Release writer must depend on this verific
       dist: dist
 ```
 
-`project`, `version`, and `dist` are required. The Action installs the locked `release-attestations` group on Python
-3.15 and waits up to 120 seconds for PyPI's listing to propagate. It checks the complete local file set, then runs
-`pypi-attestations verify pypi` on each local file against the caller repository. It prints no credentials.
+`project`, `version`, and `dist` are required. The Action installs `pypi-attestations` on Python 3.15 under the
+`exclude-newer` cutoff and waits up to 120 seconds for PyPI's listing to propagate. It checks the complete local file
+set, then runs `pypi-attestations verify pypi` on each local file against the caller repository. It prints no
+credentials.
 
 ## Publish a GitHub Release
 

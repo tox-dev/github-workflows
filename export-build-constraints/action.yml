@@ -13,6 +13,12 @@ inputs:
   verify-groups:
     description: Additional lock groups whose packages enter the release build
     default: ""
+  exclude-newer:
+    description: Upload cutoff for the tools this Action installs from PyPI
+    default: 7 days
+  exclude-newer-package:
+    description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+    default: ""
 outputs:
   path:
     description: Path to the generated constraints for this lock selection
@@ -23,9 +29,10 @@ runs:
     - id: tools
       uses: $/install-locked-tools
       with:
-        lock-source: shared
         constraints-lock: ${{ inputs.lock }}
         verify-lock: ${{ inputs.verify-groups != '' && inputs.lock || '' }}
         verify-groups: ${{ inputs.verify-groups }}
         target-platform: ${{ inputs.target-platform }}
         targets: ${{ inputs.targets }}
+        exclude-newer: ${{ inputs.exclude-newer }}
+        exclude-newer-package: ${{ inputs.exclude-newer-package }}

@@ -5,20 +5,15 @@ and test its inputs and outputs before opening a pull request.
 
 ## Set up
 
-Use Python 3.15. Install the release tools from the lock and test tools from the current index:
+Use Python 3.15. Install the release tools under the seven-day cutoff, as CI does, and test tools from the current
+index:
 
 ```bash
 uv venv --allow-existing --python 3.15 .venv
-uv venv --allow-existing --python 3.15 .venv/lock-tools
-uv pip sync --preview-features pylock --python .venv/lock-tools/bin/python --group lock-tools \
-  --only-binary :all: --require-hashes pylock.toml
-.venv/lock-tools/bin/python tools/build_constraints.py .venv/build-constraints.txt pylock.toml
-uv venv --allow-existing --python 3.15 .venv/release-tools
-uv pip sync --preview-features pylock --preview-features build-dependency-hashes \
-  --python .venv/release-tools/bin/python --group release-hooks \
-  --build-constraints .venv/build-constraints.txt --require-build-hashes pylock.toml
+EXCLUDE_NEWER="7 days" tools/install_live_tools.sh .release-tools \
+  'release-creator>=2.0.0' 'towncrier>=26.9' 'prek>=0.2' 'yq>=4.4.5'
 uv pip install --python .venv/bin/python --group test
-export PATH="$PWD/.venv/release-tools/bin:$PWD/.venv/bin:$PATH"
+export PATH="$PWD/.release-tools/bin:$PWD/.venv/bin:$PATH"
 ```
 
 Run the checks before pushing:

@@ -46,6 +46,14 @@ on:
         description: Create a GitHub Deployment for the App-key job
         type: boolean
         default: true
+      exclude-newer:
+        description: Upload cutoff for the tools the shared Actions install from PyPI
+        type: string
+        default: 7 days
+      exclude-newer-package:
+        description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+        type: string
+        default: ""
     secrets:
       RELEASE_APP_PRIVATE_KEY:
         description: Key held by the caller's release-auth environment
@@ -84,10 +92,14 @@ jobs:
           additional-matrix-python: ${{ inputs.additional-matrix-python }}
           additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
           additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
+          exclude-newer: ${{ inputs.exclude-newer }}
+          exclude-newer-package: ${{ inputs.exclude-newer-package }}
       - uses: $/install-locked-tools
         with:
           groups: release-prepare
           venv: .venv
+          exclude-newer: ${{ inputs.exclude-newer }}
+          exclude-newer-package: ${{ inputs.exclude-newer-package }}
       - name: Install prek hooks
         id: hooks
         env:
@@ -140,6 +152,8 @@ jobs:
         with:
           groups: release-validate
           venv: .venv
+          exclude-newer: ${{ inputs.exclude-newer }}
+          exclude-newer-package: ${{ inputs.exclude-newer-package }}
       - id: config
         uses: $/read-towncrier-config
       - name: Verify selected release version

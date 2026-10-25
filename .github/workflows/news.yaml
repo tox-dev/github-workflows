@@ -18,11 +18,11 @@ jobs:
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
-          cache-dependency-glob: |
-            pylock.toml
-            pyproject.toml
-      - uses: $/install-locked-tools
-        with:
-          groups: release-news
-          venv: ${{ runner.temp }}/release-tools
+          cache-dependency-glob: pyproject.toml
+      - name: Install release tools
+        env:
+          EXCLUDE_NEWER: 7 days
+        run: |
+          tools/install_live_tools.sh "$RUNNER_TEMP/release-tools" 'release-creator>=2.0.0' 'towncrier>=26.9'
+          uv run --no-project --python "$RUNNER_TEMP/release-tools" python tools/expose_locked_commands.py "$RUNNER_TEMP/release-tools"
       - uses: $/validate-news

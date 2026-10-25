@@ -42,10 +42,12 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - uses: $/install-locked-tools
-        with:
-          groups: release-notes
-          venv: .venv
+      - name: Install release tools
+        env:
+          EXCLUDE_NEWER: 7 days
+        run: |
+          tools/install_live_tools.sh .venv 'release-creator>=2.0.0'
+          uv run --no-project --python .venv python tools/expose_locked_commands.py .venv
       - name: Verify tagged source
         env:
           TAG: ${{ github.ref_name }}
@@ -99,10 +101,12 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - uses: $/install-locked-tools
-        with:
-          groups: release-notes
-          venv: .venv
+      - name: Install release tools
+        env:
+          EXCLUDE_NEWER: 7 days
+        run: |
+          tools/install_live_tools.sh .venv 'release-creator>=2.0.0'
+          uv run --no-project --python .venv python tools/expose_locked_commands.py .venv
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.contributors.outputs.artifact-id }}

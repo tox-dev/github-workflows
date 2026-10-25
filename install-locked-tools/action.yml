@@ -7,9 +7,6 @@ inputs:
   venv:
     description: Virtual environment directory
     default: ""
-  lock-source:
-    description: Install groups from the caller or the shared Action lock
-    default: caller
   constraints-lock:
     description: Lock used to export build constraints; defaults to the selected install lock
     default: ""
@@ -25,6 +22,12 @@ inputs:
   targets:
     description: Space-separated full-version:implementation pairs for the exported build constraints
     default: ""
+  exclude-newer:
+    description: Upload cutoff for the lock reader this Action installs from PyPI
+    default: 7 days
+  exclude-newer-package:
+    description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+    default: ""
 outputs:
   build-constraints:
     description: Hashed build requirements selected from the lock
@@ -37,34 +40,20 @@ runs:
       run: uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/lock-reader"
     - name: Install lock reader
       shell: bash
-      run: |
-        set -euo pipefail
-        unset UV_EXCLUDE_NEWER UV_EXCLUDE_NEWER_PACKAGE
-        digest=$(sha256sum "$GITHUB_ACTION_PATH/../pylock.toml")
-        if [[ -f "$RUNNER_TEMP/lock-reader/.lock-digest" &&
-          $(cat "$RUNNER_TEMP/lock-reader/.lock-digest") == "${digest%% *}" ]]; then
-          exit 0
-        fi
-        uv pip sync --preview-features pylock --python "$RUNNER_TEMP/lock-reader" --group lock-reader \
-          --only-binary :all: --require-hashes "$GITHUB_ACTION_PATH/../pylock.toml"
-        printf '%s\n' "${digest%% *}" >"$RUNNER_TEMP/lock-reader/.lock-digest"
+      env:
+        EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
+        EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
+      run: >-
+        "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-reader" 'certifi>=2026.7.22' 'packaging>=26.3'
     - id: selection
       name: Select locked groups and build constraints
       shell: bash
       env:
         DEPENDENCY_GROUPS: ${{ inputs.groups }}
         VENV: ${{ inputs.venv }}
-        LOCK_SOURCE: ${{ inputs.lock-source }}
+        CONSTRAINTS_LOCK: ${{ inputs.constraints-lock }}
       run: |
         set -euo pipefail
-        case "$LOCK_SOURCE" in
-        caller) lock=pylock.toml ;;
-        shared) lock="$GITHUB_ACTION_PATH/../pylock.toml" ;;
-        *)
-          echo "::error::unknown lock source: $LOCK_SOURCE" >&2
-          exit 1
-          ;;
-        esac
         groups=()
         while IFS= read -r line; do
           read -ra selected <<<"$line"
@@ -81,13 +70,15 @@ runs:
         else
           selection=(--build-constraints)
         fi
-        # The shared lock is checked in github-workflows CI; only a caller lock needs the cooling and PyPI checks.
-        if [[ "$LOCK_SOURCE" == caller ]]; then
+        # An export from a named constraints lock checks that lock instead of the primary one.
+        checked=false
+        if ((${#groups[@]})) || [[ -z "$CONSTRAINTS_LOCK" ]]; then
           uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
-            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" "${selection[@]}" \
-            --shared-lock "$GITHUB_ACTION_PATH/../pylock.toml" --verify-pypi --project pyproject.toml
+            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" pylock.toml "${selection[@]}" \
+            --verify-pypi --project pyproject.toml
+          checked=true
         fi
-        printf 'lock=%s\n' "$lock" >>"$GITHUB_OUTPUT"
+        printf 'lock=pylock.toml\nchecked=%s\n' "$checked" >>"$GITHUB_OUTPUT"
     - name: Verify additional release lock
       if: inputs.verify-lock != '' || inputs.verify-groups != ''
       shell: bash
@@ -113,6 +104,7 @@ runs:
       shell: bash
       env:
         BUILD_LOCK: ${{ steps.selection.outputs.lock }}
+        CHECKED: ${{ steps.selection.outputs.checked }}
         CONSTRAINTS_LOCK: ${{ inputs.constraints-lock }}
         VERIFY_LOCK: ${{ inputs.verify-lock }}
         TARGET_PLATFORM: ${{ inputs.target-platform }}
@@ -120,36 +112,26 @@ runs:
       run: |
         set -euo pipefail
         # A verified lock already had its build selection checked against PyPI with its groups.
-        if [[ -n "$CONSTRAINTS_LOCK" && "$CONSTRAINTS_LOCK" != "$BUILD_LOCK" && "$CONSTRAINTS_LOCK" != "$VERIFY_LOCK" ]]; then
-          lock_check=()
-          if [[ "$CONSTRAINTS_LOCK" != "$GITHUB_ACTION_PATH/../pylock.toml" ]]; then
-            lock_check=(--verify-pypi --project pyproject.toml)
-          fi
+        if [[ -n "$CONSTRAINTS_LOCK" && "$CONSTRAINTS_LOCK" != "$VERIFY_LOCK" &&
+          ("$CHECKED" != true || "$CONSTRAINTS_LOCK" != "$BUILD_LOCK") ]]; then
           uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
             "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$CONSTRAINTS_LOCK" --build-constraints \
-            "${lock_check[@]}"
+            --verify-pypi --project pyproject.toml
         fi
         if [[ -n "$CONSTRAINTS_LOCK" ]]; then BUILD_LOCK=$CONSTRAINTS_LOCK; fi
         args=()
-        if [[ "$BUILD_LOCK" == pylock.toml ]]; then
-          args+=(--shared-policy "$GITHUB_ACTION_PATH/../pyproject.toml")
-          locks=("$GITHUB_ACTION_PATH/../pylock.toml" pylock.toml)
-        else
-          locks=("$BUILD_LOCK")
-        fi
         if [[ -n "$TARGET_PLATFORM" || -n "$TARGETS" ]]; then
           args+=(--target-platform "$TARGET_PLATFORM" --targets "$TARGETS")
         fi
         digest=$(
-          sha256sum "${locks[@]}"
+          sha256sum "$BUILD_LOCK"
           printf '%s\n' "$TARGET_PLATFORM" "$TARGETS" "${args[@]}"
         )
         digest=$(sha256sum <<<"$digest")
         output="$RUNNER_TEMP/build-constraints-${digest%% *}.txt"
         if [[ ! -f "$output" ]]; then
           uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
-            "$GITHUB_ACTION_PATH/../tools/build_constraints.py" "${args[@]}" \
-            "$output" "${locks[@]}"
+            "$GITHUB_ACTION_PATH/../tools/build_constraints.py" "${args[@]}" "$output" "$BUILD_LOCK"
         fi
         echo "path=$output" >>"$GITHUB_OUTPUT"
     - name: Install selected groups

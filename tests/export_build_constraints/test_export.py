@@ -41,7 +41,7 @@ def test_export_build_constraints_accepts_tool_only_project_without_build_group(
     result = action(tmp_path, tmp_path, action_scripts, "export-build-constraints", outputs, version="")
 
     assert result.returncode == 0, result.stderr
-    assert "setuptools==" in Path(outputs["path"]).read_text()
+    assert Path(outputs["path"]).read_text() == ""
 
 
 def test_export_build_constraints_writes_empty_file_without_build_selection(tmp_path: Path) -> None:
@@ -335,6 +335,9 @@ def test_export_build_constraints_rejects_uncooled_secondary_lock(
     document = tomlkit.parse(lock.read_text())
     document["packages"][0]["wheels"][0]["upload-time"] = datetime(2099, 1, 1, tzinfo=UTC)
     lock.write_text(tomlkit.dumps(document))
+    if groups:
+        (tmp_path / "pylock.toml").write_bytes((CALLER / "pylock.toml").read_bytes())
+        (tmp_path / "pyproject.toml").write_bytes((CALLER / "pyproject.toml").read_bytes())
     result = action(
         tmp_path,
         tmp_path,
@@ -342,7 +345,6 @@ def test_export_build_constraints_rejects_uncooled_secondary_lock(
         "install-locked-tools" if groups else "export-build-constraints",
         version="",
         LOCK="pylock.build.toml",
-        LOCK_SOURCE="shared",
         CONSTRAINTS_LOCK="pylock.build.toml",
         GROUPS=groups,
         VENV=str(tmp_path / "tools"),

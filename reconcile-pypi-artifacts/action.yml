@@ -10,15 +10,22 @@ inputs:
   dist:
     description: Directory containing the complete expected distribution set
     required: true
+  exclude-newer:
+    description: Upload cutoff for the tools this Action installs from PyPI
+    default: 7 days
+  exclude-newer-package:
+    description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+    default: ""
 runs:
   using: composite
   steps:
-    - name: Install locked provenance verifier
-      uses: $/install-locked-tools
-      with:
-        groups: release-attestations
-        venv: ${{ runner.temp }}/pypi-attestations
-        lock-source: shared
+    - name: Install provenance verifier
+      shell: bash
+      env:
+        EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
+        EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
+      run: >-
+        "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/pypi-attestations" 'certifi>=2026.7.22' 'pypi-attestations>=0.0.30'
     - name: Compare published files
       shell: bash
       env:

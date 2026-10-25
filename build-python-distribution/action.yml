@@ -1,5 +1,12 @@
 name: Build Python distribution
 description: Build a wheel and sdist for a keyless PR check
+inputs:
+  exclude-newer:
+    description: Upload cutoff for the tools this Action installs from PyPI
+    default: 7 days
+  exclude-newer-package:
+    description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+    default: ""
 runs:
   using: composite
   steps:
@@ -16,6 +23,9 @@ runs:
       run: uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/build-python"
     - id: constraints
       uses: $/export-build-constraints
+      with:
+        exclude-newer: ${{ inputs.exclude-newer }}
+        exclude-newer-package: ${{ inputs.exclude-newer-package }}
     - name: Build wheel and sdist
       shell: bash
       env:

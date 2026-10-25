@@ -197,3 +197,21 @@ def _run_step(
 
 def _uv_call(root: Path) -> dict[str, Any]:
     return json.loads((root / "uv-call.json").read_text())
+
+
+def test_refresh_installs_nab_under_cutoff(lock_project: Path, tmp_path: Path, action_scripts: Path) -> None:
+    run(lock_project, "git", "add", ".")
+    run(lock_project, "git", "commit", "-m", "Add the project")
+
+    result = action(
+        lock_project,
+        tmp_path,
+        action_scripts,
+        "refresh-release-lock",
+        version="",
+        EXCLUDE_NEWER="2026-10-01T00:00:00Z",
+        EXCLUDE_NEWER_PACKAGE="",
+    )
+
+    assert result.returncode != 0
+    assert "nab==0.0.22" in result.stderr

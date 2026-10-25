@@ -30,13 +30,13 @@ jobs:
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
-          cache-dependency-glob: |
-            pylock.toml
-            pyproject.toml
-      - uses: $/install-locked-tools
-        with:
-          groups: release-check
-          venv: .release-tools
+          cache-dependency-glob: pyproject.toml
+      - name: Install release tools
+        env:
+          EXCLUDE_NEWER: 7 days
+        run: |
+          tools/install_live_tools.sh .release-tools 'prek>=0.2'
+          uv run --no-project --python .release-tools python tools/expose_locked_commands.py .release-tools
       - name: Check repository formatting
         run: tools/cooled_prek.sh run --all-files
   shell:
@@ -58,13 +58,13 @@ jobs:
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
-          cache-dependency-glob: |
-            pylock.toml
-            pyproject.toml
-      - uses: $/install-locked-tools
-        with:
-          groups: release-shell
-          venv: .release-tools
+          cache-dependency-glob: pyproject.toml
+      - name: Install release tools
+        env:
+          EXCLUDE_NEWER: 7 days
+        run: |
+          tools/install_live_tools.sh .release-tools 'prek>=0.2' 'yq>=4.4.5'
+          uv run --no-project --python .release-tools python tools/expose_locked_commands.py .release-tools
       - name: Check inline shell
         run: |
           set -euo pipefail
@@ -98,13 +98,12 @@ jobs:
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
-          cache-dependency-glob: |
-            pylock.toml
-            pyproject.toml
-      - uses: $/install-locked-tools
-        with:
-          groups: release-news release-shell
-          venv: .release-tools
+          cache-dependency-glob: pyproject.toml
+      - name: Install release tools
+        env:
+          EXCLUDE_NEWER: 7 days
+        run: |
+          tools/install_live_tools.sh .release-tools 'release-creator>=2.0.0' 'towncrier>=26.9' 'prek>=0.2' 'yq>=4.4.5'
       - name: Run Action tests
         run: uvx --with tox-uv tox run -e test
   type:
@@ -121,9 +120,7 @@ jobs:
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
-          cache-dependency-glob: |
-            pylock.toml
-            pyproject.toml
+          cache-dependency-glob: pyproject.toml
       - name: Check Python types
         run: uvx --with tox-uv tox run -e type
   gate:

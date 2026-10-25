@@ -7,7 +7,7 @@ import pytest
 from conftest import action
 
 
-def test_verify_secondary_lock_accepts_cooled_selection(tmp_path: Path, action_scripts: Path) -> None:
+def test_verify_secondary_lock_accepts_cooled_selection(tmp_path: Path, caller: Path, action_scripts: Path) -> None:
     lock = tmp_path / "pylock.zipapp.toml"
     lock.write_text(
         'lock-version = "1.0"\nrequires-python = ">=3.15"\n'
@@ -16,12 +16,11 @@ def test_verify_secondary_lock_accepts_cooled_selection(tmp_path: Path, action_s
     )
 
     result = action(
-        Path(__file__).resolve().parents[2],
+        caller,
         tmp_path,
         action_scripts,
         "install-locked-tools",
         version="",
-        LOCK_SOURCE="shared",
         VERIFY_LOCK=str(lock),
         VERIFY_GROUPS="project-runtime",
     )
@@ -37,7 +36,7 @@ def test_verify_secondary_lock_accepts_cooled_selection(tmp_path: Path, action_s
     ],
 )
 def test_verify_secondary_lock_rejects_direct_source(
-    tmp_path: Path, action_scripts: Path, action_name: str, group: str
+    tmp_path: Path, caller: Path, action_scripts: Path, action_name: str, group: str
 ) -> None:
     lock = tmp_path / "pylock.zipapp.toml"
     lock.write_text(
@@ -59,27 +58,26 @@ def test_verify_secondary_lock_rejects_direct_source(
     )
 
     result = action(
-        Path(__file__).resolve().parents[2],
+        caller,
         tmp_path,
         action_scripts,
         action_name,
         version="",
         VERIFY_GROUPS=group,
-        **({"LOCK_SOURCE": "shared", "VERIFY_LOCK": str(lock)} if group == "project-runtime" else {"LOCK": str(lock)}),
+        **({"VERIFY_LOCK": str(lock)} if group == "project-runtime" else {"LOCK": str(lock)}),
     )
 
     assert result.returncode != 0
     assert "direct-source package: six" in result.stderr
 
 
-def test_verify_secondary_lock_requires_group(tmp_path: Path, action_scripts: Path) -> None:
+def test_verify_secondary_lock_requires_group(tmp_path: Path, caller: Path, action_scripts: Path) -> None:
     result = action(
-        Path(__file__).resolve().parents[2],
+        caller,
         tmp_path,
         action_scripts,
         "install-locked-tools",
         version="",
-        LOCK_SOURCE="shared",
         VERIFY_LOCK="pylock.zipapp.toml",
     )
 
@@ -88,7 +86,7 @@ def test_verify_secondary_lock_requires_group(tmp_path: Path, action_scripts: Pa
 
 
 def test_verify_secondary_lock_rejects_forged_pypi_hash(
-    tmp_path: Path, action_scripts: Path, pypi_metadata_environment: None
+    tmp_path: Path, caller: Path, action_scripts: Path, pypi_metadata_environment: None
 ) -> None:
     lock = tmp_path / "pylock.zipapp.toml"
     lock.write_text(
@@ -103,12 +101,11 @@ def test_verify_secondary_lock_rejects_forged_pypi_hash(
     )
 
     result = action(
-        Path(__file__).resolve().parents[2],
+        caller,
         tmp_path,
         action_scripts,
         "install-locked-tools",
         version="",
-        LOCK_SOURCE="shared",
         VERIFY_LOCK=str(lock),
         VERIFY_GROUPS="project-runtime",
     )

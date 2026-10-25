@@ -22,6 +22,12 @@ inputs:
   mode:
     description: Refresh the lock or check that the committed lock is current
     default: refresh
+  exclude-newer:
+    description: Upload cutoff for the tools this Action installs from PyPI
+    default: 7 days
+  exclude-newer-package:
+    description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+    default: ""
 outputs:
   changed:
     description: Whether the locks differ from the checkout
@@ -46,11 +52,12 @@ runs:
           echo '::error::secondary matrix inputs require additional-lock' >&2
           exit 1
         fi
-    - uses: $/install-locked-tools
-      with:
-        groups: lock-tools
-        lock-source: shared
-        venv: ${{ runner.temp }}/lock-tools
+    - name: Install Nab
+      shell: bash
+      env:
+        EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
+        EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
+      run: '"$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-tools" nab==0.0.22'
     - name: Resolve all project groups and extras
       shell: bash
       env:

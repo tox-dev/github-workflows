@@ -220,3 +220,48 @@ def test_validate_news_rejects_removed_release_lock(repository: Path, tmp_path: 
 
     assert result.returncode != 0
     assert "the release lock was removed" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("change", "accepted"),
+    [
+        pytest.param('dependencies = ["six"]', False, id="stale-lock"),
+        pytest.param("dependencies = []  # unchanged", True, id="current-lock"),
+    ],
+)
+def test_validate_news_checks_changed_release_inputs_against_the_lock(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    nab_executable: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+    accepted: bool,
+) -> None:
+    monkeypatch.delenv("SSL_CERT_FILE")
+    project = repository / "pyproject.toml"
+    project.write_text(
+        project.read_text()
+        + '\n[project]\nname = "fixture"\nversion = "0.2.0"\nrequires-python = ">=3.15"\ndependencies = []\n'
+        + '\n[tool.nab]\nuploaded-prior-to = "P7D"\nbase-group = "project-runtime"\n'
+    )
+    run(repository, str(nab_executable), "lock", "--all-groups", "--all-extras", "--no-cache")
+    run(repository, "git", "add", ".")
+    run(repository, "git", "commit", "-m", "Lock the project")
+    run(repository, "git", "push", "origin", "main")
+    run(repository, "git", "checkout", "-b", "add-dependency")
+    project.write_text(project.read_text().replace("dependencies = []", change))
+    run(repository, "git", "commit", "-am", "Change the project")
+
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-news",
+        version="0.2.0",
+        BASE_REF="main",
+        SKIP_NEWS="true",
+    )
+
+    assert (result.returncode == 0) is accepted, result.stderr
+    assert ("regenerated Nab lock differs from the committed lock" in result.stderr) is not accepted

@@ -24,7 +24,7 @@ from packaging._parser import Variable
 from packaging.markers import Marker
 from packaging.pylock import Package, Pylock, PylockValidationError
 from packaging.utils import canonicalize_name
-from packaging.version import InvalidVersion, Version
+from packaging.version import InvalidVersion
 
 _DURATION: Final = re.compile(r"P(?P<days>[0-9]+)D")
 
@@ -33,7 +33,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("lock", type=Path)
     parser.add_argument("groups", nargs="*")
-    parser.add_argument("--shared-lock", type=Path)
     parser.add_argument("--build-constraints", action="store_true")
     parser.add_argument("--verify-pypi", action="store_true")
     parser.add_argument("--project", type=Path)
@@ -66,14 +65,6 @@ def main() -> None:
         _check_cooling(lock, groups, nab)
         if args.verify_pypi:
             _verify_pypi(lock, groups)
-        if args.shared_lock:
-            with args.shared_lock.open("rb") as stream:
-                shared = Pylock.from_dict(tomllib.load(stream))
-            required = max(_selected_release_creators(shared, groups), default=None)
-            if required is not None:
-                installed = min(_selected_release_creators(lock, groups), default=None)
-                if installed is None or installed < required:
-                    parser.error(f"relock: release-creator {required} required")
     except (IncompleteRead, InvalidVersion, KeyError, OSError, PylockValidationError, TypeError, ValueError) as error:
         parser.error(str(error))
 
@@ -318,12 +309,6 @@ def _pypi_files(name: str) -> tuple[str, dict[str, tuple[str | None, str | None,
             datetime.fromisoformat(file["upload-time"]) if "upload-time" in file else None,
         )
     return name, files
-
-
-def _selected_release_creators(lock: Pylock, groups: set[str]) -> Iterator[Version]:
-    for package in lock.packages:
-        if package.name == "release-creator" and (package.marker is None or _possibly_selected(package.marker, groups)):
-            yield Version(str(package.version))
 
 
 if __name__ == "__main__":

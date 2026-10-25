@@ -19,6 +19,12 @@ inputs:
   additional-matrix-implementations:
     description: Space-separated implementations for the secondary lock
     default: ""
+  exclude-newer:
+    description: Upload cutoff for the tools this Action installs from PyPI
+    default: 7 days
+  exclude-newer-package:
+    description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+    default: ""
 runs:
   using: composite
   steps:
@@ -71,4 +77,6 @@ runs:
         additional-matrix-python: ${{ inputs.additional-matrix-python }}
         additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
         additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
+        exclude-newer: ${{ inputs.exclude-newer }}
+        exclude-newer-package: ${{ inputs.exclude-newer-package }}
         mode: check
