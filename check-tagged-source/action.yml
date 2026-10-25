@@ -39,7 +39,8 @@ runs:
         set -euo pipefail
         test "$GITHUB_REF" = "refs/tags/$TAG"
         git check-ref-format "refs/tags/$TAG"
-        test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
+        test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$GITHUB_SHA"
+        test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
         git merge-base --is-ancestor HEAD origin/main
     - uses: $/refresh-release-lock
       with:

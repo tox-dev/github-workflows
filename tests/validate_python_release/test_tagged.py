@@ -201,7 +201,11 @@ def test_validator_matches_built_version_to_tag(
     assert (result.returncode == 0) is accepted, result.stderr
 
 
-@pytest.mark.parametrize("location", ["validate-python-release:build", "release:source"], ids=["build", "self-release"])
+@pytest.mark.parametrize(
+    "location",
+    ["check-tagged-source/action.yml", "validate-python-release:build", "release:source"],
+    ids=["source-check", "build", "self-release"],
+)
 def test_validator_requires_tag_at_the_event_commit(repository: Path, location: str) -> None:
     run(repository, "git", "tag", "0.2.0")
     event_commit = run(repository, "git", "rev-parse", "HEAD").stdout.strip()
