@@ -207,8 +207,7 @@ def test_install_locked_tools_rejects_missing_group(tmp_path: Path, action_scrip
     assert "missing lock dependency groups: relesae" in result.stderr
 
 
-@pytest.mark.parametrize("local_source", [False, True], ids=["locked-caller", "local-source"])
-def test_install_locked_tools_checks_caller_release_creator(tmp_path: Path, local_source: bool) -> None:
+def test_install_locked_tools_checks_caller_release_creator(tmp_path: Path) -> None:
     lock = tmp_path / "pylock.toml"
     lock.write_text(
         'lock-version = "1.0"\nrequires-python = ">=3.15"\n'
@@ -224,46 +223,9 @@ def test_install_locked_tools_checks_caller_release_creator(tmp_path: Path, loca
         "--shared-lock",
         str(CALLER / "pylock.toml"),
     ]
-    if local_source:
-        command.append("--local-tool-source")
     result = subprocess.run(command, text=True, capture_output=True, check=False)
-    assert (result.returncode == 0) is local_source, result.stderr
-
-
-@pytest.mark.parametrize(
-    ("package_name", "accepted"),
-    [
-        pytest.param("release-creator", True, id="local-release-creator"),
-        pytest.param("towncrier", False, id="other-local-package"),
-    ],
-)
-def test_local_tool_source_only_accepts_release_creator(tmp_path: Path, package_name: str, accepted: bool) -> None:
-    source = Path(__file__).resolve().parents[2]
-    document = tomlkit.parse((CALLER / "pylock.toml").read_text())
-    package = next(item for item in document["packages"] if item["name"] == package_name)
-    for field in ("version", "index", "sdist", "wheels"):
-        package.pop(field)
-    package["directory"] = {"path": "."}
-    (tmp_path / "pylock.toml").write_text(tomlkit.dumps(document))
-    result = subprocess.run(
-        [
-            "python",
-            str(source / "tools/check_lock_groups.py"),
-            str(tmp_path / "pylock.toml"),
-            "release-prepare",
-            "--shared-lock",
-            str(CALLER / "pylock.toml"),
-            "--local-tool-source",
-            "--project",
-            str(CALLER / "pyproject.toml"),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert (result.returncode == 0) is accepted, result.stderr
-    if not accepted:
-        assert f"direct-source package: {package_name}" in result.stderr
+    assert result.returncode != 0
+    assert "relock: release-creator" in result.stderr
 
 
 @pytest.mark.parametrize(

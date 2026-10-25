@@ -34,7 +34,6 @@ def main() -> None:
     parser.add_argument("lock", type=Path)
     parser.add_argument("groups", nargs="*")
     parser.add_argument("--shared-lock", type=Path)
-    parser.add_argument("--local-tool-source", action="store_true")
     parser.add_argument("--build-constraints", action="store_true")
     parser.add_argument("--verify-pypi", action="store_true")
     parser.add_argument("--project", type=Path)
@@ -64,14 +63,14 @@ def main() -> None:
             parser.error(f"missing lock dependency groups: {', '.join(sorted(missing))}")
         if args.build_constraints and "build" not in (lock.dependency_groups or ()):
             groups.clear()
-        _check_cooling(lock, groups, nab, local_tool_source=args.local_tool_source)
+        _check_cooling(lock, groups, nab)
         if args.verify_pypi:
-            _verify_pypi(lock, groups, local_tool_source=args.local_tool_source)
+            _verify_pypi(lock, groups)
         if args.shared_lock:
             with args.shared_lock.open("rb") as stream:
                 shared = Pylock.from_dict(tomllib.load(stream))
             required = max(_selected_release_creators(shared, groups), default=None)
-            if required is not None and not args.local_tool_source:
+            if required is not None:
                 installed = min(_selected_release_creators(lock, groups), default=None)
                 if installed is None or installed < required:
                     parser.error(f"relock: release-creator {required} required")
@@ -133,7 +132,7 @@ def _validate_indexes(nab: dict) -> None:
         raise ValueError("custom Nab indexes are not approved for release locks")
 
 
-def _check_cooling(lock: Pylock, groups: set[str], nab: dict, *, local_tool_source: bool = False) -> None:
+def _check_cooling(lock: Pylock, groups: set[str], nab: dict) -> None:
     producer = (lock.tool or {}).get(lock_provider(lock.tool))
     if not isinstance(producer, dict):
         raise TypeError("lock producer settings must be a table")
@@ -143,7 +142,7 @@ def _check_cooling(lock: Pylock, groups: set[str], nab: dict, *, local_tool_sour
     threshold = created - timedelta(days=7)
     cutoffs = _package_cutoffs(nab, created)
     whole_seconds = lock.created_by == "release-creator (uv)" and lock_provider(lock.tool) == "release-creator"
-    for package in _selected_packages(lock, groups, local_tool_source=local_tool_source):
+    for package in _selected_packages(lock, groups):
         if package.archive is not None or package.vcs is not None or package.directory is not None:
             raise ValueError(f"release lock has a direct-source package: {package.name}")
         if package.index is None:
@@ -199,9 +198,9 @@ def _cutoff(name: str, value: object, created: datetime) -> datetime:
     return value
 
 
-def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> None:
+def _verify_pypi(lock: Pylock, groups: set[str]) -> None:
     expected: dict[str, list[tuple[str, str | None, str, datetime | None]]] = defaultdict(list)
-    for package in _selected_packages(lock, groups, local_tool_source=local_tool_source):
+    for package in _selected_packages(lock, groups):
         for artifact in ([package.sdist] if package.sdist is not None else []) + list(package.wheels or ()):
             expected[canonicalize_name(package.name)].append(
                 (
@@ -247,22 +246,11 @@ def _verify_package_metadata(item: tuple[str, list[tuple[str, str | None, str, d
     raise ValueError(f"release lock differs from PyPI metadata: {name}: {mismatch}")
 
 
-def _selected_packages(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> Iterator[Package]:
+def _selected_packages(lock: Pylock, groups: set[str]) -> Iterator[Package]:
     selections = (groups, {"build"}) if "build" in (lock.dependency_groups or ()) else (groups,)
     for package in lock.packages:
-        if package.marker is not None and not any(
-            _possibly_selected(package.marker, selection) for selection in selections
-        ):
-            continue
-        if (
-            local_tool_source
-            and package.name == "release-creator"
-            and package.directory is not None
-            and package.directory.path == "."
-            and package.index is None
-        ):
-            continue
-        yield package
+        if package.marker is None or any(_possibly_selected(package.marker, selection) for selection in selections):
+            yield package
 
 
 def _possibly_selected(marker: Marker, groups: set[str]) -> bool:

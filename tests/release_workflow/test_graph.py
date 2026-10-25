@@ -76,49 +76,6 @@ def test_prepare_validation_calculates_version_independently(
         assert "assembled release version differs from 1.2.3" in result.stderr
 
 
-def test_local_release_creator_builds_with_locked_backends(tmp_path: Path) -> None:
-    step = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / "install-local-release-creator/action.yml").read_text()
-    )["runs"]["steps"][0]
-    fake_bin = tmp_path / "fake-bin"
-    fake_bin.mkdir()
-    (fake_bin / "uv").write_text(
-        '#!/bin/sh\necho "$@" >>"$RUNNER_TEMP/uv-calls"\n'
-        'if [ "$1" = build ]; then mkdir -p "$RUNNER_TEMP/local-tool-dist" && touch "$RUNNER_TEMP/local-tool-dist/x.whl"; fi\n'
-        f'if [ "$1" = run ]; then shift 4; shift; exec {sys.executable} "$@"; fi\n'
-    )
-    (fake_bin / "uv").chmod(0o755)
-    command = tmp_path / ".venv/bin/release-creator"
-    command.parent.mkdir(parents=True)
-    command.symlink_to(sys.executable)
-    output = tmp_path / "github-path"
-
-    result = subprocess.run(
-        ["bash", "-e", "-o", "pipefail", "-c", step["run"]],
-        cwd=tmp_path,
-        env=os.environ
-        | {
-            "PATH": f"{fake_bin}:{os.environ['PATH']}",
-            "BUILD_CONSTRAINTS": "constraints.txt",
-            "GITHUB_WORKSPACE": str(tmp_path),
-            "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_PATH": str(output),
-            "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "install-local-release-creator"),
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    build, install, _ = (tmp_path / "uv-calls").read_text().splitlines()
-    assert "--build-constraints constraints.txt --require-build-hashes" in build
-    assert install.endswith(f"--no-deps {tmp_path}/local-tool-dist/x.whl")
-    overlay = Path(output.read_text().strip())
-    assert [path.name for path in overlay.iterdir()] == ["release-creator"]
-    assert (overlay / "release-creator").resolve() == command.resolve()
-
-
 def test_release_writer_has_only_notes_and_reconciler() -> None:
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
     publish = workflow["jobs"]["publish"]

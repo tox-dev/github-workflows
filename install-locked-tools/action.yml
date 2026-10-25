@@ -10,9 +10,6 @@ inputs:
   lock-source:
     description: Install groups from the caller or the shared Action lock
     default: caller
-  local-tool-source:
-    description: The caller builds release-creator from its own checkout after installing locked third-party tools
-    default: "false"
   constraints-lock:
     description: Lock used to export build constraints; defaults to the selected install lock
     default: ""
@@ -58,7 +55,6 @@ runs:
         DEPENDENCY_GROUPS: ${{ inputs.groups }}
         VENV: ${{ inputs.venv }}
         LOCK_SOURCE: ${{ inputs.lock-source }}
-        LOCAL_TOOL_SOURCE: ${{ inputs.local-tool-source }}
       run: |
         set -euo pipefail
         case "$LOCK_SOURCE" in
@@ -87,12 +83,9 @@ runs:
         fi
         # The shared lock is checked in github-workflows CI; only a caller lock needs the cooling and PyPI checks.
         if [[ "$LOCK_SOURCE" == caller ]]; then
-          source_check=()
-          if [[ "$LOCAL_TOOL_SOURCE" == true ]]; then source_check=(--local-tool-source); fi
           uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
             "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" "${selection[@]}" \
-            --shared-lock "$GITHUB_ACTION_PATH/../pylock.toml" --verify-pypi --project pyproject.toml \
-            "${source_check[@]}"
+            --shared-lock "$GITHUB_ACTION_PATH/../pylock.toml" --verify-pypi --project pyproject.toml
         fi
         printf 'lock=%s\n' "$lock" >>"$GITHUB_OUTPUT"
     - name: Verify additional release lock

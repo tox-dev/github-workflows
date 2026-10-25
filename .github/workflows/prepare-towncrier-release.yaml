@@ -14,10 +14,6 @@ on:
         description: Optional v prefix for the Towncrier changelog heading
         type: string
         default: ""
-      local-tool-source:
-        description: Install release-creator from the tagged checkout for its own release
-        type: boolean
-        default: false
       additional-lock:
         description: Secondary Nab lock to check before release preparation
         type: string
@@ -88,12 +84,10 @@ jobs:
           additional-matrix-python: ${{ inputs.additional-matrix-python }}
           additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
           additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
-      - id: tools
-        uses: $/install-locked-tools
+      - uses: $/install-locked-tools
         with:
-          groups: release-prepare${{ inputs.local-tool-source && ' project-runtime' || '' }}
+          groups: release-prepare
           venv: .venv
-          local-tool-source: ${{ inputs.local-tool-source }}
       - name: Install prek hooks
         id: hooks
         env:
@@ -106,10 +100,6 @@ jobs:
           unset UV_INSECURE_HOST UV_SYSTEM_CERTS SSL_CERT_FILE SSL_CERT_DIR
           prek install-hooks --config .pre-commit-config.yaml
         background: true
-      - uses: $/install-local-release-creator
-        if: inputs.local-tool-source
-        with:
-          build-constraints: ${{ steps.tools.outputs.build-constraints }}
       - id: prepare
         name: Build changelog
         uses: $/prepare-towncrier
@@ -146,16 +136,10 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - id: tools
-        uses: $/install-locked-tools
+      - uses: $/install-locked-tools
         with:
-          groups: release-validate${{ inputs.local-tool-source && ' project-runtime' || '' }}
+          groups: release-validate
           venv: .venv
-          local-tool-source: ${{ inputs.local-tool-source }}
-      - uses: $/install-local-release-creator
-        if: inputs.local-tool-source
-        with:
-          build-constraints: ${{ steps.tools.outputs.build-constraints }}
       - id: config
         uses: $/read-towncrier-config
       - name: Verify selected release version

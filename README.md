@@ -19,10 +19,9 @@ least seven days before the lock was created. A package that the caller's `[tool
 `[[tool.nab.package-rules]]` table gives an `uploaded-prior-to` override may be as new as that override allows: a
 timestamp, a `PnD` duration before the lock's creation, or `false` for no cutoff.
 
-Select the groups each job needs. The shared workflows use `release-news release-shell`,
-`release-hook-check release-notes lock-reader`, and `release-prepare project-runtime` or
-`release-validate project-runtime` for release-creator's own build. A full lock records each group and extra, but a new
-combination still needs an install check before a caller uses it.
+Select the groups each job needs. The shared workflows use `release-news release-shell`, `release-prepare`, and
+`release-validate`. A full lock records each group and extra, but a new combination still needs an install check before
+a caller uses it.
 
 - `venv`: directory for the virtual environment when `groups` is set.
 - `groups`: whitespace-separated release dependency groups. Leave empty to export build constraints without installing
@@ -30,8 +29,6 @@ combination still needs an install check before a caller uses it.
 - `lock-source`: `caller` (default) installs from the checkout's lock; `shared` installs from the pinned Action's lock.
   Both paths use the pinned Action's lock-tool bootstrap. The Action checks that every selected group exists in the
   selected lock and applies hashed build constraints.
-- `local-tool-source`: set to `true` only when release-creator builds and installs its own wheel after this Action. The
-  caller's lock then needs the selected groups but does not need a release-creator package entry.
 - `constraints-lock`: lock used to export build constraints; defaults to the selected install lock. Use a secondary lock
   when the build matrix differs from the release-tool matrix.
 - `verify-lock` and `verify-groups`: check another lock's selected packages against PyPI and the seven-day cutoff
@@ -306,11 +303,9 @@ workflow handles.
 
 `bump`, `tag-prefix`, and `changelog-prefix` have the same meanings as the `prepare-towncrier` inputs below. `annotated`
 selects an annotated tag. `release-auth-deployment` defaults to `true`; set it to `false` if the current App-key job
-uses `release-auth` without creating a GitHub Deployment. `local-tool-source: true` builds release-creator's wheel from
-the checkout and installs it with locked third-party dependencies in assembly; use it for release-creator itself. The
-caller can place repository-specific checks in a preceding job and make this job depend on it. One dispatch prepares one
-tag; run separate dispatches for separate packages. The tag-triggered ecosystem publisher stays in the caller
-repository.
+uses `release-auth` without creating a GitHub Deployment. The caller can place repository-specific checks in a preceding
+job and make this job depend on it. One dispatch prepares one tag; run separate dispatches for separate packages. The
+tag-triggered ecosystem publisher stays in the caller repository.
 
 ## Read Towncrier configuration
 

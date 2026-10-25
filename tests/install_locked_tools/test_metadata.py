@@ -323,41 +323,24 @@ def test_lock_metadata_rejects_non_object_listing(
     assert "invalid PyPI listing for six" in capsys.readouterr().err
 
 
-def test_lock_metadata_allows_local_release_creator(
-    lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    lock = lock_case[0]
-    lock.write_text(
-        lock.read_text().split("[[packages]]", 1)[0]
-        + '[[packages]]\nname = "release-creator"\nmarker = \'"release-check" in dependency_groups\'\n'
-        + 'directory = { path = "." }\n'
-    )
-
-    _run_check(lock_case, monkeypatch, "--local-tool-source", "--verify-pypi", "--project", str(lock_case[1]))
-
-
-@pytest.mark.parametrize(
-    ("name", "path"),
-    [pytest.param("release-creator", "../other", id="other-directory"), pytest.param("six", ".", id="other-package")],
-)
-def test_lock_metadata_limits_local_tool_exemption(
+@pytest.mark.parametrize("path", [".", "../other"], ids=["checkout", "other-directory"])
+def test_lock_metadata_rejects_local_release_creator(
     lock_case: tuple[Path, Path],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    name: str,
     path: str,
 ) -> None:
     lock = lock_case[0]
     lock.write_text(
         lock.read_text().split("[[packages]]", 1)[0]
-        + f'[[packages]]\nname = "{name}"\nmarker = \'"release-check" in dependency_groups\'\n'
+        + '[[packages]]\nname = "release-creator"\nmarker = \'"release-check" in dependency_groups\'\n'
         + f'directory = {{ path = "{path}" }}\n'
     )
 
     with pytest.raises(SystemExit, match="2"):
-        _run_check(lock_case, monkeypatch, "--local-tool-source")
+        _run_check(lock_case, monkeypatch)
 
-    assert "direct-source package" in capsys.readouterr().err
+    assert "direct-source package: release-creator" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
