@@ -36,6 +36,14 @@
   match the fork repository, branch, commit, and workflow, and occur after the PR opened
   ([#15](https://github.com/tox-dev/github-workflows/pull/15)) by [@gaborbernat](https://github.com/gaborbernat).
 
+<a name="release-3-0-1-breaking-changes"></a>
+
+### Breaking changes
+
+- The tagged `source-check` job of `validate-python-release` requests `actions: read` and `pull-requests: read` and
+  checks out full history for the hook age check. A caller whose `build` job grants only `contents: read` fails at
+  startup; grant all three. This entry was added after the release, which shipped without it.
+
 <a name="release-3-0-1-security"></a>
 
 ### Security
