@@ -44,13 +44,6 @@ def main() -> None:
 
 
 def verify_files(project: str, version: str, dist: Path) -> list[Path]:
-    """Check the local files against PyPI.
-
-    :param project: Published project name.
-    :param version: Published release version.
-    :param dist: Directory containing every expected distribution.
-    :returns: Local distribution paths for attestation verification.
-    """
     if not dist.is_dir():
         raise ValueError(f"distribution directory does not exist: {dist}")
     name = canonicalize_name(project, validate=True)

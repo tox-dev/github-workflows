@@ -11,8 +11,7 @@ from collections.abc import Iterator
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from re import Pattern
-from typing import Final, cast
+from typing import cast
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
@@ -22,15 +21,6 @@ from packaging.utils import canonicalize_name
 from packaging.version import Version
 from yaml import MappingNode, ScalarNode, SequenceNode, YAMLError, compose, safe_load
 from yaml.error import Mark
-
-_MANAGED_MARKER: Final[Pattern[str]] = re.compile(
-    r"""
-    ^ \s* ,? \s*
-    (?P<marker> [#] \s+ release-creator \s+ managed )
-    (?: \s | $ )
-    """,
-    re.VERBOSE,
-)
 
 
 def main() -> None:
@@ -134,7 +124,18 @@ def _dependency_groups(source: str) -> Iterator[list[tuple[str, bool]]]:
 
 def _managed_marker(source: str, item: ScalarNode) -> bool:
     suffix = source[cast("Mark", item.end_mark).index :].split("\n", 1)[0]
-    return _MANAGED_MARKER.match(suffix) is not None
+    return (
+        re.match(
+            r"""
+            ^ \s* ,? \s*
+            [#] \s+ release-creator \s+ managed
+            (?: \s | $ )
+            """,
+            suffix,
+            re.VERBOSE,
+        )
+        is not None
+    )
 
 
 def _reject_duplicate_keys(source: str) -> None:
