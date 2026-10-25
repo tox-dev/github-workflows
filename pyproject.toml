@@ -8,7 +8,9 @@ license = "MIT"
 license-files = [ "LICENSE" ]
 
 [dependency-groups]
+build = [ "Cython>=3.0", "setuptools>=80" ]
 release-prepare = [ "release-creator>=2.0.0", "towncrier>=26.9", "prek>=0.2" ]
+release-validate = [ "release-creator>=2.0.0", "prek>=0.2" ]
 test = [
   "certifi",
   "coverage[toml]>=7.10",
