@@ -85,9 +85,3 @@ type = [
   { directory = "removal", name = "Removed", showcontent = true },
   { directory = "packaging", name = "Packaging", showcontent = true },
 ]
-
-[tool.nab.packages.release-creator]
-uploaded-prior-to = 2026-10-25T07:08:32Z
-
-[tool.nab.packages.uv]
-uploaded-prior-to = 2026-10-22T01:32:34Z

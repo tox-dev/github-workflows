@@ -6,7 +6,6 @@ import sys
 import tomllib
 from collections.abc import Callable
 from copy import deepcopy
-from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import dedent
 from typing import cast
@@ -251,55 +250,6 @@ def test_export_build_constraints_action_selects_secondary_lock(tmp_path: Path, 
     assert result.returncode == 0, result.stderr
     output = Path(outputs["path"])
     assert output.read_text() == expected
-
-
-def test_export_build_constraints_action_rejects_wrong_pypi_digest(tmp_path: Path, action_scripts: Path) -> None:
-    lock = tmp_path / "pylock.build.toml"
-    write_published_matrix_lock(lock)
-    document = tomlkit.parse(lock.read_text())
-    document["packages"][0]["wheels"][0]["hashes"]["sha256"] = "0" * 64
-    lock.write_text(tomlkit.dumps(document))
-
-    result = action(
-        tmp_path,
-        tmp_path,
-        action_scripts,
-        "export-build-constraints",
-        version="",
-        LOCK="pylock.build.toml",
-        TARGET_PLATFORM="macos_arm64",
-        TARGETS="3.15.0:cpython",
-    )
-
-    assert result.returncode != 0
-    assert "release lock differs from PyPI metadata: packaging:" in result.stderr
-
-
-@pytest.mark.parametrize("groups", ["", "release-check"], ids=["export-only", "with-installed-group"])
-def test_export_build_constraints_rejects_uncooled_secondary_lock(
-    tmp_path: Path, action_scripts: Path, groups: str
-) -> None:
-    lock = tmp_path / "pylock.build.toml"
-    write_published_matrix_lock(lock)
-    document = tomlkit.parse(lock.read_text())
-    document["packages"][0]["wheels"][0]["upload-time"] = datetime(2099, 1, 1, tzinfo=UTC)
-    lock.write_text(tomlkit.dumps(document))
-    if groups:
-        (tmp_path / "pylock.toml").write_bytes((CALLER / "pylock.toml").read_bytes())
-        (tmp_path / "pyproject.toml").write_bytes((CALLER / "pyproject.toml").read_bytes())
-    result = action(
-        tmp_path,
-        tmp_path,
-        action_scripts,
-        "install-locked-tools" if groups else "export-build-constraints",
-        version="",
-        LOCK="pylock.build.toml",
-        CONSTRAINTS_LOCK="pylock.build.toml",
-        GROUPS=groups,
-        VENV=str(tmp_path / "tools"),
-    )
-    assert result.returncode != 0
-    assert "uncooled artifact" in result.stderr
 
 
 def test_export_build_constraints_rejects_different_target_versions(tmp_path: Path, action_scripts: Path) -> None:

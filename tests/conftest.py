@@ -10,23 +10,17 @@ import tomllib
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from textwrap import dedent
-from typing import Final, TypedDict, cast
-from urllib.parse import urlsplit
+from typing import Final
 
 import certifi
 import coverage
 import pytest
 import trustme
 import yaml
-from packaging.utils import canonicalize_name
 from pytest_httpserver import HTTPServer
 from werkzeug.wrappers import Request, Response
 
 CALLER: Final = Path(__file__).parent / "fixtures/caller"
-_PyPIFile = TypedDict(
-    "_PyPIFile",
-    {"filename": str, "url": str, "hashes": dict[str, str], "upload-time": str},
-)
 
 
 @pytest.fixture
@@ -91,54 +85,6 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
             path.write_text(f"#!/usr/bin/env bash\n{step['run']}")
             path.chmod(0o755)
     return scripts
-
-
-@pytest.fixture(scope="session")
-def pypi_metadata(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    listings = _lock_metadata(CALLER / "pylock.toml")
-    for filename, url, digest, uploaded in (
-        (
-            "six-1.16.0-py2.py3-none-any.whl",
-            "https://files.pythonhosted.org/packages/d9/5a/e7c31adbe875f2abbb91bd84cf2dc52d792b5a01506781dbcf25c91daf11/six-1.16.0-py2.py3-none-any.whl",
-            "8abb2f1d86890a2dfb989f9a77cfcfd3e47c2a354b01111771326f8aa26e0254",
-            "2021-05-05T14:18:17.237677+00:00",
-        ),
-        (
-            "packaging-25.0-py3-none-any.whl",
-            "https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl",
-            "29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484",
-            "2025-04-19T11:48:57.875608+00:00",
-        ),
-        (
-            "example-1.0-py3-none-any.whl",
-            "https://files.pythonhosted.org/example-1.0-py3-none-any.whl",
-            "0" * 64,
-            "2026-10-01T00:00:00+00:00",
-        ),
-        (
-            "example-2.0-py3-none-any.whl",
-            "https://files.pythonhosted.org/example-2.0-py3-none-any.whl",
-            "1" * 64,
-            "2026-10-01T00:00:00+00:00",
-        ),
-    ):
-        name = filename.split("-", 1)[0]
-        listings.setdefault(name, []).append(
-            {
-                "filename": filename,
-                "url": url,
-                "hashes": {"sha256": digest},
-                "upload-time": uploaded,
-            }
-        )
-    path = tmp_path_factory.mktemp("pypi-metadata") / "listings.json"
-    path.write_text(json.dumps(listings))
-    return path
-
-
-@pytest.fixture(autouse=True)
-def pypi_metadata_environment(pypi_metadata: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GW_PYPI_METADATA_FILE", str(pypi_metadata))
 
 
 @pytest.fixture(scope="session")
@@ -265,14 +211,6 @@ def build_repository(source_project: Path, nab_executable: Path, monkeypatch: py
         "--output",
         "pylock.toml",
     )
-    listings = cast("dict[str, list[_PyPIFile]]", json.loads(Path(os.environ["GW_PYPI_METADATA_FILE"]).read_text()))
-    for name, files in _lock_metadata(source_project / "pylock.toml").items():
-        merged = {file["filename"]: file for file in listings.get(name, [])}
-        merged.update({file["filename"]: file for file in files})
-        listings[name] = list(merged.values())
-    metadata = source_project.parent / "pypi-metadata.json"
-    metadata.write_text(json.dumps(listings))
-    monkeypatch.setenv("GW_PYPI_METADATA_FILE", str(metadata))
     run(source_project, "git", "add", ".")
     run(source_project, "git", "commit", "-m", "Add package source")
     run(source_project, "git", "push", "origin", "main")
@@ -477,7 +415,6 @@ def _safe_environment() -> dict[str, str]:
             "GH_ENTERPRISE_TOKEN",
             "COVERAGE_PROCESS_START",
             "COVERAGE_PROCESS_CONFIG",
-            "GW_PYPI_METADATA_FILE",
         )
         if name in os.environ
     }
@@ -553,21 +490,6 @@ def _expression(
     if expression == "contains(github.event.pull_request.labels.*.name, 'skip news')":
         return environment.get("SKIP_NEWS", "false")
     raise ValueError(f"unsupported GitHub step environment: {expression}")  # pragma: no cover - new syntax only
-
-
-def _lock_metadata(lock: Path) -> dict[str, list[_PyPIFile]]:
-    listings: dict[str, dict[str, _PyPIFile]] = {}
-    for package in tomllib.loads(lock.read_text())["packages"]:
-        files = listings.setdefault(canonicalize_name(package["name"]), {})
-        for artifact in [*package.get("wheels", []), *([package["sdist"]] if "sdist" in package else [])]:
-            filename = artifact.get("name") or urlsplit(artifact["url"]).path.rsplit("/", 1)[-1]
-            files[filename] = {
-                "filename": filename,
-                "url": artifact["url"],
-                "hashes": artifact["hashes"],
-                "upload-time": artifact["upload-time"].isoformat(),
-            }
-    return {name: list(files.values()) for name, files in listings.items()}
 
 
 __all__ = [

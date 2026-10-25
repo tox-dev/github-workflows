@@ -262,7 +262,7 @@ def test_refresh_installs_selected_nab(
     [
         pytest.param("validate-news/action.yml", ("runs", "steps"), id="validate-news"),
         pytest.param("check-tagged-source/action.yml", ("runs", "steps"), id="check-tagged-source"),
-        pytest.param(".github/workflows/prepare-towncrier-release.yaml", ("jobs", "assemble", "steps"), id="prepare"),
+        pytest.param(".github/workflows/prepare-towncrier-release.yaml", ("jobs", "lock", "steps"), id="prepare"),
         pytest.param(".github/workflows/upgrade-release-tools.yaml", ("jobs", "generate-lock", "steps"), id="upgrade"),
         pytest.param(".github/workflows/validate-python-release.yaml", ("jobs", "lock", "steps"), id="python-release"),
     ],

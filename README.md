@@ -13,10 +13,10 @@ selected release groups. The Action rejects missing groups and leaves tracked fi
 constraints generated from the lock's `build` group under the runner's temporary directory. A lock without a `build`
 group exports an empty constraints file.
 
-Every selected package must come from PyPI with the recorded hashes and upload times, and must have been uploaded at
-least seven days before the lock was created. A package that the caller's `[tool.nab.packages.<name>]` or
-`[[tool.nab.package-rules]]` table gives an `uploaded-prior-to` override may be as new as that override allows: a
-timestamp, a `PnD` duration before the lock's creation, or `false` for no cutoff.
+The Action only checks that the selected groups exist in the lock; installs are hash-checked. Lock integrity comes from
+Nab: `refresh-release-lock` in `check` mode regenerates the lock and fails if it differs. It runs on pull requests
+through `validate-news`, on tags in the parallel lock job, and in a keyless job of the prepare workflow before the
+release patch is assembled. The cutoff and any per-package exception live in the caller's `[tool.nab]` table.
 
 Select the groups each job needs. The shared workflows use `release-prepare` and `release-validate`. A full lock records
 each group and extra, but a new combination still needs an install check before a caller uses it.
@@ -26,8 +26,8 @@ each group and extra, but a new combination still needs an install check before 
   release tools.
 - `constraints-lock`: lock used to export build constraints; defaults to `pylock.toml`. Use a secondary lock when the
   build matrix differs from the release-tool matrix. Without `groups`, the Action checks only this lock.
-- `verify-lock` and `verify-groups`: check another lock's selected packages against PyPI and the seven-day cutoff
-  without installing them. Use this before bundling packages from a separate runtime lock, such as a zipapp.
+- `verify-lock` and `verify-groups`: check that another lock has the selected groups without installing them. Use this
+  before bundling packages from a separate runtime lock, such as a zipapp.
 - `target-platform` and `targets`: Nab platform ID and space-separated `full-version:implementation` pairs for build
   constraints. Pass both when exporting constraints for a specific build target; otherwise the runner selects the
   target.
@@ -343,11 +343,11 @@ build package versions; otherwise the Action fails instead of writing an ambiguo
 
 ## Prepare and tag with one reusable workflow
 
-`prepare-towncrier-release.yaml` runs three jobs. `assemble` selects a tag and uploads a Towncrier patch without the App
-key. `validate` calculates the next tag again from the checked-out source, then applies the uploaded artifact and runs
-`prek`. `push` downloads that artifact by ID, checks its paths and file modes, reads the caller's `release-auth`
-environment, and uses a repository-scoped App token to push the release commit and tag together. Only a dispatch from
-`main` can reach the writer.
+`prepare-towncrier-release.yaml` runs four jobs. The keyless `lock` job runs `refresh-release-lock` in `check` mode.
+`assemble` then selects a tag and uploads a Towncrier patch without the App key. `validate` calculates the next tag
+again from the checked-out source, then applies the uploaded artifact and runs `prek`. `push` downloads that artifact by
+ID, checks its paths and file modes, reads the caller's `release-auth` environment, and uses a repository-scoped App
+token to push the release commit and tag together. Only a dispatch from `main` can reach the writer.
 
 ```yaml
 jobs:

@@ -90,7 +90,7 @@ def test_build_python_distribution_rejects_backend_hash_mismatch(
         UV_CACHE_DIR=str(tmp_path / "uv-cache"),
     )
     assert result.returncode != 0
-    assert "release lock differs from PyPI metadata: hatchling" in result.stderr
+    assert "Hash mismatch" in result.stderr
 
 
 def test_build_python_distribution_does_not_run_hooks(
