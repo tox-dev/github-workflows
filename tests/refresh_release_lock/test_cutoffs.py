@@ -598,7 +598,7 @@ def test_recent_cutoff_rejects_index_override() -> None:
         "[tool.nab.index.pypi]\nuploaded-prior-to = false\n"
     )
     assert result.returncode != 0
-    assert "Nab index cutoff for pypi" in result.stderr
+    assert "custom Nab indexes are not approved" in result.stderr
 
 
 def test_recent_cutoff_rejects_custom_index() -> None:

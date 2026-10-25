@@ -56,9 +56,6 @@ def validate_recent_cutoffs(project: str, threshold: datetime) -> None:
         if "uploaded-prior-to" in rule
         for name in rule["match"]
     )
-    for name, settings in nab.get("index", {}).items():
-        if "uploaded-prior-to" in settings:
-            raise ValueError(f"Nab index cutoff for {name} bypasses the seven-day policy")
     validate_indexes(nab)
     for name, value in candidates:
         if value is False:

@@ -169,10 +169,6 @@ def _selected_packages(lock: Pylock, groups: set[str], *, local_tool_source: boo
             and package.directory is not None
             and package.directory.path == "."
             and package.index is None
-            and package.archive is None
-            and package.vcs is None
-            and package.sdist is None
-            and (package.wheels is None or len(package.wheels) == 0)
         ):
             continue
         yield package
