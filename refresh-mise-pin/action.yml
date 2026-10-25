@@ -47,11 +47,27 @@ runs:
         uv run --no-project --python "$RUNNER_TEMP/mise-editor" python \
           "$GITHUB_ACTION_PATH/../tools/refresh_mise_pin.py" select \
           "$RUNNER_TEMP/mise-releases.jsonl" "$GITHUB_OUTPUT"
+    - name: Download the selected mise executable
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VERSION: ${{ steps.select.outputs.version }}
+        EXPECTED_SHA256: ${{ steps.select.outputs.sha256 }}
+      run: |
+        set -euo pipefail
+        asset="mise-v$VERSION-linux-x64"
+        mkdir -p "$RUNNER_TEMP/mise-download" "$RUNNER_TEMP/refresh-mise-pin/bin" "$RUNNER_TEMP/refresh-mise-pin-cwd"
+        gh release download "v$VERSION" --repo jdx/mise --pattern "$asset" --dir "$RUNNER_TEMP/mise-download"
+        printf '%s  %s\n' "$EXPECTED_SHA256" "$RUNNER_TEMP/mise-download/$asset" | sha256sum --check --strict
+        install -m 0755 "$RUNNER_TEMP/mise-download/$asset" "$RUNNER_TEMP/refresh-mise-pin/bin/mise"
+        printf '%s' "$VERSION" >"$RUNNER_TEMP/refresh-mise-pin/bin/mise-version"
+    # mise-action checks an existing binary against the signed checksums before it runs it.
     - name: Install signature-verified mise
       uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
       with:
         version: ${{ steps.select.outputs.version }}
         mise_dir: ${{ runner.temp }}/refresh-mise-pin
+        working_directory: ${{ runner.temp }}/refresh-mise-pin-cwd
         cache: "false"
         install: "false"
         env: "false"

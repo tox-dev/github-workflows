@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -414,28 +415,42 @@ def test_main_selects_release(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert (tmp_path / "output").read_text() == f"version=2026.10.13\nsha256={'a' * 64}\n"
 
 
-def test_action_verifies_signed_checksum_and_exports_mise_path() -> None:
-    action = yaml.safe_load((Path(__file__).resolve().parents[2] / "refresh-mise-pin" / "action.yml").read_text())
-    steps = action["runs"]["steps"]
-    installer_index = next(
-        index for index, step in enumerate(steps) if step.get("uses", "").startswith("jdx/mise-action@")
-    )
-    assert installer_index < next(
-        index for index, step in enumerate(steps) if step["name"] == "Update the workflow pin"
-    )
-    assert steps[installer_index] == {
-        "name": "Install signature-verified mise",
-        "uses": "jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8",
-        "with": {
-            "version": "${{ steps.select.outputs.version }}",
-            "mise_dir": "${{ runner.temp }}/refresh-mise-pin",
-            "cache": "false",
-            "install": "false",
-            "env": "false",
-            "export_path": "false",
-            "add_shims_to_path": "false",
+@pytest.mark.parametrize(
+    ("published", "accepted"),
+    [pytest.param(b"verified mise", True, id="selected-digest"), pytest.param(b"swapped", False, id="other-bytes")],
+)
+def test_action_checks_executable_digest_before_mise_runs(tmp_path: Path, published: bytes, accepted: bool) -> None:
+    steps = yaml.safe_load((Path(__file__).resolve().parents[2] / "refresh-mise-pin" / "action.yml").read_text())[
+        "runs"
+    ]["steps"]
+    download = next(step for step in steps if step.get("name") == "Download the selected mise executable")
+    installer = next(step for step in steps if step.get("uses", "").startswith("jdx/mise-action@"))
+    assert steps.index(download) < steps.index(installer)
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    (tmp_path / "published").write_bytes(published)
+    gh = fake_bin / "gh"
+    gh.write_text(f'#!/bin/sh\ncp {tmp_path / "published"} "$9/mise-v2026.10.13-linux-x64"\n')
+    gh.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", download["run"]],
+        env=os.environ
+        | {
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "VERSION": "2026.10.13",
+            "EXPECTED_SHA256": sha256(b"verified mise").hexdigest(),
         },
-    }
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    binary = tmp_path / "refresh-mise-pin" / "bin" / "mise"
+    assert (result.returncode == 0) is accepted, result.stderr
+    assert binary.exists() is accepted
+    if accepted:
+        assert os.access(binary, os.X_OK)
+        assert binary.with_name("mise-version").read_text() == "2026.10.13"
 
 
 def test_action_keeps_linux_executable_and_archives_in_release_listing() -> None:
