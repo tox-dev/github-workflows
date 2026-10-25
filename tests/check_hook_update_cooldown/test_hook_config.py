@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import json
 import runpy
-import subprocess
-import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import pytest
 from pytest_mock import MockerFixture
@@ -191,7 +189,18 @@ def test_hook_config_rejects_human_change_without_repositories(
         check_config(base, proposed, False, 7, human=True)
 
 
-def test_human_cannot_change_managed_pin(configs: tuple[Path, Path], check_config: Callable[..., None]) -> None:
+@pytest.mark.parametrize(
+    ("uploaded_days", "accepted"),
+    [pytest.param(10, True, id="cooled"), pytest.param(1, False, id="recent")],
+)
+def test_human_managed_pin_change_needs_cooled_pypi_pin(
+    configs: tuple[Path, Path],
+    check_config: Callable[..., None],
+    pypi_file: dict[str, object],
+    pypi_request: MagicMock,
+    uploaded_days: int,
+    accepted: bool,
+) -> None:
     base, proposed = configs
     base.write_text(
         base.read_text().replace(
@@ -199,33 +208,41 @@ def test_human_cannot_change_managed_pin(configs: tuple[Path, Path], check_confi
         )
     )
     proposed.write_text(base.read_text().replace("example==1.0.0", "example==1.2.0"))
+    pypi_file["upload_time_iso_8601"] = (datetime.now(UTC) - timedelta(days=uploaded_days)).isoformat()
+    pypi_request.return_value = _response("example", pypi_file)
 
-    with pytest.raises(ValueError, match="managed hook dependencies require the release App"):
+    if accepted:
         check_config(base, proposed, False, 7, human=True)
+    else:
+        with pytest.raises(ValueError, match="uncooled or untrusted PyPI artifact"):
+            check_config(base, proposed, False, 7, human=True)
+    assert pypi_request.call_args.args[0].full_url == "https://pypi.org/pypi/example/1.2.0/json"
 
 
-@pytest.mark.parametrize(
-    ("proposed_hooks", "accepted"),
-    [
-        pytest.param(
-            "      - id: second\n      - id: first\n        additional_dependencies:\n"
-            '          - "other==1.2.0" # release-creator managed\n',
-            True,
-            id="reorder-same-owner",
-        ),
-        pytest.param(
-            "      - id: first\n      - id: second\n        additional_dependencies:\n"
-            '          - "other==1.2.0" # release-creator managed\n',
-            False,
-            id="relocate-pin",
-        ),
-    ],
-)
-def test_human_managed_pin_stays_with_its_hook(
-    configs: tuple[Path, Path],
-    check_config: Callable[..., None],
-    proposed_hooks: str,
-    accepted: bool,
+def test_human_can_add_python_hook_next_to_managed_pins(
+    configs: tuple[Path, Path], check_config: Callable[..., None], pypi_request: MagicMock
+) -> None:
+    base, proposed = configs
+    prefix = "repos:\n  - repo: https://example.org/hook\n    rev: old\n    hooks:\n"
+    first = (
+        '      - id: first\n        additional_dependencies:\n          - "other==1.2.0" # release-creator managed\n'
+    )
+    base.write_text(prefix + first)
+    proposed.write_text(
+        prefix
+        + first
+        + '      - id: second\n        additional_dependencies:\n          - "example==1.2.0" # release-creator managed\n'
+    )
+
+    check_config(base, proposed, False, 7, human=True)
+
+    assert [call.args[0].full_url for call in pypi_request.call_args_list] == [
+        "https://pypi.org/pypi/example/1.2.0/json"
+    ]
+
+
+def test_human_keeps_existing_managed_pins_without_pypi(
+    configs: tuple[Path, Path], check_config: Callable[..., None], pypi_request: MagicMock
 ) -> None:
     base, proposed = configs
     prefix = "repos:\n  - repo: https://example.org/hook\n    rev: old\n    hooks:\n"
@@ -235,13 +252,15 @@ def test_human_managed_pin_stays_with_its_hook(
         + '          - "other==1.2.0" # release-creator managed\n'
         + "      - id: second\n"
     )
-    proposed.write_text(prefix + proposed_hooks)
+    proposed.write_text(
+        prefix
+        + "      - id: second\n      - id: first\n        additional_dependencies:\n"
+        + '          - "other==1.2.0" # release-creator managed\n'
+    )
 
-    if accepted:
-        check_config(base, proposed, False, 7, human=True)
-    else:
-        with pytest.raises(ValueError, match="managed hook dependencies require the release App"):
-            check_config(base, proposed, False, 7, human=True)
+    check_config(base, proposed, False, 7, human=True)
+
+    pypi_request.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -293,27 +312,21 @@ def test_human_bootstrap_rejects_ambiguous_hook_identity(
         check_config(base, proposed, False, 7, human=True)
 
 
-def test_human_can_bootstrap_managed_pins_from_release_migration() -> None:
+def test_human_can_bootstrap_managed_pins_from_release_migration(
+    check_config: Callable[..., None], pypi_file: dict[str, object], pypi_request: MagicMock
+) -> None:
+    def listing(request: Request, **_: object) -> BytesIO:
+        name, version = request.full_url.removeprefix("https://pypi.org/pypi/").removesuffix("/json").split("/")
+        return BytesIO(json.dumps({"info": {"name": name, "version": version}, "urls": [pypi_file]}).encode())
+
+    pypi_request.side_effect = listing
     root = Path(__file__).resolve().parents[2]
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(root / "tools/check_hook_config.py"),
-            str(Path(__file__).parent / "fixtures/pre-bootstrap.yaml"),
-            str(root / ".pre-commit-config.yaml"),
-            "--managed",
-            "",
-            "--human",
-            "true",
-            "--minimum-days",
-            "7",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
+
+    check_config(
+        Path(__file__).parent / "fixtures/pre-bootstrap.yaml", root / ".pre-commit-config.yaml", False, 7, human=True
     )
 
-    assert result.returncode == 0, result.stderr
+    assert pypi_request.call_count > 0
 
 
 def test_app_update_keeps_direct_range(

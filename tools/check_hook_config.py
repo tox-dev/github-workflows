@@ -61,10 +61,9 @@ def check_config(base: Path, proposed: Path, managed: bool, minimum_days: int, *
     if human:
         if not isinstance(old.get("repos"), list) or not isinstance(new.get("repos"), list):
             raise TypeError("hook repositories must be lists")
-        old_managed = _managed_pin_locations(base_source, old)
-        new_managed = _managed_pin_locations(proposed_source, new)
-        if old_managed and old_managed != new_managed:
-            raise ValueError("managed hook dependencies require the release App")
+        added = _managed_pin_locations(proposed_source, new) - _managed_pin_locations(base_source, old)
+        for _, _, item in added:
+            _check_pypi(Requirement(item), minimum_days)
         return
     old_content = deepcopy(old)
     new_content = deepcopy(new)
