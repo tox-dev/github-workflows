@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import ssl
 import subprocess
@@ -134,35 +135,52 @@ def repository(tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]], mo
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
 
-    def associated_pulls(request: Request) -> Response:
+    author = {"login": "gaborbernat", "__typename": "User"}
+
+    def graphql(request: Request) -> Response:
         query = request.get_json()["query"]
-        commits = (part.split('"', 1)[0] for part in query.split('object(oid: "')[1:])
-        return Response(
-            json.dumps(
-                {
-                    "data": {
-                        "repository": {
-                            f"c{index}": {
-                                "associatedPullRequests": {
-                                    "nodes": [
-                                        {
-                                            "number": int(environment.get("TEST_PULL_NUMBER", "2")),
-                                            "mergedAt": "2026-10-22T00:00:00Z",
-                                            "mergeCommit": {"oid": commit},
-                                            "author": {"login": "gaborbernat", "__typename": "User"},
-                                        }
-                                    ]
+        if 'object(oid: "' in query:
+            commits = (part.split('"', 1)[0] for part in query.split('object(oid: "')[1:])
+            data: dict[str, object] = {
+                "repository": {
+                    f"c{index}": {
+                        "associatedPullRequests": {
+                            "nodes": [
+                                {
+                                    "number": int(environment.get("TEST_PULL_NUMBER", "2")),
+                                    "mergedAt": "2026-10-22T00:00:00Z",
+                                    "mergeCommit": {
+                                        "oid": commit,
+                                        "authors": {
+                                            "nodes": [
+                                                {"name": "Release test", "email": "a@example.org", "user": author}
+                                            ]
+                                        },
+                                    },
+                                    "author": author,
                                 }
-                            }
-                            for index, commit in enumerate(commits)
+                            ]
                         }
                     }
+                    for index, commit in enumerate(commits)
                 }
-            ),
-            mimetype="application/json",
-        )
+            }
+        elif "pullRequest(number: " in query:
+            numbers = re.findall(r"p(\d+): pullRequest", query)
+            data = {
+                "repository": {
+                    f"p{number}": {"number": int(number), "mergedAt": "2026-10-22T00:00:00Z", "author": author}
+                    for number in numbers
+                }
+            }
+        else:
+            data = {
+                alias: {"issueCount": int(environment.get("TEST_PRIOR_PULLS", "0"))}
+                for alias in re.findall(r"(s\d+): search", query)
+            }
+        return Response(json.dumps({"data": data}), mimetype="application/json")
 
-    server.expect_request("/api/graphql", method="POST").respond_with_handler(associated_pulls)
+    server.expect_request("/api/graphql", method="POST").respond_with_handler(graphql)
     return worktree
 
 
@@ -377,10 +395,7 @@ def run(directory: Path, *command: str) -> subprocess.CompletedProcess[str]:
 
 
 def _tools_path(environment: dict[str, str]) -> str:
-    tools = Path(__file__).resolve().parents[1] / ".release-tools/bin"
-    return (
-        f"{Path(__file__).parent / 'release_creator_shim'}:{tools}:{Path(sys.executable).parent}:{environment['PATH']}"
-    )
+    return f"{Path(__file__).resolve().parents[1] / '.release-tools/bin'}:{Path(sys.executable).parent}:{environment['PATH']}"
 
 
 def _condition(

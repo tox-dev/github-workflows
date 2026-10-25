@@ -105,6 +105,7 @@ def test_prepare_custom_fragment_directory(
 def test_prepare_renders_github_notes(
     repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
+    github_api[1]["TEST_PRIOR_PULLS"] = "1"
     result = action(
         repository,
         tmp_path,
@@ -212,6 +213,7 @@ def test_prepare_rejects_reused_version(repository: Path, tmp_path: Path, action
 def test_prepare_links_named_fragments(
     repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
+    github_api[1]["TEST_PRIOR_PULLS"] = "1"
     result = action(
         repository,
         tmp_path,
@@ -408,15 +410,20 @@ def test_prepare_rejects_other_hook_configuration(
     assert f"only in the root .pre-commit-config.yaml: {path}" in result.stderr
 
 
-def test_prepare_adds_new_contributors_after_building(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+@pytest.mark.parametrize(
+    ("prior_pulls", "credited"), [pytest.param("0", True, id="first-pull"), pytest.param("1", False, id="returning")]
+)
+def test_prepare_adds_new_contributors_after_building(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    prior_pulls: str,
+    credited: bool,
+) -> None:
+    github_api[1]["TEST_PRIOR_PULLS"] = prior_pulls
+
     result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="build")
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "contributors").read_text().splitlines() == [
-        "--changelog",
-        "CHANGELOG.md",
-        "--version",
-        "0.2.0",
-        "--repository",
-        "tox-dev/fixture",
-    ]
+    assert ("### New Contributors" in (repository / "CHANGELOG.md").read_text()) is credited

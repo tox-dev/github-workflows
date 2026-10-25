@@ -407,7 +407,7 @@ formatting must all succeed.
 
 After the Towncrier build, the Action runs release-creator's step that adds a "New Contributors" subsection to the new
 changelog section with `release-creator contributors`, which release-creator 3.1.0 adds. The caller's `release-prepare`
-group needs that version once it is published.
+group needs release-creator 3.1.0 or later.
 
 ```yaml
   - id: prepare
