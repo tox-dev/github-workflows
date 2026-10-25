@@ -192,7 +192,17 @@ def test_validator_rejects_backend_hash_mismatch(
         pytest.param("off-main", "refs/tags/0.2.0", False, id="tagged-off-main-commit"),
     ],
 )
-def test_validator_requires_exact_tag(repository: Path, tag_kind: str, event_ref: str, accepted: bool) -> None:
+@pytest.mark.parametrize(
+    ("workflow_name", "job"),
+    [
+        pytest.param("validate-python-release", "source-check", id="source-check"),
+        pytest.param("validate-python-release", "build", id="build"),
+        pytest.param("release", "check", id="self-release"),
+    ],
+)
+def test_validator_requires_exact_tag(
+    repository: Path, tag_kind: str, event_ref: str, accepted: bool, workflow_name: str, job: str
+) -> None:
     if tag_kind == "branch":
         run(repository, "git", "branch", "0.2.0")
     elif tag_kind == "off-main":
@@ -204,11 +214,9 @@ def test_validator_requires_exact_tag(repository: Path, tag_kind: str, event_ref
     else:
         run(repository, "git", "tag", "0.2.0")
     workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/validate-python-release.yaml").read_text()
+        (Path(__file__).resolve().parents[2] / ".github/workflows" / f"{workflow_name}.yaml").read_text()
     )
-    verify = next(
-        step for step in workflow["jobs"]["build"]["steps"] if step.get("name") == "Verify the exact release tag"
-    )
+    verify = next(step for step in workflow["jobs"][job]["steps"] if step.get("name") == "Verify the exact release tag")
     result = subprocess.run(
         ["bash", "-c", verify["run"]],
         cwd=repository,
