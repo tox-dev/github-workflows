@@ -168,6 +168,7 @@ def test_uv_resolver_cutoff_requires_review(cutoff: str, accepted: bool) -> None
     ("project_text", "accepted"),
     [
         pytest.param("[tool.release-creator.locks]\n", True, id="release-creator-only"),
+        pytest.param('[tool.nab]\nuploaded-prior-to = "P7D"\n', True, id="secondary-nab-only"),
         pytest.param("[tool.other]\n", False, id="no-policy"),
     ],
 )

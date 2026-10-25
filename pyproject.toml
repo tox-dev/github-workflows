@@ -56,7 +56,9 @@ line-length = 120
 [tool.coverage.run]
 branch = true
 patch = [ "subprocess" ]
-source_dirs = [ "tools" ]
+source_dirs = [ "tests", "tools" ]
+# The bootstrap starts coverage in subprocesses, so it runs before measurement begins.
+omit = [ "*/coverage_bootstrap/*" ]
 
 [tool.coverage.report]
 fail_under = 100

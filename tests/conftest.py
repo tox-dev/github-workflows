@@ -8,15 +8,13 @@ import subprocess
 import sys
 import tomllib
 from collections.abc import Iterator, Mapping
-from hashlib import sha256
-from html import escape
 from pathlib import Path
 from textwrap import dedent
 from typing import Final, TypedDict, cast
 from urllib.parse import urlsplit
-from urllib.request import urlopen
 
 import certifi
+import coverage
 import pytest
 import trustme
 import yaml
@@ -86,63 +84,6 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
             path.write_text(f"#!/usr/bin/env bash\n{step['run']}")
             path.chmod(0o755)
     return scripts
-
-
-@pytest.fixture(scope="session")
-def test_package_lock(tmp_path_factory: pytest.TempPathFactory, nab_executable: Path) -> Path:
-    fixture = tmp_path_factory.mktemp("fixture-lock")
-    (fixture / "pyproject.toml").write_text(
-        '[project]\nname = "release-fixture"\nversion = "0.1.0"\nrequires-python = ">=3.15,<3.16"\n'
-        '[dependency-groups]\nfixture = ["check-wheel-contents>=0.6.3", "hatchling>=1.28", "twine>=7"]\n'
-        '[tool.nab]\nmode = "universal"\nbase-group = "project-runtime"\n'
-        'default-groups = []\n[tool.nab.matrix]\npython = ">=3.15,<3.16"\nplatforms = ["linux_x86_64"]\n'
-    )
-    subprocess.run(
-        [str(nab_executable), "lock", "--no-cache", "--groups", "fixture", "--output", "pylock.toml"],
-        cwd=fixture,
-        check=True,
-        capture_output=True,
-    )
-    return fixture / "pylock.toml"
-
-
-@pytest.fixture
-def test_package_index(httpserver: HTTPServer, test_package_lock: Path, artifact_cache: dict[str, bytes]) -> str:
-    packages = [
-        *tomllib.loads((Path(__file__).resolve().parents[1] / "pylock.toml").read_text())["packages"],
-        *tomllib.loads(test_package_lock.read_text())["packages"],
-    ]
-    listings: dict[str, list[str]] = {}
-    artifacts: dict[str, tuple[str, str]] = {}
-    for package in packages:
-        links = listings.setdefault(canonicalize_name(package["name"]), [])
-        for artifact in [*package.get("wheels", []), *([package["sdist"]] if "sdist" in package else [])]:
-            filename = artifact.get("name") or urlsplit(artifact["url"]).path.rsplit("/", 1)[-1]
-            digest = artifact["hashes"]["sha256"]
-            artifacts[filename] = artifact["url"], digest
-            links.append(
-                f'<a href="{escape(httpserver.url_for(f"/files/{filename}"))}#sha256={digest}" '
-                f'data-upload-time="{artifact["upload-time"].isoformat()}">{escape(filename)}</a>'
-            )
-    for name, links in listings.items():
-        httpserver.expect_request(f"/simple/{name}/").respond_with_data("\n".join(links), content_type="text/html")
-    for filename, (url, digest) in artifacts.items():
-
-        def serve(_request: Request, *, source: str = url, expected: str = digest) -> Response:
-            if expected not in artifact_cache:
-                with urlopen(source, timeout=30) as stream:
-                    artifact_cache[expected] = stream.read()
-            content = artifact_cache[expected]
-            assert sha256(content).hexdigest() == expected
-            return Response(content, mimetype="application/octet-stream")
-
-        httpserver.expect_request(f"/files/{filename}").respond_with_handler(serve)
-    return httpserver.url_for("/simple/")
-
-
-@pytest.fixture(scope="session")
-def artifact_cache() -> dict[str, bytes]:
-    return {}
 
 
 @pytest.fixture(scope="session")
@@ -435,9 +376,6 @@ def _run_action(
                 continue
             if used.startswith("actions/upload-artifact@"):
                 continue
-            if not used.startswith("$/"):
-                msg = f"unsupported nested action: {used}"
-                raise ValueError(msg)
             nested_name = used.removeprefix("$/")
             nested_config = yaml.safe_load((source / nested_name / "action.yml").read_text())
             nested_inputs = {
@@ -466,8 +404,6 @@ def _run_action(
                 return subprocess.CompletedProcess(result.args, result.returncode, "".join(stdout), "".join(stderr)), {}
             if step_id := step.get("id"):
                 step_outputs[step_id] = outputs
-            continue
-        if "run" not in step:
             continue
         script = action_scripts / f"{name}-{index}.sh"
         command = [*github_bash, str(script)]
@@ -567,13 +503,10 @@ def _safe_environment() -> dict[str, str]:
         )
         if name in os.environ
     }
-    if "GW_PYPI_METADATA_FILE" in environment:
-        environment["PYTHONPATH"] = str(Path(__file__).parent / "coverage_bootstrap")
-    if "COVERAGE_PROCESS_CONFIG" in environment or "COVERAGE_PROCESS_START" in environment:
-        import coverage
-
-        environment["GW_COVERAGE_SITE_PACKAGES"] = str(Path(coverage.__file__).parent.parent)
-    return environment
+    return environment | {
+        "PYTHONPATH": str(Path(__file__).parent / "coverage_bootstrap"),
+        "GW_COVERAGE_SITE_PACKAGES": str(Path(coverage.__file__).parent.parent),
+    }
 
 
 def _inputs(
@@ -651,8 +584,6 @@ def _expression(
         return environment["GITHUB_REPOSITORY"]
     if expression == "github.base_ref":
         return environment.get("BASE_REF", "")
-    if expression == "github.event.pull_request.number":
-        return environment.get("GITHUB_EVENT_PULL_REQUEST_NUMBER", "")
     if expression == "github.token":
         return environment.get("GH_TOKEN", environment.get("GH_ENTERPRISE_TOKEN", ""))
     if expression == "github.event.pull_request.user.type":
