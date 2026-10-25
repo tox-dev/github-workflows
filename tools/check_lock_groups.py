@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import certifi
-from lock_groups import lock_provider, project_selections
+from lock_groups import lock_provider, validate_workspace_sources
 from nab_cutoffs import reviewed_cutoff, validate_indexes
 from packaging._parser import Variable
 from packaging.markers import Marker
@@ -56,7 +56,7 @@ def main() -> None:
                 if "nab" in project.get("tool", {}):
                     validate_indexes(project["tool"]["nab"])
             if lock_provider(lock.tool) == "release-creator":
-                project_selections(args.project)
+                validate_workspace_sources(args.project)
         if (missing := groups - set(lock.dependency_groups or ())) and not (
             args.build_constraints and missing == {"build"}
         ):

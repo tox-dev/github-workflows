@@ -36,23 +36,19 @@ def test_refresh_rejects_secondary_options_without_lock(tmp_path: Path, action_s
     assert "secondary matrix inputs require additional-lock" in result.stderr
 
 
-def test_refresh_rejects_native_uv_lock_for_nab(tmp_path: Path, action_scripts: Path) -> None:
+def test_refresh_rejects_nab_primary_lock(tmp_path: Path, action_scripts: Path) -> None:
     (tmp_path / "pylock.toml").write_text('[tool.nab]\ncommand-line = ["nab", "lock"]\n')
 
-    result = action(tmp_path, tmp_path, action_scripts, "refresh-release-lock", version="", KEEP_UV_LOCK="true")
+    result = action(tmp_path, tmp_path, action_scripts, "refresh-release-lock", version="", MODE="check")
 
     assert result.returncode != 0
-    assert "keep-uv-lock requires a release-creator lock" in result.stderr
+    assert "pylock.toml must come from release-creator locks" in result.stderr
 
 
 @pytest.mark.parametrize("mode", ["check", "refresh"])
 def test_refresh_uses_the_locked_resolver(tmp_path: Path, action_scripts: Path, mode: str) -> None:
     source = Path(__file__).resolve().parents[2]
     steps = yaml.safe_load((source / "refresh-release-lock/action.yml").read_text())["runs"]["steps"]
-    resolver = next(step for step in steps if step.get("with", {}).get("groups") == "release-resolver")
-    assert resolver["if"] == "steps.producer.outputs.name == 'release-creator'"
-    assert resolver["with"]["lock-source"] == "shared"
-    assert resolver["with"]["venv"] == "${{ runner.temp }}/release-resolver"
     packages = tomllib.loads((source / "pylock.toml").read_text())["packages"]
     pinned = next(package for package in packages if package["name"] == "uv")
     assert Version(pinned["version"]) >= Version("0.13.5")

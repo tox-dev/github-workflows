@@ -1,9 +1,6 @@
 name: Refresh a release-tool lock
-description: Refresh or check a full project lock and optional Nab matrix lock
+description: Refresh or check a release-creator project lock and optional Nab matrix lock
 inputs:
-  lock-groups:
-    description: Space-separated dependency groups for legacy Nab locks
-    default: ""
   additional-lock:
     description: Optional secondary pylock basename for a separate build matrix
     default: ""
@@ -38,8 +35,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: producer
-      name: Identify lock producer
+    - name: Check lock inputs
       shell: bash
       env:
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
@@ -57,30 +53,22 @@ runs:
           echo '::error::secondary matrix inputs require additional-lock' >&2
           exit 1
         fi
-        provider=$(python3 "$GITHUB_ACTION_PATH/../tools/lock_groups.py" pylock.toml --provider)
-        if [[ "$KEEP_UV_LOCK" == true && "$provider" != release-creator ]]; then
-          echo '::error::keep-uv-lock requires a release-creator lock' >&2
-          exit 1
-        fi
+        python3 "$GITHUB_ACTION_PATH/../tools/lock_groups.py" pylock.toml
         if [[ "$KEEP_UV_LOCK" == true ]] && ! git ls-files --error-unmatch uv.lock >/dev/null 2>&1; then
           echo '::error::keep-uv-lock requires a committed uv.lock' >&2
           exit 1
         fi
-        echo "name=$provider" >>"$GITHUB_OUTPUT"
-        echo "groups=$(python3 "$GITHUB_ACTION_PATH/../tools/lock_groups.py" pylock.toml)" >>"$GITHUB_OUTPUT"
     - uses: $/install-locked-tools
       with:
         groups: lock-tools
         lock-source: shared
         venv: ${{ runner.temp }}/lock-tools
     - uses: $/install-locked-tools
-      if: steps.producer.outputs.name == 'release-creator'
       with:
         groups: release-notes
         lock-source: shared
         venv: ${{ runner.temp }}/project-lock-tools
     - uses: $/install-locked-tools
-      if: steps.producer.outputs.name == 'release-creator'
       with:
         groups: release-resolver
         lock-source: shared
@@ -104,42 +92,7 @@ runs:
         }
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
           "$GITHUB_ACTION_PATH/../tools/refresh_uv_resolver.py" widen pyproject.toml pylock.toml
-    - name: Resolve selected Nab groups
-      if: steps.producer.outputs.name == 'nab'
-      shell: bash
-      env:
-        LOCK_GROUPS: ${{ inputs.lock-groups || steps.producer.outputs.groups }}
-        MODE: ${{ inputs.mode }}
-      run: |
-        set -euo pipefail
-        groups=()
-        while IFS= read -r line; do
-          read -ra selected <<<"$line"
-          groups+=("${selected[@]}")
-        done <<<"$LOCK_GROUPS"
-        if ((${#groups[@]} == 0)); then
-          echo '::error::at least one lock group is required' >&2
-          exit 1
-        fi
-        case "$MODE" in
-        check)
-          refresh=()
-          cp pylock.toml "$RUNNER_TEMP/pylock-before-check.toml"
-          ;;
-        refresh) refresh=(--upgrade) ;;
-        *)
-          echo "::error::invalid lock mode: $MODE" >&2
-          exit 1
-          ;;
-        esac
-        uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --no-cache --groups "${groups[@]}" \
-          --output pylock.toml "${refresh[@]}"
-        if [[ "$MODE" == check ]]; then
-          python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" \
-            "$RUNNER_TEMP/pylock-before-check.toml" pylock.toml
-        fi
     - name: Resolve all project groups and extras
-      if: steps.producer.outputs.name == 'release-creator'
       shell: bash
       env:
         MODE: ${{ inputs.mode }}

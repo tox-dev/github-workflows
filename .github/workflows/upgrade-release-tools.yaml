@@ -2,10 +2,6 @@ name: Upgrade release tools
 on:
   workflow_call:
     inputs:
-      lock-groups:
-        description: Legacy Nab dependency groups; ignored for full project locks
-        default: ""
-        type: string
       additional-lock:
         description: Optional secondary pylock basename for a separate build matrix
         type: string
@@ -77,7 +73,6 @@ jobs:
       - id: lock
         uses: $/refresh-release-lock
         with:
-          lock-groups: ${{ inputs.lock-groups }}
           additional-lock: ${{ inputs.additional-lock }}
           additional-lock-groups: ${{ inputs.additional-lock-groups }}
           additional-lock-selection: ${{ inputs.additional-lock-selection }}
