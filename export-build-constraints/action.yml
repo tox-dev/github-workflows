@@ -2,7 +2,7 @@ name: Export build constraints
 description: Write hashed build dependencies selected from the caller's pylock
 inputs:
   lock:
-    description: pylock.toml merges shared and caller pins; another lock uses only its build pins
+    description: Lock whose build group supplies the constraints, such as pylock.build.toml
     default: pylock.toml
   target-platform:
     description: Nab platform ID such as linux_aarch64; required with targets

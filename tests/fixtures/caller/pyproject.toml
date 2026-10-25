@@ -40,16 +40,6 @@ test = [
   "ty",
 ]
 
-[tool.release-creator.locks.exclude-newer-package]
-nab = "2026-10-18T05:45:09Z"
-nab-index = "2026-10-18T05:45:09Z"
-nab-markersets = "2026-10-18T05:45:09Z"
-nab-project = "2026-10-18T05:45:09Z"
-nab-provider = "2026-10-18T05:45:09Z"
-nab-resolver = "2026-10-18T05:45:09Z"
-release-creator = "2026-10-25T07:08:32Z"
-uv = "2026-10-22T01:32:34Z"
-
 [tool.ruff]
 line-length = 120
 

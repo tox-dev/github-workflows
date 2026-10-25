@@ -260,19 +260,14 @@ def action(
         "CHANGELOG": "CHANGELOG.md",
         "FRAGMENTS": "changelog.d",
         "FORMAT": action_config.get("inputs", {}).get("format", {}).get("default", "none"),
-        "EXPECTED_SHA": head,
         "CHECKS": "true",
         "BRANCH": "main",
-        "REMOTE": "origin",
         "ANNOTATED": "false",
         "ARTIFACT_URL": "",
         "ARTIFACT_LABEL": "PyPI release",
         "LOCK": "pylock.toml",
         "MODE": "complete",
-        "RUN_ID": "42",
-        "WORKFLOW_PATH": ".github/workflows/check.yaml",
     } | extra_env
-    input_values["REPOSITORY"] = extra_env.get("REPOSITORY", "tox-dev/fixture")
     inputs = _inputs(action_config, input_values)
     input_names = {input_name.replace("-", "_").upper() for input_name in action_config.get("inputs", {})}
     environment: dict[str, str] = (
