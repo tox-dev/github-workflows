@@ -90,19 +90,17 @@ changelog:
 The Action expects a pull request base ref and a Markdown or reStructuredText changelog. The caller should also run on
 `labeled` and `unlabeled` events, so a label added after opening the PR updates the required check.
 
-## Refresh release tools and hooks
+## Refresh release tools
 
-Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Its read-only jobs refresh the universal
-`pylock.toml` and the frozen pre-commit hooks in parallel. `release-creator locks` exports runtime dependencies, all
-extras, and all dependency groups with a seven-day package cutoff. Reviewed exceptions live in
-`[tool.release-creator.locks.exclude-newer-package]`. Both lock checks and weekly refresh install uv from the shared
-`release-resolver` group, so a setup-uv default change cannot alter the generated lock. In github-workflows, the weekly
-updater also refreshes this direct pin and the lock together; consumer locks use their pinned shared resolver. The hook
-updater applies the same cooldown to hook revisions and their `additional_dependencies`. Each job uploads a patch. The
-lock patch may change `pylock.toml`, an explicitly configured secondary Nab lock, and `pyproject.toml` for expired
-reviewed cutoffs. The hook patch may change only `.pre-commit-config.yaml`. The writer checks each patch before applying
-it and verifies cutoff removals before minting the App token. It then opens or updates one dependency PR from
-`automation/update-release-tools` to `main`. A lock or hook update runs the normal PR checks before merge.
+Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Its read-only job refreshes the universal
+`pylock.toml`. `release-creator locks` exports runtime dependencies, all extras, and all dependency groups with a
+seven-day package cutoff. Reviewed exceptions live in `[tool.release-creator.locks.exclude-newer-package]`. Both lock
+checks and weekly refresh install uv from the shared `release-resolver` group, so a setup-uv default change cannot alter
+the generated lock. In github-workflows, the weekly updater also refreshes this direct pin and the lock together;
+consumer locks use their pinned shared resolver. The job uploads a patch, which may change `pylock.toml`, an explicitly
+configured secondary Nab lock, and `pyproject.toml` for expired reviewed cutoffs. The writer checks the patch before
+applying it and verifies cutoff removals before minting the App token. It then opens or updates one dependency PR from
+`automation/update-release-tools` to `main`. A lock update runs the normal PR checks before merge.
 
 The writer uses a repository-only release App with Contents and Pull requests write access. Install the App on this
 repository, set `RELEASE_APP_CLIENT_ID` as a repository variable, and store `RELEASE_APP_PRIVATE_KEY` in the
@@ -141,9 +139,9 @@ For a second lock such as `pylock.build.toml`, set `additional-lock`, `additiona
 `additional-matrix-platforms`, and `additional-matrix-implementations`. `additional-lock-groups` selects dependency
 groups in that lock; with no groups, the updater selects build requirements. Set `additional-lock-selection: project`
 for a lock that selects the project's runtime dependencies instead. The lock must already exist, and the updater writes
-both locks in the same dependency PR. The writer accepts only those locks, an opted-in `uv.lock`, `pyproject.toml`, and
-the hook configuration. Pass the same `additional-lock` and matrix inputs to `validate-news` in the PR workflow. It
-checks changes to either lock against the project, including a PR that changes only the secondary lock.
+both locks in the same dependency PR. The writer accepts only those locks, an opted-in `uv.lock`, and `pyproject.toml`.
+Pass the same `additional-lock` and matrix inputs to `validate-news` in the PR workflow. It checks changes to either
+lock against the project, including a PR that changes only the secondary lock.
 
 `refresh-release-lock` is the read-only half of the updater. In `refresh` mode, it upgrades the full primary lock and
 writes `$RUNNER_TEMP/lock.patch` if a lock or reviewed cutoff changes. In `check` mode, it regenerates at the primary
@@ -184,11 +182,6 @@ change; `version` omits the leading `v`, and `sha256` is the Linux x64 executabl
 Include `.github/workflows/release.yaml` and `mise.lock` in the updater's artifact and App writer path allowlists. The
 writer should run in a separate job; this Action does not request its token. The seven-day cutoff is fixed and cannot be
 lowered by an input.
-
-The weekly updater freezes eligible hook revisions with `prek update --freeze --cooldown-days 7`. It then uses
-`release-creator hooks` to pin Python hook dependencies under the same cutoff and writes a patch when
-`.pre-commit-config.yaml` changes. The generation job has read-only repository permissions; the separate publish job
-checks the patch paths and file modes before obtaining an App token.
 
 Every shared `prek` command passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek.toml` and
 also runs nested configurations, which no guard checks. `prepare-towncrier` and `validate-release-patch` therefore

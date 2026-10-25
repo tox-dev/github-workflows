@@ -84,60 +84,9 @@ jobs:
           path: ${{ runner.temp }}/lock.patch
           if-no-files-found: error
           retention-days: 7
-  generate-hooks:
-    runs-on: ubuntu-26.04
-    env:
-      UV_EXCLUDE_NEWER: ""
-      UV_EXCLUDE_NEWER_PACKAGE: ""
-    permissions:
-      contents: read
-    outputs:
-      changed: ${{ steps.hooks.outputs.changed }}
-      artifact-id: ${{ steps.upload.outputs.artifact-id }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: latest-known
-          python-version: "3.15"
-          enable-cache: false
-      - uses: $/install-locked-tools
-        with:
-          groups: release-hooks
-          lock-source: shared
-          venv: ${{ runner.temp }}/hook-tools
-      - name: Refresh frozen hook revisions
-        run: >-
-          uv run --no-project --python "$RUNNER_TEMP/hook-tools" prek update --config .pre-commit-config.yaml --freeze --cooldown-days 7 --no-progress
-      - name: Refresh exact hook dependencies
-        run: >-
-          uv run --no-project --python "$RUNNER_TEMP/hook-tools" release-creator hooks
-      - id: hooks
-        name: Write hook patch
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- .pre-commit-config.yaml; then
-            echo 'changed=false' >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo 'changed=true' >>"$GITHUB_OUTPUT"
-          git diff --binary -- .pre-commit-config.yaml >"$RUNNER_TEMP/hooks.patch"
-      - id: upload
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.hooks.outputs.changed == 'true'
-        with:
-          name: release-tools-hooks
-          path: ${{ runner.temp }}/hooks.patch
-          if-no-files-found: error
-          retention-days: 7
   publish:
-    needs: [generate-lock, generate-hooks]
-    if: |
-      (needs.generate-lock.outputs.changed == 'true' || needs.generate-hooks.outputs.changed == 'true') &&
-      github.ref == 'refs/heads/main'
+    needs: generate-lock
+    if: needs.generate-lock.outputs.changed == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     environment: release-auth
     permissions:
@@ -149,21 +98,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: needs.generate-lock.outputs.changed == 'true'
         with:
           artifact-ids: ${{ needs.generate-lock.outputs.artifact-id }}
           path: ${{ runner.temp }}/release-tools-lock
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: needs.generate-hooks.outputs.changed == 'true'
-        with:
-          artifact-ids: ${{ needs.generate-hooks.outputs.artifact-id }}
-          path: ${{ runner.temp }}/release-tools-hooks
       - name: Check artifact patch paths
         env:
           ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
           KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
-          LOCK_CHANGED: ${{ needs.generate-lock.outputs.changed }}
-          HOOKS_CHANGED: ${{ needs.generate-hooks.outputs.changed }}
         run: |
           set -euo pipefail
           if [[ -n "$ADDITIONAL_LOCK" &&
@@ -171,33 +112,19 @@ jobs:
             echo "::error::invalid additional lock: $ADDITIONAL_LOCK" >&2
             exit 1
           fi
-          for artifact in lock hooks; do
-            if [[ "$artifact" == lock ]]; then
-              [[ "$LOCK_CHANGED" == true ]] || continue
-              patch="$RUNNER_TEMP/release-tools-lock/lock.patch"
-            else
-              [[ "$HOOKS_CHANGED" == true ]] || continue
-              patch="$RUNNER_TEMP/release-tools-hooks/hooks.patch"
+          GIT_INDEX_FILE="$RUNNER_TEMP/lock.index" git read-tree HEAD
+          GIT_INDEX_FILE="$RUNNER_TEMP/lock.index" git apply --cached "$RUNNER_TEMP/release-tools-lock/lock.patch"
+          GIT_INDEX_FILE="$RUNNER_TEMP/lock.index" \
+            git diff --cached --name-only --no-renames -z >"$RUNNER_TEMP/lock-paths"
+          while IFS= read -r -d '' path; do
+            if [[ "$path" != pylock.toml && "$path" != pyproject.toml && "$path" != "$ADDITIONAL_LOCK" &&
+              ("$path" != uv.lock || "$KEEP_UV_LOCK" != true) ]]; then
+              echo "::error::unexpected lock patch path: $path" >&2
+              exit 1
             fi
-            GIT_INDEX_FILE="$RUNNER_TEMP/$artifact.index" git read-tree HEAD
-            GIT_INDEX_FILE="$RUNNER_TEMP/$artifact.index" git apply --cached "$patch"
-            GIT_INDEX_FILE="$RUNNER_TEMP/$artifact.index" \
-              git diff --cached --name-only --no-renames -z >"$RUNNER_TEMP/$artifact-paths"
-            while IFS= read -r -d '' path; do
-              if [[ "$artifact" == lock && "$path" != pylock.toml && "$path" != pyproject.toml &&
-                "$path" != "$ADDITIONAL_LOCK" && ("$path" != uv.lock || "$KEEP_UV_LOCK" != true) ]] ||
-                [[ "$artifact" == hooks && "$path" != .pre-commit-config.yaml ]]; then
-                echo "::error::unexpected $artifact patch path: $path" >&2
-                exit 1
-              fi
-            done <"$RUNNER_TEMP/$artifact-paths"
-          done
+          done <"$RUNNER_TEMP/lock-paths"
       - name: Apply lock patch
-        if: needs.generate-lock.outputs.changed == 'true'
         run: git apply --index "$RUNNER_TEMP/release-tools-lock/lock.patch"
-      - name: Apply hook patch
-        if: needs.generate-hooks.outputs.changed == 'true'
-        run: git apply --index "$RUNNER_TEMP/release-tools-hooks/hooks.patch"
       - name: Check dependency patch file mode
         run: |
           set -euo pipefail
