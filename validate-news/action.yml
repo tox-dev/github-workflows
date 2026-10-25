@@ -1,9 +1,6 @@
 name: Validate changelog news
 description: Require a fragment for human changes and validate any fragment supplied by a bot
 inputs:
-  keep-uv-lock:
-    description: Check uv.lock alongside pylock.toml when both are committed
-    default: "false"
   additional-lock:
     description: Secondary pylock basename to check on a pull request
     default: ""
@@ -47,11 +44,9 @@ runs:
       env:
         BASE_REF: ${{ github.base_ref }}
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
-        KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
       run: |
         paths=(':(glob)**/pyproject.toml' pylock.toml nab.toml ':(glob).github/workflows/**')
         if [[ -n "$ADDITIONAL_LOCK" ]]; then paths+=("$ADDITIONAL_LOCK"); fi
-        if [[ "$KEEP_UV_LOCK" == true ]]; then paths+=(uv.lock); fi
         changed=$(git diff --name-only "origin/$BASE_REF...HEAD" -- "${paths[@]}")
         if [[ -z "$changed" ]]; then
           echo 'changed=false' >>"$GITHUB_OUTPUT"
@@ -76,5 +71,4 @@ runs:
         additional-matrix-python: ${{ inputs.additional-matrix-python }}
         additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
         additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
-        keep-uv-lock: ${{ inputs.keep-uv-lock }}
         mode: check

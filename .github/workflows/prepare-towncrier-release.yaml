@@ -18,10 +18,6 @@ on:
         description: Install release-creator from the tagged checkout for its own release
         type: boolean
         default: false
-      keep-uv-lock:
-        description: Check a committed native uv.lock alongside pylock.toml
-        type: boolean
-        default: false
       additional-lock:
         description: Secondary Nab lock to check before release preparation
         type: string
@@ -86,7 +82,6 @@ jobs:
       - uses: $/refresh-release-lock
         with:
           mode: check
-          keep-uv-lock: ${{ inputs.keep-uv-lock }}
           additional-lock: ${{ inputs.additional-lock }}
           additional-lock-groups: ${{ inputs.additional-lock-groups }}
           additional-lock-selection: ${{ inputs.additional-lock-selection }}

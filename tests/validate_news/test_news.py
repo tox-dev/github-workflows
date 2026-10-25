@@ -130,18 +130,17 @@ def test_validate_news_requires_pr_base(repository: Path, tmp_path: Path, action
 
 
 @pytest.mark.parametrize(
-    ("additional_lock", "keep_uv_lock", "changed_path", "changed"),
+    ("additional_lock", "changed_path", "changed"),
     [
-        pytest.param("pylock.zipapp.toml", False, "pylock.zipapp.toml", "true", id="selected-secondary-lock"),
-        pytest.param("", False, "pylock.zipapp.toml", "false", id="unselected-secondary-lock"),
-        pytest.param("", False, "pylock.toml", "true", id="primary-lock"),
-        pytest.param("", False, "pyproject.toml", "true", id="root-project"),
-        pytest.param("", False, ".github/workflows/release.yaml", "true", id="workflow-repin"),
-        pytest.param("", False, "README.md", "false", id="unrelated"),
-        pytest.param("", False, "nab.toml", "true", id="nab-policy"),
-        pytest.param("", False, "meta/pyproject.toml", "true", id="workspace-member"),
-        pytest.param("", True, "uv.lock", "true", id="selected-native-uv-lock"),
-        pytest.param("", False, "uv.lock", "false", id="unselected-native-uv-lock"),
+        pytest.param("pylock.zipapp.toml", "pylock.zipapp.toml", "true", id="selected-secondary-lock"),
+        pytest.param("", "pylock.zipapp.toml", "false", id="unselected-secondary-lock"),
+        pytest.param("", "pylock.toml", "true", id="primary-lock"),
+        pytest.param("", "pyproject.toml", "true", id="root-project"),
+        pytest.param("", ".github/workflows/release.yaml", "true", id="workflow-repin"),
+        pytest.param("", "README.md", "false", id="unrelated"),
+        pytest.param("", "nab.toml", "true", id="nab-policy"),
+        pytest.param("", "meta/pyproject.toml", "true", id="workspace-member"),
+        pytest.param("", "uv.lock", "false", id="native-uv-lock"),
     ],
 )
 def test_validate_news_detects_release_input_change(
@@ -149,7 +148,6 @@ def test_validate_news_detects_release_input_change(
     tmp_path: Path,
     action_scripts: Path,
     additional_lock: str,
-    keep_uv_lock: bool,
     changed_path: str,
     changed: str,
 ) -> None:
@@ -184,7 +182,6 @@ def test_validate_news_detects_release_input_change(
         | {
             "BASE_REF": "main",
             "ADDITIONAL_LOCK": additional_lock,
-            "KEEP_UV_LOCK": str(keep_uv_lock).lower(),
             "GITHUB_OUTPUT": str(output),
             "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "validate-news"),
         },
@@ -213,7 +210,6 @@ def test_validate_news_rejects_removed_release_lock(repository: Path, tmp_path: 
         | {
             "BASE_REF": "main",
             "ADDITIONAL_LOCK": "",
-            "KEEP_UV_LOCK": "false",
             "GITHUB_OUTPUT": str(tmp_path / "lock-change-output"),
             "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "validate-news"),
         },

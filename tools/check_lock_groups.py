@@ -4,28 +4,29 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import ssl
 import time
 import tomllib
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from http.client import IncompleteRead
 from pathlib import Path
-from typing import cast
+from typing import Final, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import certifi
-from lock_groups import lock_provider, validate_workspace_sources
-from nab_cutoffs import reviewed_cutoff, validate_indexes
 from packaging._parser import Variable
 from packaging.markers import Marker
 from packaging.pylock import Package, Pylock, PylockValidationError
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
+
+_DURATION: Final = re.compile(r"P(?P<days>[0-9]+)D")
 
 
 def main() -> None:
@@ -48,13 +49,13 @@ def main() -> None:
             name for name in {*groups, *(lock.dependency_groups or ())} if canonicalize_name(name) != name
         ):
             raise ValueError(f"dependency group names must be normalized: {', '.join(unnormalized)}")
+        nab: dict = {}
         if args.project:
             if (args.project.parent / "nab.toml").exists():
                 raise ValueError("project nab.toml can override the reviewed index policy")
             with args.project.open("rb") as stream:
-                project = tomllib.load(stream)
-                if "nab" in project.get("tool", {}):
-                    validate_indexes(project["tool"]["nab"])
+                nab = tomllib.load(stream).get("tool", {}).get("nab", {})
+            _validate_indexes(nab)
             if lock_provider(lock.tool) == "release-creator":
                 validate_workspace_sources(args.project)
         if (missing := groups - set(lock.dependency_groups or ())) and not (
@@ -63,7 +64,7 @@ def main() -> None:
             parser.error(f"missing lock dependency groups: {', '.join(sorted(missing))}")
         if args.build_constraints and "build" not in (lock.dependency_groups or ()):
             groups.clear()
-        _check_cooling(lock, groups, local_tool_source=args.local_tool_source)
+        _check_cooling(lock, groups, nab, local_tool_source=args.local_tool_source)
         if args.verify_pypi:
             _verify_pypi(lock, groups, local_tool_source=args.local_tool_source)
         if args.shared_lock:
@@ -78,7 +79,61 @@ def main() -> None:
         parser.error(str(error))
 
 
-def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = False) -> None:
+def lock_provider(tool: Mapping[str, object] | None) -> str:
+    if "release-creator" in (tool or {}):
+        return "release-creator"
+    if "nab" in (tool or {}):
+        return "nab"
+    raise ValueError("lock has no recognized producer")
+
+
+def validate_workspace_sources(project: Path) -> None:
+    with project.open("rb") as stream:
+        root = tomllib.load(stream)
+    workspace = root.get("tool", {}).get("uv", {}).get("workspace", {})
+    members = workspace.get("members", [])
+    excluded = workspace.get("exclude", [])
+    if not all(
+        isinstance(patterns, list) and all(isinstance(pattern, str) for pattern in patterns)
+        for patterns in (members, excluded)
+    ):
+        raise ValueError("workspace patterns must be strings")
+    directory = project.parent.resolve()
+
+    def matched(patterns: list[str]) -> set[Path]:
+        paths = {path.resolve() for pattern in patterns for path in directory.glob(pattern)}
+        if any(not path.is_relative_to(directory) for path in paths):
+            raise ValueError("workspace members must be inside the project")
+        return paths
+
+    projects = [root]
+    for member in sorted(matched(members) - matched(excluded)):
+        if member.is_dir():
+            with (member / "pyproject.toml").open("rb") as stream:
+                projects.append(tomllib.load(stream))
+    names = {
+        _normalized_name(name) for item in projects if isinstance(name := item.get("project", {}).get("name"), str)
+    }
+    for item in projects:
+        for name, source in item.get("tool", {}).get("uv", {}).get("sources", {}).items():
+            if source != {"workspace": True} or _normalized_name(name) not in names:
+                raise ValueError(f"uv source must name a workspace project: {name}")
+
+
+def _normalized_name(name: str) -> str:
+    return "-".join(filter(None, name.casefold().replace("_", "-").replace(".", "-").split("-")))
+
+
+def _validate_indexes(nab: dict) -> None:
+    if any(index != {"name": "pypi", "url": "https://pypi.org/simple/"} for index in nab.get("indexes", [])):
+        raise ValueError("custom Nab indexes are not approved for release locks")
+    if nab.get("index") or any("index" in settings for settings in nab.get("packages", {}).values()):
+        raise ValueError("custom Nab indexes are not approved for release locks")
+    if any("index" in settings for settings in nab.get("package-rules", [])):
+        raise ValueError("custom Nab indexes are not approved for release locks")
+
+
+def _check_cooling(lock: Pylock, groups: set[str], nab: dict, *, local_tool_source: bool = False) -> None:
     producer = (lock.tool or {}).get(lock_provider(lock.tool))
     if not isinstance(producer, dict):
         raise TypeError("lock producer settings must be a table")
@@ -86,6 +141,7 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
     if not isinstance(created, datetime) or created.tzinfo is None or created > datetime.now(tz=UTC):
         raise ValueError("lock has no valid creation time or was created in the future")
     threshold = created - timedelta(days=7)
+    cutoffs = _package_cutoffs(nab, created)
     whole_seconds = lock.created_by == "release-creator (uv)" and lock_provider(lock.tool) == "release-creator"
     for package in _selected_packages(lock, groups, local_tool_source=local_tool_source):
         if package.archive is not None or package.vcs is not None or package.directory is not None:
@@ -95,7 +151,7 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
         if package.index != "https://pypi.org/simple/":
             raise ValueError(f"release lock has an unapproved index: {package.name}: {package.index}")
         artifacts = ([package.sdist] if package.sdist is not None else []) + list(package.wheels or ())
-        cutoff = max(threshold, reviewed_cutoff(package.name, str(package.version)) or threshold)
+        cutoff = max(threshold, cutoffs.get(canonicalize_name(package.name), threshold))
         for artifact in artifacts:
             url = urlsplit(artifact.url or "")
             if artifact.path is not None or url.scheme != "https" or url.netloc != "files.pythonhosted.org":
@@ -106,6 +162,41 @@ def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = 
                 or artifact.upload_time + timedelta(seconds=whole_seconds) > min(cutoff, created)
             ):
                 raise ValueError(f"release lock has an uncooled artifact: {artifact.name}")
+
+
+def _package_cutoffs(nab: dict, created: datetime) -> dict[str, datetime]:
+    overrides = [
+        (name, settings["uploaded-prior-to"])
+        for name, settings in nab.get("packages", {}).items()
+        if "uploaded-prior-to" in settings
+    ]
+    overrides.extend(
+        (name, rule["uploaded-prior-to"])
+        for rule in nab.get("package-rules", [])
+        if "uploaded-prior-to" in rule
+        for name in rule["match"]
+    )
+    cutoffs: dict[str, datetime] = {}
+    for name, value in overrides:
+        cutoff = _cutoff(name, value, created)
+        key = canonicalize_name(name)
+        cutoffs[key] = max(cutoff, cutoffs.get(key, cutoff))
+    return cutoffs
+
+
+def _cutoff(name: str, value: object, created: datetime) -> datetime:
+    if value is False:
+        return created
+    if isinstance(value, str) and (match := _DURATION.fullmatch(value)) is not None:
+        return created - timedelta(days=int(match["days"]))
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError as error:
+            raise ValueError(f"invalid Nab cutoff for {name}: {value}") from error
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise ValueError(f"invalid Nab cutoff for {name}: {value}")
+    return value
 
 
 def _verify_pypi(lock: Pylock, groups: set[str], *, local_tool_source: bool) -> None:
@@ -252,5 +343,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "lock_provider",
     "main",
+    "validate_workspace_sources",
 ]

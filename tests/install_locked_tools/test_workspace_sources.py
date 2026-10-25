@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -8,47 +7,9 @@ from typing import Final
 
 import pytest
 
-from tools.lock_groups import validate_workspace_sources
+from tools.check_lock_groups import validate_workspace_sources
 
 _TOOLS: Final = Path(__file__).resolve().parents[2] / "tools"
-
-
-def _producer(lock: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(_TOOLS / "lock_groups.py"), str(lock)], capture_output=True, text=True, check=False
-    )
-
-
-def test_lock_groups_accepts_release_creator_lock(tmp_path: Path) -> None:
-    lock = tmp_path / "pylock.toml"
-    lock.write_text("[tool.release-creator]\ncreated-at = 2026-10-24T00:00:00Z\n")
-
-    result = _producer(lock)
-
-    assert result.returncode == 0, result.stderr
-
-
-@pytest.mark.parametrize(
-    ("content", "message"),
-    [
-        pytest.param('[tool.nab]\ncommand-line = ["nab", "lock"]\n', "must come from release-creator locks", id="nab"),
-        pytest.param('lock-version = "1.0"\n', "no recognized producer", id="unknown"),
-    ],
-)
-def test_lock_groups_rejects_other_producer(tmp_path: Path, content: str, message: str) -> None:
-    lock = tmp_path / "pylock.toml"
-    lock.write_text(content)
-
-    result = _producer(lock)
-
-    assert result.returncode != 0
-    assert message in result.stderr
-
-
-def test_lock_groups_import_has_no_cli_side_effect(capsys: pytest.CaptureFixture[str]) -> None:
-    runpy.run_path(str(_TOOLS / "lock_groups.py"), run_name="lock_groups")
-
-    assert capsys.readouterr() == ("", "")
 
 
 def test_workspace_sources_accept_declared_member(tmp_path: Path) -> None:

@@ -22,6 +22,7 @@ from packaging.utils import canonicalize_name
 from pytest_httpserver import HTTPServer
 from werkzeug.wrappers import Request, Response
 
+CALLER: Final = Path(__file__).parent / "fixtures/caller"
 _PyPIFile = TypedDict(
     "_PyPIFile",
     {"filename": str, "url": str, "hashes": dict[str, str], "upload-time": str},
@@ -49,6 +50,15 @@ def github_api(tmp_path: Path) -> Iterator[tuple[HTTPServer, dict[str, str]]]:
         },
     )
     server.stop()
+
+
+@pytest.fixture
+def caller(tmp_path: Path) -> Path:
+    root = tmp_path / "caller"
+    root.mkdir()
+    for name in ("pylock.toml", "pyproject.toml"):
+        shutil.copyfile(CALLER / name, root / name)
+    return root
 
 
 @pytest.fixture(scope="session")
@@ -85,7 +95,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def pypi_metadata(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    listings = _lock_metadata(Path(__file__).resolve().parents[1] / "pylock.toml")
+    listings = _lock_metadata(CALLER / "pylock.toml")
     for filename, url, digest, uploaded in (
         (
             "six-1.16.0-py2.py3-none-any.whl",
@@ -584,6 +594,7 @@ def _lock_metadata(lock: Path) -> dict[str, list[_PyPIFile]]:
 
 
 __all__ = [
+    "CALLER",
     "action",
     "run",
 ]

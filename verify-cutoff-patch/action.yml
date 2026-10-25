@@ -1,8 +1,0 @@
-name: Verify cutoff patch
-description: Reject pyproject changes other than expired package cutoffs and the shared resolver pin
-runs:
-  using: composite
-  steps:
-    - name: Verify pyproject policy
-      shell: bash
-      run: python3 "$GITHUB_ACTION_PATH/../tools/verify_cutoff_patch.py"

@@ -14,6 +14,11 @@ dependencies fresh; release jobs install only the selected release groups. The A
 tracked files unchanged. Source builds use constraints generated from the lock's `build` group under the runner's
 temporary directory.
 
+Every selected package must come from PyPI with the recorded hashes and upload times, and must have been uploaded at
+least seven days before the lock was created. A package that the caller's `[tool.nab.packages.<name>]` or
+`[[tool.nab.package-rules]]` table gives an `uploaded-prior-to` override may be as new as that override allows: a
+timestamp, a `PnD` duration before the lock's creation, or `false` for no cutoff.
+
 Select the groups each job needs. The shared workflows use `release-news release-shell`,
 `release-hook-check release-notes lock-reader`, and `release-prepare project-runtime` or
 `release-validate project-runtime` for release-creator's own build. A full lock records each group and extra, but a new
@@ -93,14 +98,12 @@ The Action expects a pull request base ref and a Markdown or reStructuredText ch
 ## Refresh release tools
 
 Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Its read-only job refreshes the universal
-`pylock.toml`. `release-creator locks` exports runtime dependencies, all extras, and all dependency groups with a
-seven-day package cutoff. Reviewed exceptions live in `[tool.release-creator.locks.exclude-newer-package]`. Both lock
-checks and weekly refresh install uv from the shared `release-resolver` group, so a setup-uv default change cannot alter
-the generated lock. In github-workflows, the weekly updater also refreshes this direct pin and the lock together;
-consumer locks use their pinned shared resolver. The job uploads a patch, which may change `pylock.toml`, an explicitly
-configured secondary Nab lock, and `pyproject.toml` for expired reviewed cutoffs. The writer checks the patch before
-applying it and verifies cutoff removals before minting the App token. It then opens or updates one dependency PR from
-`automation/update-release-tools` to `main`. A lock update runs the normal PR checks before merge.
+`pylock.toml` with `nab lock --all-groups --all-extras --no-cache --upgrade`, which records runtime dependencies, all
+extras, and all dependency groups. The project's `[tool.nab]` table sets the cutoff and any per-package exception; the
+caller adds and removes those exceptions itself. uv only installs tools and never resolves the lock. The job uploads a
+patch, which may change only `pylock.toml` and an explicitly configured secondary Nab lock. The writer checks the patch
+before minting the App token. It then opens or updates one dependency PR from `automation/update-release-tools` to
+`main`. A lock update runs the normal PR checks before merge.
 
 The writer uses a repository-only release App with Contents and Pull requests write access. Install the App on this
 repository, set `RELEASE_APP_CLIENT_ID` as a repository variable, and store `RELEASE_APP_PRIVATE_KEY` in the
@@ -125,30 +128,28 @@ jobs:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 ```
 
-`pylock.toml` must come from `release-creator locks`, which records every dependency group and extra; a Nab primary lock
-fails with a request to relock. Tests install test, type, and documentation tools afresh to detect upstream dependency
-changes. The updater also refreshes a caller's secondary Nab build-matrix lock when `additional-lock` and its matrix
-inputs are set.
+`pylock.toml` must come from `nab lock --all-groups --all-extras`; relock a `release-creator locks` lock with Nab before
+re-pinning. Tests install test, type, and documentation tools afresh to detect upstream dependency changes. The updater
+also refreshes a caller's secondary Nab build-matrix lock when `additional-lock` and its matrix inputs are set.
 
 The optional `commit-message`, `pull-request-title`, and `pull-request-body` inputs retain existing PR wording. The
-workflow updates a committed `uv.lock` only when `keep-uv-lock: true`; pass that input to `validate-news` too. Both
-locks are then checked with the same resolver and allowed in the dependency patch. The default leaves `uv.lock` alone.
-Build constraints are generated from the lock's `build` group at runtime.
+workflow never updates a committed `uv.lock`. Build constraints are generated from the lock's `build` group at runtime.
 
 For a second lock such as `pylock.build.toml`, set `additional-lock`, `additional-matrix-python`,
 `additional-matrix-platforms`, and `additional-matrix-implementations`. `additional-lock-groups` selects dependency
 groups in that lock; with no groups, the updater selects build requirements. Set `additional-lock-selection: project`
 for a lock that selects the project's runtime dependencies instead. The lock must already exist, and the updater writes
-both locks in the same dependency PR. The writer accepts only those locks, an opted-in `uv.lock`, and `pyproject.toml`.
-Pass the same `additional-lock` and matrix inputs to `validate-news` in the PR workflow. It checks changes to either
-lock against the project, including a PR that changes only the secondary lock.
+both locks in the same dependency PR. The writer accepts only those locks. Pass the same `additional-lock` and matrix
+inputs to `validate-news` in the PR workflow. It checks changes to either lock against the project, including a PR that
+changes only the secondary lock.
 
 `refresh-release-lock` is the read-only half of the updater. In `refresh` mode, it upgrades the full primary lock and
-writes `$RUNNER_TEMP/lock.patch` if a lock or reviewed cutoff changes. In `check` mode, it regenerates at the primary
-lock's recorded creation time and fails if the checked-in files differ. `validate-news` calls this mode when a PR
-changes release inputs, including a workspace member's `pyproject.toml` or a secondary lock. The resulting PR's normal
-formatting job runs `prek`; the writer checks patch paths and modes. Its `changed` output is `true` only when the
-refresh produces a patch. Neither mode pushes a branch or requests a write token.
+writes `$RUNNER_TEMP/lock.patch` if a lock changes. In `check` mode, it regenerates the primary lock without upgrading
+and fails if anything other than Nab's recorded command line differs. Every Nab run unsets `SSL_CERT_FILE` and
+`SSL_CERT_DIR`, so Nab uses its own certificate store. `validate-news` calls this mode when a PR changes release inputs,
+including a workspace member's `pyproject.toml` or a secondary lock. The resulting PR's normal formatting job runs
+`prek`; the writer checks patch paths and modes. Its `changed` output is `true` only when the refresh produces a patch.
+Neither mode pushes a branch or requests a write token.
 
 Every shared `prek` command passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek.toml` and
 also runs nested configurations, which no guard checks. `prepare-towncrier` and `validate-release-patch` therefore
@@ -157,10 +158,9 @@ run `prek`.
 
 The shared prepare and tagged validator run `refresh-release-lock` in `check` mode before release checks or publishing.
 `check-tagged-source` bundles the tagged checks for a custom tag publisher: it requires `GITHUB_REF` to be the tag of
-the checkout on `main` and checks the locks. It runs no hooks. It takes `keep-uv-lock` and the secondary lock inputs
-below, and needs a full-history checkout. Pass `keep-uv-lock: true` when the repository commits a native `uv.lock`. For
-a secondary Nab lock, pass its path, selected groups, selection type, and matrix inputs to both workflows. A stale
-primary, native, or secondary lock stops the release before artifacts are built.
+the checkout on `main` and checks the locks. It runs no hooks. It takes the secondary lock inputs below and needs a
+full-history checkout. For a secondary Nab lock, pass its path, selected groups, selection type, and matrix inputs to
+both workflows. A stale primary or secondary lock stops the release before artifacts are built.
 
 For example, a tagged source job that also publishes from a PGO lock checks both files before installing build tools:
 
@@ -174,9 +174,6 @@ For example, a tagged source job that also publishes from a PGO lock checks both
       additional-matrix-platforms: linux_x86_64 linux_aarch64
       additional-matrix-implementations: cpython pypy
 ```
-
-For a committed native uv lock, set `keep-uv-lock: true` in this step. The full project lock and `uv.lock` must then
-agree with the same project configuration.
 
 ## Start with a caller
 

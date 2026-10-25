@@ -14,10 +14,6 @@ on:
         description: Prefix for distribution artifacts in a multi-package release
         default: ""
         type: string
-      keep-uv-lock:
-        description: Check a committed native uv.lock alongside pylock.toml
-        default: false
-        type: boolean
       additional-lock:
         description: Secondary Nab lock to check against the tagged project
         default: ""
@@ -64,7 +60,6 @@ jobs:
           enable-cache: false
       - uses: $/check-tagged-source
         with:
-          keep-uv-lock: ${{ inputs.keep-uv-lock }}
           additional-lock: ${{ inputs.additional-lock }}
           additional-lock-groups: ${{ inputs.additional-lock-groups }}
           additional-lock-selection: ${{ inputs.additional-lock-selection }}
