@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import tomlkit
+import yaml
 from conftest import CALLER, action
 
 
@@ -612,3 +613,30 @@ def test_install_locked_tools_installs_reader_under_cutoff(tmp_path: Path, actio
 
     assert result.returncode != 0
     assert "certifi>=2026.7.22" in result.stderr
+
+
+def test_install_locked_tools_installs_only_binary_reader(tmp_path: Path, action_scripts: Path) -> None:
+    installer = tmp_path / "tools/install_live_tools.sh"
+    installer.parent.mkdir()
+    installer.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$RUNNER_TEMP/installed"\n')
+    installer.chmod(0o755)
+    (tmp_path / "action").mkdir()
+    steps = yaml.safe_load((Path(__file__).resolve().parents[2] / "install-locked-tools/action.yml").read_text())
+    index = next(index for index, step in enumerate(steps["runs"]["steps"]) if step["name"] == "Install lock reader")
+
+    result = subprocess.run(
+        ["bash", str(action_scripts / f"install-locked-tools-{index}.sh")],
+        env=os.environ | {"RUNNER_TEMP": str(tmp_path), "GITHUB_ACTION_PATH": str(tmp_path / "action")},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "installed").read_text().splitlines() == [
+        f"{tmp_path}/lock-reader",
+        "--only-binary",
+        ":all:",
+        "certifi>=2026.7.22",
+        "packaging>=26.3",
+    ]

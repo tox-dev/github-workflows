@@ -44,7 +44,7 @@ runs:
         EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
         EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
       run: >-
-        "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-reader" 'certifi>=2026.7.22' 'packaging>=26.3'
+        "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-reader" --only-binary :all: 'certifi>=2026.7.22' 'packaging>=26.3'
     - id: selection
       name: Select locked groups and build constraints
       shell: bash
