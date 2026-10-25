@@ -830,7 +830,9 @@ def publish_action(
         else:
             job_request.respond_with_json(
                 {
-                    "run_id": previous_deployment_job_run if prior and previous_deployment_job_run else run_id,
+                    "run_id": previous_deployment_job_run
+                    if prior and previous_deployment_job_run is not None
+                    else run_id,
                     "run_attempt": attempt,
                     "steps": [
                         {
