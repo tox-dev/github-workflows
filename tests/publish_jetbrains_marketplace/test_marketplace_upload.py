@@ -616,6 +616,79 @@ def test_changed_prior_artifact_blocks_retry(
     assert not httpserver.log
 
 
+def test_reconciled_attempt_allows_another_retry(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        previous_run=True,
+        reconciled_attempt=True,
+        accepted_archive=signed_archive,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode == 0, result.stderr
+    assert not httpserver.log
+    assert any(request.path.endswith("/artifacts/62/zip") for request, _ in github_api[0].log)
+
+
+def test_receipt_from_unlisted_run_blocks_retry(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        previous_run=True,
+        accepted_archive=signed_archive,
+        receipt_changes={"sourceRunId": 30},
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode != 0
+    assert not httpserver.log
+
+
+def test_fork_run_on_tag_named_branch_allows_upload(
+    signed_archive: Path,
+    tmp_path: Path,
+    marketplace_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    httpserver: HTTPServer,
+) -> None:
+    httpserver.expect_request("/api/updates/upload", method="POST").respond_with_data("{}")
+    result = publish_action(
+        tmp_path,
+        marketplace_scripts,
+        github_api,
+        fork_run=True,
+        ARCHIVE=str(signed_archive),
+        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
+        PLUGIN_ID="29973",
+        CHANNEL="beta",
+        PUBLISH_TOKEN="fixture-token",
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(httpserver.log) == 1
+    assert not any("/runs/39/" in request.path for request, _ in github_api[0].log)
+
+
 def publish_action(
     repository: Path,
     scripts: Path,
@@ -646,6 +719,8 @@ def publish_action(
     prior_notes: bytes | None = None,
     remote_commit: str = "0" * 40,
     annotated: bool = False,
+    fork_run: bool = False,
+    reconciled_attempt: bool = False,
     **settings: str,
 ) -> subprocess.CompletedProcess[str]:
     server, environment = github_api
@@ -662,6 +737,7 @@ def publish_action(
                 "id": 40,
                 "head_branch": "main",
                 "head_sha": "2" * 40,
+                "head_repository": {"full_name": "tox-dev/fixture"},
                 "path": ".github/workflows/check.yaml",
             }
         ]
@@ -674,7 +750,18 @@ def publish_action(
                 "id": 41,
                 "head_branch": "v0.1.11",
                 "head_sha": previous_commit,
+                "head_repository": {"full_name": "tox-dev/fixture"},
                 "path": f".github/workflows/{previous_workflow}",
+            }
+        )
+    if fork_run:
+        runs.append(
+            {
+                "id": 39,
+                "head_branch": "v0.1.11",
+                "head_sha": "3" * 40,
+                "head_repository": {"full_name": "mallory/fixture"},
+                "path": ".github/workflows/release.yaml",
             }
         )
     server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs").respond_with_json({"workflow_runs": runs})
@@ -722,7 +809,12 @@ def publish_action(
             )
     if previous_run:
         server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/41/jobs").respond_with_json(
-            {"jobs": [{"run_attempt": 1, "steps": [{"name": previous_step, "started_at": "2026-10-23T00:00:00Z"}]}]}
+            {
+                "jobs": [
+                    {"run_attempt": attempt, "steps": [{"name": previous_step, "started_at": "2026-10-23T00:00:00Z"}]}
+                    for attempt in ((1, 2) if reconciled_attempt else (1,))
+                ]
+            }
         )
         artifacts = (
             [
@@ -737,6 +829,7 @@ def publish_action(
                 }
                 for artifact_id, artifact_name in (
                     (61, "marketplace-acceptance-41-1"),
+                    *([(62, "marketplace-acceptance-41-2")] if reconciled_attempt else []),
                     (51, "plugin-distribution"),
                     (52, "release-notes"),
                 )
@@ -766,6 +859,7 @@ def publish_action(
             receipt.update(receipt_changes or {})
             for artifact_id, filename, payload in (
                 (61, "other.json" if missing_receipt else "marketplace-acceptance.json", json.dumps(receipt).encode()),
+                (62, "marketplace-acceptance.json", json.dumps(receipt).encode()),
                 (
                     51,
                     accepted_archive.name,
