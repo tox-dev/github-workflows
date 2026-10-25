@@ -808,14 +808,8 @@ def test_shared_lock_records_upload_times() -> None:
 
 def test_shared_lock_respects_seven_day_cutoff() -> None:
     source = Path(__file__).resolve().parents[2]
-    policy = tomllib.loads((source / "pyproject.toml").read_text())["tool"]["nab"]
-    floors = {
-        name: datetime.fromisoformat(settings["uploaded-prior-to"])
-        for name, settings in policy.get("packages", {}).items()
-        if "uploaded-prior-to" in settings
-    }
-    for rule in policy.get("package-rules", []):
-        floors.update(dict.fromkeys(rule["match"], datetime.fromisoformat(rule["uploaded-prior-to"])))
+    overrides = tomllib.loads((source / "pyproject.toml").read_text())["tool"]["release-creator"]["locks"]
+    floors = {name: datetime.fromisoformat(value) for name, value in overrides.get("exclude-newer-package", {}).items()}
     lock = tomllib.loads((source / "pylock.toml").read_text())
     cutoff = datetime.now(UTC) - timedelta(days=7)
     packages = lock["packages"]

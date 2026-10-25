@@ -40,41 +40,6 @@ test = [
   "ty",
 ]
 
-[tool.nab]
-mode = "universal"
-uploaded-prior-to = "P7D"
-decision-order = "stable"
-base-group = "project-runtime"
-default-groups = []
-
-[tool.nab.matrix]
-python = ">=3.15,<3.16"
-platforms = [ "linux_x86_64", "linux_aarch64", "macos_x86_64", "macos_arm64", "windows_amd64", "windows_arm64" ]
-
-[tool.nab.packages.nab]
-uploaded-prior-to = "2026-10-18T05:45:09Z"
-
-[tool.nab.packages.nab-index]
-uploaded-prior-to = "2026-10-18T05:45:09Z"
-
-[tool.nab.packages.nab-markersets]
-uploaded-prior-to = "2026-10-18T05:45:09Z"
-
-[tool.nab.packages.nab-project]
-uploaded-prior-to = "2026-10-18T05:45:09Z"
-
-[tool.nab.packages.nab-provider]
-uploaded-prior-to = "2026-10-18T05:45:09Z"
-
-[tool.nab.packages.nab-resolver]
-uploaded-prior-to = "2026-10-18T05:45:09Z"
-
-[tool.nab.packages.release-creator]
-uploaded-prior-to = "2026-10-24T09:08:40Z"
-
-[tool.nab.packages.uv]
-uploaded-prior-to = "2026-10-22T01:32:34Z"
-
 [tool.release-creator.locks.exclude-newer-package]
 nab = "2026-10-18T05:45:09Z"
 nab-index = "2026-10-18T05:45:09Z"
