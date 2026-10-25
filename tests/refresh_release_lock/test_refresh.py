@@ -255,3 +255,24 @@ def test_refresh_installs_selected_nab(
         f"{tmp_path}/lock-tools",
         requirement or f"git+https://github.com/notatallshaw/nab@{commit}",
     ]
+
+
+@pytest.mark.parametrize(
+    ("path", "steps"),
+    [
+        pytest.param("validate-news/action.yml", ("runs", "steps"), id="validate-news"),
+        pytest.param("check-tagged-source/action.yml", ("runs", "steps"), id="check-tagged-source"),
+        pytest.param(".github/workflows/prepare-towncrier-release.yaml", ("jobs", "assemble", "steps"), id="prepare"),
+        pytest.param(".github/workflows/upgrade-release-tools.yaml", ("jobs", "generate-lock", "steps"), id="upgrade"),
+        pytest.param(".github/workflows/validate-python-release.yaml", ("jobs", "lock", "steps"), id="python-release"),
+    ],
+)
+def test_refresh_callers_forward_nab_commit(path: str, steps: tuple[str, ...]) -> None:
+    document = yaml.safe_load((Path(__file__).resolve().parents[2] / path).read_text())
+    inputs = document["inputs"] if "runs" in document else document[True]["workflow_call"]["inputs"]
+    for key in steps:
+        document = document[key]
+    refresh = next(step for step in document if step.get("uses") == "$/refresh-release-lock")
+
+    assert inputs["nab-git-commit"]["default"] == ""
+    assert refresh["with"]["nab-git-commit"] == "${{ inputs.nab-git-commit }}"
