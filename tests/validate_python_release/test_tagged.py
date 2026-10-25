@@ -56,6 +56,10 @@ def test_lock_check_runs_keyless_beside_the_build(release_workflow: dict[str, An
     assert "needs" not in release_workflow["jobs"]["build"]
 
 
+def test_release_workflow_leaves_distribution_checks_to_the_package(release_workflow: dict[str, Any]) -> None:
+    assert set(release_workflow["jobs"]) == {"lock", "build"}
+
+
 def test_build_exports_constraints_after_checking_the_tag(release_workflow: dict[str, Any]) -> None:
     names = [step.get("name", step.get("uses", "")) for step in release_workflow["jobs"]["build"]["steps"]]
 
@@ -63,7 +67,7 @@ def test_build_exports_constraints_after_checking_the_tag(release_workflow: dict
     assert names.index("$/install-locked-tools") < names.index("Build wheel and sdist")
 
 
-def test_validator_builds_reproducible_distributions_and_checks_them(
+def test_validator_builds_reproducible_distributions(
     build_repository: Path, build_constraints: Path, tmp_path: Path, release_workflow: dict[str, Any]
 ) -> None:
     assert "hatchling==" in build_constraints.read_text()
@@ -82,16 +86,6 @@ def test_validator_builds_reproducible_distributions_and_checks_them(
         shutil.rmtree(build_repository / "dist")
     assert set(outputs[0]) == {"fixture-0.2.0-py3-none-any.whl", "fixture-0.2.0.tar.gz"}
     assert outputs[0] == outputs[1]
-    for name, content in outputs[0].items():
-        path = build_repository / "dist" / name
-        path.parent.mkdir(exist_ok=True)
-        path.write_bytes(content)
-    validators = run_release_step(
-        release_workflow, "validate", "Install distribution validators", build_repository, **environment
-    )
-    assert validators.returncode == 0, validators.stderr
-    result = run_release_step(release_workflow, "validate", "Check wheel contents", build_repository, **environment)
-    assert result.returncode == 0, result.stderr
 
 
 def test_validator_rejects_nonempty_distribution_directory(tmp_path: Path, release_workflow: dict[str, Any]) -> None:

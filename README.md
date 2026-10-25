@@ -240,7 +240,8 @@ only Contents write job that creates the GitHub Release.
 mode. The `build` job checks the tag inline: `GITHUB_REF` is `refs/tags/<tag>`, `git check-ref-format` accepts the tag,
 the tag resolves to `GITHUB_SHA`, which is the checked-out commit, and that commit is an ancestor of `origin/main`. The
 same job then exports hashed build constraints from the caller lock, builds the wheel and sdist, requires exactly one of
-each at the tag's version, and uploads them. A `validate` job runs `check-wheel-contents` on the uploaded files.
+each at the tag's version, and uploads them. The workflow does not inspect the built files further; check package
+metadata and wheel contents in the package's own `tox -e pkg_meta` run.
 
 ```yaml
 build:
