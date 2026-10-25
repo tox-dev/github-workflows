@@ -79,9 +79,10 @@ def main() -> None:
 
 
 def _check_cooling(lock: Pylock, groups: set[str], *, local_tool_source: bool = False) -> None:
-    created = (
-        (lock.tool or {}).get("nab" if lock_provider(lock.tool) == "nab" else "release-creator", {}).get("created-at")
-    )
+    producer = (lock.tool or {}).get(lock_provider(lock.tool))
+    if not isinstance(producer, dict):
+        raise TypeError("lock producer settings must be a table")
+    created = producer.get("created-at")
     if not isinstance(created, datetime) or created.tzinfo is None or created > datetime.now(tz=UTC):
         raise ValueError("lock has no valid creation time or was created in the future")
     threshold = created - timedelta(days=7)

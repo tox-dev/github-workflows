@@ -552,6 +552,18 @@ def test_lock_metadata_rejects_unnormalized_group(
     assert "dependency group names must be normalized" in capsys.readouterr().err
 
 
+def test_lock_metadata_rejects_non_table_producer(
+    lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lock = lock_case[0]
+    lock.write_text(lock.read_text().replace("[tool.nab]\ncreated-at = 2026-10-20T00:00:00Z\n", '[tool]\nnab = "oops"\n'))
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch)
+
+    assert "lock producer settings must be a table" in capsys.readouterr().err
+
+
 def _run_check(lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, *options: str) -> None:
     source = Path(__file__).resolve().parents[2]
     monkeypatch.syspath_prepend(str(source / "tools"))
