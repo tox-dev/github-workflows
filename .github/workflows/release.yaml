@@ -19,38 +19,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify the exact release tag
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF" = "refs/tags/$TAG"
-          git check-ref-format "refs/tags/$TAG"
-          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
-          git merge-base --is-ancestor HEAD origin/main
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - uses: $/refresh-release-lock
-        with:
-          mode: check
-      - uses: $/install-locked-tools
-        with:
-          groups: release-check
-          venv: .venv
-      - uses: $/verify-frozen-hooks
-      - name: Check tagged source
-        env:
-          UV_EXCLUDE_NEWER: 7 days
-          UV_NO_CONFIG: "1"
-          UV_NO_SOURCES: "1"
-        run: |
-          unset UV_CONFIG_FILE UV_INDEX UV_INDEX_URL UV_DEFAULT_INDEX UV_EXTRA_INDEX_URL
-          unset UV_FIND_LINKS UV_EXCLUDE_NEWER_PACKAGE
-          unset UV_INSECURE_HOST UV_SYSTEM_CERTS SSL_CERT_FILE SSL_CERT_DIR
-          .venv/bin/prek run --config .pre-commit-config.yaml --all-files
+      - uses: $/check-tagged-source
   source:
     runs-on: ubuntu-26.04
     permissions:

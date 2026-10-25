@@ -1,0 +1,55 @@
+name: Check tagged source
+description: Check the tag, the project lock, and the frozen hooks of a tagged checkout, then run its cooled hooks
+inputs:
+  keep-uv-lock:
+    description: Check a committed native uv.lock alongside pylock.toml
+    default: "false"
+  additional-lock:
+    description: Secondary Nab lock to check against the tagged project
+    default: ""
+  additional-lock-groups:
+    description: Groups selected by the secondary lock
+    default: ""
+  additional-lock-selection:
+    description: Project or build-or-groups selection for the secondary lock
+    default: build-or-groups
+  additional-matrix-python:
+    description: Python range for the secondary lock
+    default: ""
+  additional-matrix-platforms:
+    description: Space-separated Nab platform IDs for the secondary lock
+    default: ""
+  additional-matrix-implementations:
+    description: Space-separated implementations for the secondary lock
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Verify the exact release tag
+      shell: bash
+      env:
+        TAG: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        test "$GITHUB_REF" = "refs/tags/$TAG"
+        git check-ref-format "refs/tags/$TAG"
+        test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
+        git merge-base --is-ancestor HEAD origin/main
+    - uses: $/refresh-release-lock
+      with:
+        mode: check
+        keep-uv-lock: ${{ inputs.keep-uv-lock }}
+        additional-lock: ${{ inputs.additional-lock }}
+        additional-lock-groups: ${{ inputs.additional-lock-groups }}
+        additional-lock-selection: ${{ inputs.additional-lock-selection }}
+        additional-matrix-python: ${{ inputs.additional-matrix-python }}
+        additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
+        additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
+    - uses: $/install-locked-tools
+      with:
+        groups: release-check
+        venv: ${{ runner.temp }}/source-check-tools
+    - uses: $/verify-frozen-hooks
+    - name: Run tagged source hooks
+      shell: bash
+      run: '"$GITHUB_ACTION_PATH/../tools/cooled_prek.sh" run --all-files'

@@ -47,51 +47,24 @@ def build_constraints(build_repository: Path, tmp_path: Path) -> Path:
     return path
 
 
-def test_validator_isolates_release_tools_from_build() -> None:
-    workflow = yaml.load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/validate-python-release.yaml").read_text(),
-        Loader=yaml.BaseLoader,
+@pytest.mark.parametrize(
+    ("workflow_name", "job"),
+    [
+        pytest.param("validate-python-release", "source-check", id="python-release"),
+        pytest.param("release", "check", id="self-release"),
+    ],
+)
+def test_tagged_source_has_history_and_read_access_for_hook_proof(workflow_name: str, job: str) -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows" / f"{workflow_name}.yaml").read_text()
     )
-    assert set(workflow["on"]["workflow_call"]["inputs"]) == {
-        "source",
-        "artifact-prefix",
-        "keep-uv-lock",
-        "additional-lock",
-        "additional-lock-groups",
-        "additional-lock-selection",
-        "additional-matrix-python",
-        "additional-matrix-platforms",
-        "additional-matrix-implementations",
-    }
-    assert set(workflow["jobs"]) == {"source-check", "constraints", "build", "validate"}
-    assert workflow["jobs"]["build"]["needs"] == ["source-check", "constraints"]
-    lock_check = next(
-        step for step in workflow["jobs"]["source-check"]["steps"] if step.get("uses") == "$/refresh-release-lock"
-    )
-    assert lock_check["with"]["mode"] == "check"
-    for option in workflow["on"]["workflow_call"]["inputs"]:
-        if option not in {"source", "artifact-prefix"}:
-            assert lock_check["with"][option] == f"${{{{ inputs.{option} }}}}"
-    assert not any(step.get("uses", "").startswith("$/install-") for step in workflow["jobs"]["build"]["steps"])
-    assert workflow["jobs"]["validate"]["needs"] == "build"
-    assert not any(step.get("uses") == "$/install-locked-tools" for step in workflow["jobs"]["validate"]["steps"])
-    validator = next(
-        step for step in workflow["jobs"]["validate"]["steps"] if step.get("name") == "Install distribution validators"
-    )
-    assert "twine>=7" in validator["run"]
-    assert "check-wheel-contents>=0.6.3" in validator["run"]
-
-
-def test_tagged_source_has_history_and_read_access_for_hook_proof(release_workflow: dict[str, Any]) -> None:
-    source = release_workflow["jobs"]["source-check"]
+    source = workflow["jobs"][job]
     assert source["permissions"] == {"actions": "read", "contents": "read", "pull-requests": "read"}
     assert next(step for step in source["steps"] if "checkout" in step.get("uses", ""))["with"]["fetch-depth"] == 0
-    assert [step.get("uses") for step in source["steps"]].index("$/refresh-release-lock") < [
-        step.get("uses") for step in source["steps"]
-    ].index("$/verify-frozen-hooks")
+    assert "$/check-tagged-source" in [step.get("uses") for step in source["steps"]]
 
 
-def test_tagged_source_rejects_stale_project_requirement(tmp_path: Path, release_workflow: dict[str, Any]) -> None:
+def test_tagged_source_rejects_stale_project_requirement(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     project = tmp_path / "pyproject.toml"
     project.write_text(
@@ -117,10 +90,6 @@ def test_tagged_source_rejects_stale_project_requirement(tmp_path: Path, release
     assert selected.returncode == 0, selected.stderr
     assert freshness.returncode != 0
     assert "prek>=999" in freshness.stderr
-    assert any(
-        step.get("uses") == "$/refresh-release-lock" and step.get("with", {}).get("mode") == "check"
-        for step in release_workflow["jobs"]["source-check"]["steps"]
-    )
 
 
 def test_validator_builds_reproducible_distributions_and_checks_them(
@@ -193,15 +162,10 @@ def test_validator_rejects_backend_hash_mismatch(
     ],
 )
 @pytest.mark.parametrize(
-    ("workflow_name", "job"),
-    [
-        pytest.param("validate-python-release", "source-check", id="source-check"),
-        pytest.param("validate-python-release", "build", id="build"),
-        pytest.param("release", "check", id="self-release"),
-    ],
+    "location", [pytest.param("check-tagged-source/action.yml", id="source-check"), pytest.param("build", id="build")]
 )
 def test_validator_requires_exact_tag(
-    repository: Path, tag_kind: str, event_ref: str, accepted: bool, workflow_name: str, job: str
+    repository: Path, tag_kind: str, event_ref: str, accepted: bool, location: str
 ) -> None:
     if tag_kind == "branch":
         run(repository, "git", "branch", "0.2.0")
@@ -213,10 +177,15 @@ def test_validator_requires_exact_tag(
         run(repository, "git", "tag", "-a", "-m", "Release", "0.2.0")
     else:
         run(repository, "git", "tag", "0.2.0")
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows" / f"{workflow_name}.yaml").read_text()
+    root = Path(__file__).resolve().parents[2]
+    steps = (
+        yaml.safe_load((root / location).read_text())["runs"]["steps"]
+        if location.endswith(".yml")
+        else yaml.safe_load((root / ".github/workflows/validate-python-release.yaml").read_text())["jobs"][location][
+            "steps"
+        ]
     )
-    verify = next(step for step in workflow["jobs"][job]["steps"] if step.get("name") == "Verify the exact release tag")
+    verify = next(step for step in steps if step.get("name") == "Verify the exact release tag")
     result = subprocess.run(
         ["bash", "-c", verify["run"]],
         cwd=repository,

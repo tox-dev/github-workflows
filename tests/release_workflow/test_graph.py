@@ -18,30 +18,9 @@ def test_prepare_workflow_calls_reusable_preparation() -> None:
     assert workflow["jobs"]["prepare"]["uses"] == "$/.github/workflows/prepare-towncrier-release.yaml"
 
 
-@pytest.mark.parametrize(
-    ("workflow", "job", "step_name"),
-    [
-        pytest.param("check.yaml", "check", "Check repository formatting", id="pull-request"),
-        pytest.param("release.yaml", "check", "Check tagged source", id="tagged-release"),
-        pytest.param("validate-python-release.yaml", "source-check", "Run tagged source checks", id="distribution"),
-        pytest.param("prepare-towncrier-release.yaml", "assemble", "Install prek hooks", id="prepare"),
-    ],
-)
-def test_release_hook_installation_has_cooldown(workflow: str, job: str, step_name: str) -> None:
-    document = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows" / workflow).read_text())
-    step = next(item for item in document["jobs"][job]["steps"] if item.get("name") == step_name)
-    assert step["env"]["UV_EXCLUDE_NEWER"] == "7 days"
-
-
 def test_tagged_release_checks_the_committed_lock() -> None:
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
-    check = workflow["jobs"]["check"]
-    assert next(step for step in check["steps"] if step.get("uses") == "$/refresh-release-lock")["with"] == {
-        "mode": "check"
-    }
     assert "check" in workflow["jobs"]["publish"]["needs"]
-    assert check["permissions"] == {"actions": "read", "contents": "read", "pull-requests": "read"}
-    assert next(step for step in check["steps"] if "checkout" in step.get("uses", ""))["with"]["fetch-depth"] == 0
 
 
 def test_prepare_jobs_transfer_the_uploaded_patch() -> None:

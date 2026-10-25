@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -54,59 +55,75 @@ def test_required_gate_does_not_repeat_changelog_lock_check() -> None:
     assert news["jobs"]["changelog"]["steps"][-1]["uses"] == "$/validate-news"
 
 
-@pytest.mark.parametrize(
-    ("workflow_name", "job_name"),
-    [
-        pytest.param("prepare-towncrier-release", "assemble", id="prepare"),
-        pytest.param("validate-python-release", "source-check", id="python-release"),
-        pytest.param("release", "check", id="self-release"),
-    ],
-)
-def test_tagged_source_checks_frozen_hooks_before_prek(workflow_name: str, job_name: str) -> None:
+def test_tagged_source_checks_frozen_hooks_before_prek() -> None:
     root = Path(__file__).resolve().parents[2]
-    workflow = yaml.load((root / ".github/workflows" / f"{workflow_name}.yaml").read_text(), Loader=yaml.BaseLoader)
-    steps = workflow["jobs"][job_name]["steps"]
+    prepare = yaml.load((root / ".github/workflows/prepare-towncrier-release.yaml").read_text(), Loader=yaml.BaseLoader)
+    tagged = yaml.load((root / "check-tagged-source/action.yml").read_text(), Loader=yaml.BaseLoader)
 
-    assert next(index for index, step in enumerate(steps) if step.get("uses") == "$/verify-frozen-hooks") < next(
-        index for index, step in enumerate(steps) if "prek" in step.get("run", "")
+    for steps in (prepare["jobs"]["assemble"]["steps"], tagged["runs"]["steps"]):
+        frozen = next(index for index, step in enumerate(steps) if step.get("uses") == "$/verify-frozen-hooks")
+        assert frozen < next(index for index, step in enumerate(steps) if "prek" in step.get("run", ""))
+
+
+def test_every_hook_run_uses_the_root_config() -> None:
+    root = Path(__file__).resolve().parents[2]
+    runs = [
+        step.get("run", "")
+        for path in (*root.glob(".github/workflows/*.yaml"), *root.glob("*/action.yml"))
+        for document in [yaml.load(path.read_text(), Loader=yaml.BaseLoader)]
+        for steps in (
+            [document["runs"]["steps"]]
+            if "runs" in document
+            else [job.get("steps", []) for job in document["jobs"].values()]
+        )
+        for step in steps
+    ]
+    commands = [
+        command
+        for run in runs
+        for command in re.findall(r"\bprek (?:run|install-hooks|update)\b[^\n]*", run.replace("\\\n", " "))
+    ]
+
+    assert commands
+    assert all("--config" in command for command in commands), commands
+
+
+def test_prepare_hook_install_uses_install_time_cutoff() -> None:
+    workflow = yaml.load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    step = next(step for step in workflow["jobs"]["assemble"]["steps"] if step.get("name") == "Install prek hooks")
+    script = (Path(__file__).resolve().parents[2] / "tools/cooled_prek.sh").read_text()
+
+    assert {name: step["env"][name] for name in ("UV_EXCLUDE_NEWER", "UV_NO_CONFIG", "UV_NO_SOURCES")} == {
+        "UV_EXCLUDE_NEWER": "7 days",
+        "UV_NO_CONFIG": "1",
+        "UV_NO_SOURCES": "1",
+    }
+    assert [line for line in step["run"].splitlines() if line.startswith("unset ")] == [
+        line for line in script.splitlines() if line.startswith("unset ")
+    ]
+
+
+def test_cooled_prek_isolates_hook_installs(tmp_path: Path) -> None:
+    fake = tmp_path / "prek"
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >args\nenv >env\n')
+    fake.chmod(0o755)
+    leaked = dict.fromkeys(("UV_INDEX_URL", "UV_EXCLUDE_NEWER_PACKAGE", "UV_SYSTEM_CERTS", "SSL_CERT_FILE"), "leak")
+
+    subprocess.run(
+        [str(Path(__file__).resolve().parents[2] / "tools/cooled_prek.sh"), "run", "--all-files"],
+        cwd=tmp_path,
+        env=os.environ | leaked | {"PATH": f"{tmp_path}:{os.environ['PATH']}", "UV_EXCLUDE_NEWER": "1 day"},
+        check=True,
     )
 
-
-@pytest.mark.parametrize(
-    ("path", "step_name"),
-    [
-        pytest.param(".github/workflows/check.yaml", "Check repository formatting", id="pr-format"),
-        pytest.param(".github/workflows/check.yaml", "Check inline shell", id="pr-inline-shell"),
-        pytest.param(".github/workflows/prepare-towncrier-release.yaml", "Install prek hooks", id="prepare-install"),
-        pytest.param(".github/workflows/release.yaml", "Check tagged source", id="self-release"),
-        pytest.param(".github/workflows/validate-python-release.yaml", "Run tagged source checks", id="python-release"),
-        pytest.param("prepare-towncrier/action.yml", "Format changelog", id="prepare-format"),
-        pytest.param("validate-release-patch/action.yml", "Run prek on release patch", id="patch-validation"),
-    ],
-)
-def test_hook_execution_uses_install_time_cutoff(path: str, step_name: str) -> None:
-    document = yaml.load((Path(__file__).resolve().parents[2] / path).read_text(), Loader=yaml.BaseLoader)
-    steps = (
-        document["runs"]["steps"]
-        if path.endswith("action.yml")
-        else [step for job in document["jobs"].values() for step in job["steps"]]
-    )
-
-    step = next(step for step in steps if step.get("name") == step_name)
-    assert step["env"]["UV_EXCLUDE_NEWER"] == "7 days"
-    assert step["env"]["UV_NO_CONFIG"] == "1"
-    assert step["env"]["UV_NO_SOURCES"] == "1"
-    unset_names = {name for line in step["run"].splitlines() if line.startswith("unset ") for name in line.split()[1:]}
-    assert {
-        "UV_CONFIG_FILE",
-        "UV_INDEX",
-        "UV_INDEX_URL",
-        "UV_DEFAULT_INDEX",
-        "UV_EXTRA_INDEX_URL",
-        "UV_FIND_LINKS",
-        "UV_EXCLUDE_NEWER_PACKAGE",
-        "UV_INSECURE_HOST",
-        "UV_SYSTEM_CERTS",
-        "SSL_CERT_FILE",
-        "SSL_CERT_DIR",
-    } <= unset_names
+    assert (tmp_path / "args").read_text().splitlines() == ["--config", ".pre-commit-config.yaml", "run", "--all-files"]
+    environment = dict(line.split("=", 1) for line in (tmp_path / "env").read_text().splitlines() if "=" in line)
+    assert {name: environment.get(name) for name in ("UV_EXCLUDE_NEWER", "UV_NO_CONFIG", "UV_NO_SOURCES")} == {
+        "UV_EXCLUDE_NEWER": "7 days",
+        "UV_NO_CONFIG": "1",
+        "UV_NO_SOURCES": "1",
+    }
+    assert not leaked.keys() & environment.keys()
