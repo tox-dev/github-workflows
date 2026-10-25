@@ -37,23 +37,22 @@ def main() -> None:
     parser.add_argument("dist", type=Path)
     args = parser.parse_args()
     try:
-        for path in verify_files(args.project, args.version, args.dist, 120):
+        for path in verify_files(args.project, args.version, args.dist):
             print(path)
     except (OSError, TypeError, ValueError, IncompleteRead) as error:
         parser.error(str(error))
 
 
-def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> list[Path]:
+def verify_files(project: str, version: str, dist: Path) -> list[Path]:
     """Check the local files against PyPI.
 
     :param project: Published project name.
     :param version: Published release version.
     :param dist: Directory containing every expected distribution.
-    :param wait_seconds: Maximum time to wait for PyPI's listing.
     :returns: Local distribution paths for attestation verification.
     """
-    if wait_seconds < 0 or not dist.is_dir():
-        raise ValueError("release files require a directory and nonnegative wait")
+    if not dist.is_dir():
+        raise ValueError(f"distribution directory does not exist: {dist}")
     name = canonicalize_name(project, validate=True)
     release = Version(version)
     local: dict[str, str] = {}
@@ -66,7 +65,7 @@ def verify_files(project: str, version: str, dist: Path, wait_seconds: int) -> l
             local[path.name] = hashlib.file_digest(stream, "sha256").hexdigest()
     if not local:
         raise ValueError(f"distribution directory is empty: {dist}")
-    deadline = time.monotonic() + wait_seconds
+    deadline = time.monotonic() + 120
     delay = 1
     while True:
         remote: dict[str, str] = {}
