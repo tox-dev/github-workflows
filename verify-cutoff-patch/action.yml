@@ -1,5 +1,5 @@
-name: Verify Nab cutoff patch
-description: Reject pyproject changes other than expired Nab package cutoffs
+name: Verify cutoff patch
+description: Reject pyproject changes other than expired package cutoffs and the shared resolver pin
 runs:
   using: composite
   steps:

@@ -209,7 +209,7 @@ jobs:
               exit 1
             fi
           done <"$RUNNER_TEMP/dependency-modes"
-      - uses: $/verify-nab-cutoff-patch
+      - uses: $/verify-cutoff-patch
       - name: Commit refreshed tools
         env:
           COMMIT_MESSAGE: ${{ inputs.commit-message }}
