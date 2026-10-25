@@ -95,7 +95,8 @@ def test_shfmt_hook_rejects_unformatted_inline_shell(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     script = tmp_path / "inline-shell-check.sh"
     script.write_text("#!/usr/bin/env bash\nif true\nthen\necho x\nfi\n")
-    executable = shutil.which("prek")
+    tools = Path(__file__).resolve().parents[2] / ".release-tools/bin"
+    executable = shutil.which("prek", path=f"{tools}{os.pathsep}{os.environ['PATH']}")
     assert executable is not None
     result = subprocess.run(
         [
