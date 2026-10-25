@@ -120,6 +120,17 @@ runs:
         VERSION: ${{ inputs.version }}
         CHANGELOG: ${{ steps.config.outputs.changelog }}
       run: release-creator notes --changelog "$CHANGELOG" --tag "$VERSION" --repository "$GITHUB_REPOSITORY" >/dev/null
+    - name: Reject other hook configurations
+      if: inputs.checks == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        others=$(git ls-files -- ':(glob)**/prek.toml' ':(glob)**/.pre-commit-config.yml' \
+          ':(glob)*/**/.pre-commit-config.yaml')
+        if [[ -n "$others" ]]; then
+          echo "::error::hooks must be configured only in the root .pre-commit-config.yaml: ${others//$'\n'/, }" >&2
+          exit 1
+        fi
     - name: Run prek on release patch
       if: inputs.checks == 'true'
       shell: bash

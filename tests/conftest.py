@@ -72,7 +72,6 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "publish-jetbrains-marketplace",
         "sign-jetbrains-plugin",
         "publish-post-release-pr",
-        "verify-frozen-hooks",
     ):
         action = yaml.safe_load((source / action_name / "action.yml").read_text())
         for index, step in enumerate(action["runs"]["steps"]):
@@ -464,11 +463,6 @@ def _condition(
         return any(_condition(part, environment, inputs, step_outputs) for part in expression.split(" || "))
     if " && " in expression:
         return all(_condition(part, environment, inputs, step_outputs) for part in expression.split(" && "))
-    for function in ("startsWith", "endsWith"):
-        if expression.startswith(f"{function}(") and expression.endswith(")"):
-            subject, affix = expression.removeprefix(f"{function}(").removesuffix(")").split(", ", 1)
-            value = _expression(subject, environment, inputs, step_outputs)
-            return value.startswith(affix.strip("'")) if function == "startsWith" else value.endswith(affix.strip("'"))
     for operator in (" == ", " != "):
         if operator in expression:
             left, right = expression.split(operator, 1)
@@ -554,15 +548,6 @@ def _expression(
         return expression[1:-1]
     if " == " in expression or " != " in expression:
         return str(_condition(expression, environment, inputs, step_outputs)).lower()
-    if " || " in expression:
-        return next(
-            (
-                value
-                for part in expression.split(" || ")
-                if (value := _expression(part, environment, inputs, step_outputs))
-            ),
-            "",
-        )
     if expression.startswith("inputs."):
         return inputs[expression.removeprefix("inputs.")]
     if expression.startswith("steps."):
@@ -570,10 +555,6 @@ def _expression(
         return step_outputs.get(step_id, {}).get(output_name, "")
     if expression == "runner.temp":
         return environment["RUNNER_TEMP"]
-    if expression == "github.ref":
-        return environment.get("GITHUB_REF", "")
-    if expression == "github.ref_name":
-        return environment.get("GITHUB_REF_NAME", "")
     if expression == "github.repository":
         return environment["GITHUB_REPOSITORY"]
     if expression == "github.base_ref":

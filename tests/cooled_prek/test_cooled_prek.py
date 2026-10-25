@@ -8,16 +8,6 @@ from pathlib import Path
 import yaml
 
 
-def test_tagged_source_checks_frozen_hooks_before_prek() -> None:
-    root = Path(__file__).resolve().parents[2]
-    prepare = yaml.load((root / ".github/workflows/prepare-towncrier-release.yaml").read_text(), Loader=yaml.BaseLoader)
-    tagged = yaml.load((root / "check-tagged-source/action.yml").read_text(), Loader=yaml.BaseLoader)
-
-    for steps in (prepare["jobs"]["assemble"]["steps"], tagged["runs"]["steps"]):
-        frozen = next(index for index, step in enumerate(steps) if step.get("uses") == "$/verify-frozen-hooks")
-        assert frozen < next(index for index, step in enumerate(steps) if "prek" in step.get("run", ""))
-
-
 def test_every_hook_run_uses_the_root_config() -> None:
     root = Path(__file__).resolve().parents[2]
     runs = [

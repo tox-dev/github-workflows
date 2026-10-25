@@ -99,7 +99,6 @@ jobs:
           groups: release-prepare${{ inputs.local-tool-source && ' project-runtime' || '' }}
           venv: .venv
           local-tool-source: ${{ inputs.local-tool-source }}
-      - uses: $/verify-frozen-hooks
       - name: Install prek hooks
         id: hooks
         env:

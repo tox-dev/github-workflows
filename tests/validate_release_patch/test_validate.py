@@ -351,3 +351,27 @@ def test_validate_rejects_prek_changes(repository: Path, tmp_path: Path, action_
     )
     assert result.returncode != 0
     assert "prek failed" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("prek.toml", id="root-prek-toml"),
+        pytest.param("sub/.pre-commit-config.yaml", id="nested-yaml"),
+    ],
+)
+def test_validate_rejects_other_hook_configuration(
+    repository: Path, tmp_path: Path, action_scripts: Path, path: str
+) -> None:
+    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
+    run(repository, "git", "reset", "--hard", "HEAD")
+    (repository / path).parent.mkdir(parents=True, exist_ok=True)
+    (repository / path).write_text("repos: []\n")
+    run(repository, "git", "add", path)
+    run(repository, "git", "commit", "-m", "Add another hook configuration")
+    run(repository, "git", "push", "origin", "main")
+
+    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
+
+    assert result.returncode != 0
+    assert f"only in the root .pre-commit-config.yaml: {path}" in result.stderr

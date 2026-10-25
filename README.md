@@ -191,33 +191,17 @@ The weekly updater freezes eligible hook revisions with `prek update --freeze --
 checks the patch paths and file modes before obtaining an App token.
 
 Every shared `prek` command passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek.toml` and
-also runs nested configurations, which no guard checks. `verify-frozen-hooks` therefore rejects a `prek.toml` anywhere,
-a `.pre-commit-config.yml`, and a `.pre-commit-config.yaml` below the root.
-
-On a tag, `verify-frozen-hooks` also checks when each new external `(repository, commit)` pair was first present in
-GitHub. It compares the tag with the previous published release in the same tag stream and on the first-parent release
-line. A new pair must come from a merged PR, and either its merge or a PR run containing the exact pair must be at least
-seven days old. The first release has no baseline: every external pair needs that proof. Directly pushed hook changes
-cannot acquire it. The proof runs before `release-creator hooks --check` builds any hook repository. This read-only
-Action has no outputs; it fails before `prek` runs. The tagged source job needs `actions: read`, `contents: read`,
-`pull-requests: read`, and a checkout with `fetch-depth: 0`.
-
-For a release dispatched from `main` with a tag input, pass that tag to the Action. It checks that the checkout is the
-tag's commit; a dispatch on `main` with the wrong checkout fails.
-
-```yaml
-  - uses: tox-dev/github-workflows/verify-frozen-hooks@SHA
-    with:
-      tag: ${{ inputs.tag }}
-```
+also runs nested configurations, which no guard checks. `prepare-towncrier` and `validate-release-patch` therefore
+reject a `prek.toml` anywhere, a `.pre-commit-config.yml`, and a `.pre-commit-config.yaml` below the root before they
+run `prek`.
 
 The shared prepare and tagged validator run `refresh-release-lock` in `check` mode before release checks or publishing.
 `check-tagged-source` bundles the tagged checks for a custom tag publisher: it requires `GITHUB_REF` to be the tag of
-the checkout on `main`, checks the locks, installs `release-check`, runs `verify-frozen-hooks`, and then runs
-`prek run --all-files` with the seven-day cutoff. It takes `keep-uv-lock` and the secondary lock inputs below, and needs
-the same permissions and full-history checkout as `verify-frozen-hooks`. Pass `keep-uv-lock: true` when the repository
-commits a native `uv.lock`. For a secondary Nab lock, pass its path, selected groups, selection type, and matrix inputs
-to both workflows. A stale primary, native, or secondary lock stops the release before artifacts are built.
+the checkout on `main`, checks the locks, installs `release-check`, and then runs `prek run --all-files` with the
+seven-day cutoff. It takes `keep-uv-lock` and the secondary lock inputs below, and needs a full-history checkout. Pass
+`keep-uv-lock: true` when the repository commits a native `uv.lock`. For a secondary Nab lock, pass its path, selected
+groups, selection type, and matrix inputs to both workflows. A stale primary, native, or secondary lock stops the
+release before artifacts are built.
 
 For example, a tagged source job that also publishes from a PGO lock checks both files before installing build tools:
 

@@ -93,6 +93,17 @@ runs:
           ;;
         esac
         towncrier build --yes --version "$CHANGELOG_PREFIX${VERSION#v}"
+    - name: Reject other hook configurations
+      if: inputs.phase != 'build'
+      shell: bash
+      run: |
+        set -euo pipefail
+        others=$(git ls-files -- ':(glob)**/prek.toml' ':(glob)**/.pre-commit-config.yml' \
+          ':(glob)*/**/.pre-commit-config.yaml')
+        if [[ -n "$others" ]]; then
+          echo "::error::hooks must be configured only in the root .pre-commit-config.yaml: ${others//$'\n'/, }" >&2
+          exit 1
+        fi
     - name: Format changelog
       if: inputs.phase != 'build'
       shell: bash

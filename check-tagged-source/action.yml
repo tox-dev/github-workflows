@@ -1,5 +1,5 @@
 name: Check tagged source
-description: Check the tag, the project lock, and the frozen hooks of a tagged checkout, then run its cooled hooks
+description: Check the tag and the project lock of a tagged checkout, then run its cooled hooks
 inputs:
   keep-uv-lock:
     description: Check a committed native uv.lock alongside pylock.toml
@@ -49,7 +49,6 @@ runs:
       with:
         groups: release-check
         venv: ${{ runner.temp }}/source-check-tools
-    - uses: $/verify-frozen-hooks
     - name: Run tagged source hooks
       shell: bash
       run: '"$GITHUB_ACTION_PATH/../tools/cooled_prek.sh" run --all-files'
