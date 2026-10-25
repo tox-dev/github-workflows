@@ -266,7 +266,7 @@ environment job.
 
 Run the tag workflow under `concurrency` keyed by the tag, without cancelling a run in progress. The release job has
 `contents: write` and no checkout. It reconciles the PyPI digests, requires that the tag still resolves to `GITHUB_SHA`,
-and then creates the GitHub Release once with `publish-github-release`:
+and then creates the GitHub Release with a single `publish-github-release` call after PyPI, with no separate stage job:
 
 ```yaml
 concurrency:
@@ -542,7 +542,7 @@ nonempty.
 
 `reconcile-pypi-artifacts` compares the complete validated distribution directory with PyPI's Simple JSON API and
 verifies a trusted-publisher attestation for each file. Upload the complete validated directory with the pinned PyPI
-publisher and `skip-existing: true`. A rerun sends only files missing from PyPI. Run this Action in a read-only job
+publisher. If a run fails, use "Re-run failed jobs" so the upload repeats with the same built files. Run this Action
 after the publisher. A different digest in an already published file, unexpected or yanked file, malformed response, or
 invalid attestation fails. The GitHub Release writer must depend on this verification.
 
