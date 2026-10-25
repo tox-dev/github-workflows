@@ -1,5 +1,5 @@
 name: Render release notes
-description: Validate a tagged changelog and render its GitHub Release body
+description: Validate a tagged changelog and render its GitHub Release body to $RUNNER_TEMP/release-notes.md
 inputs:
   tag:
     description: Existing release tag
@@ -13,9 +13,6 @@ inputs:
   artifact-label:
     description: Link text for the published artifact
     default: PyPI release
-  output:
-    description: Path for the rendered Markdown body
-    required: true
   generated-notes:
     description: Existing GitHub generated-notes file with contributor metadata
     default: ""
@@ -49,7 +46,6 @@ runs:
         CHANGELOG: ${{ inputs.changelog }}
         ARTIFACT_URL: ${{ inputs.artifact-url }}
         ARTIFACT_LABEL: ${{ inputs.artifact-label }}
-        OUTPUT: ${{ inputs.output }}
         GENERATED_NOTES: ${{ inputs.generated-notes }}
         PREVIOUS: ${{ steps.previous.outputs.previous }}
       run: |
@@ -64,4 +60,4 @@ runs:
         if [[ -n "$GENERATED_NOTES" ]]; then
           args+=(--generated-notes "$GENERATED_NOTES")
         fi
-        release-creator notes "${args[@]}" >"$OUTPUT"
+        release-creator notes "${args[@]}" >"$RUNNER_TEMP/release-notes.md"

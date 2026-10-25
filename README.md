@@ -532,7 +532,6 @@ creates the Release; this Action only writes a local Markdown file.
       changelog: CHANGELOG.md
       artifact-url: https://pypi.org/project/example/${{ github.ref_name }}/
       generated-notes: ${{ runner.temp }}/generated-notes.md
-      output: ${{ runner.temp }}/release-notes.md
 ```
 
 - `tag` **(required)**: Release version, such as `1.2.3`. The checkout must contain its changelog section.
@@ -544,16 +543,15 @@ creates the Release; this Action only writes a local Markdown file.
 - `generated-notes`: Path to GitHub's generated-notes body. The tag publisher fetches it after PyPI publication. It
   preserves New Contributors and fills any missing `by @handle` credit. Omit it when the release has no GitHub-generated
   contributor metadata.
-- `output` **(required)**: Writable path for the GitHub Release body. Pass it to `gh release create --notes-file` only
-  after the ecosystem publisher succeeds.
 
 The Action reads `GITHUB_REPOSITORY` for PR and comparison links. A repository with separate release namespaces, such as
 toml-fmt, calls `release-creator notes --package` directly for its package changelog.
 
-**Output:** No named output. **Working-tree effect:** The Action writes only `output`. It rejects an invalid tag, a
-missing heading, an empty body, or a missing comparison link when an earlier tag exists. It neither fetches generated
-notes nor writes a GitHub Release, so a PR job needs only read permissions. Fetching generated notes uses GitHub's
-release endpoint and needs Contents write in the tag publisher.
+**Output:** No named output. **Working-tree effect:** The Action writes only `$RUNNER_TEMP/release-notes.md`. Pass it to
+`gh release create --notes-file` only after the ecosystem publisher succeeds. It rejects an invalid tag, a missing
+heading, an empty body, or a missing comparison link when an earlier tag exists. It neither fetches generated notes nor
+writes a GitHub Release, so a PR job needs only read permissions. Fetching generated notes uses GitHub's release
+endpoint and needs Contents write in the tag publisher.
 
 ## Select the previous release tag
 

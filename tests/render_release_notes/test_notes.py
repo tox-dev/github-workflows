@@ -45,11 +45,10 @@ def test_render_release_notes_uses_tagged_changelog(
         "render-release-notes",
         version="0.2.0",
         TAG="0.2.0",
-        OUTPUT=str(tmp_path / "notes.md"),
         ARTIFACT_URL="https://pypi.org/project/fixture/0.2.0/",
     )
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "notes.md").read_text() == dedent(
+    assert (tmp_path / "release-notes.md").read_text() == dedent(
         """\
         <a name="release-0-2-0-added"></a>
 
@@ -81,11 +80,10 @@ def test_render_release_notes_uses_generated_contributors(
         "render-release-notes",
         version="0.2.0",
         TAG="0.2.0",
-        OUTPUT=str(tmp_path / "notes.md"),
         GENERATED_NOTES=str(generated),
     )
     assert result.returncode == 0, result.stderr
-    assert "### New Contributors\n\n- @gaborbernat" in (tmp_path / "notes.md").read_text()
+    assert "### New Contributors\n\n- @gaborbernat" in (tmp_path / "release-notes.md").read_text()
 
 
 def test_render_release_notes_accepts_first_release(
@@ -99,11 +97,10 @@ def test_render_release_notes_accepts_first_release(
         "render-release-notes",
         version="0.2.0",
         TAG="0.2.0",
-        OUTPUT=str(tmp_path / "notes.md"),
     )
     assert result.returncode == 0, result.stderr
-    assert "### Features" in (tmp_path / "notes.md").read_text()
-    assert "compare/" not in (tmp_path / "notes.md").read_text()
+    assert "### Features" in (tmp_path / "release-notes.md").read_text()
+    assert "compare/" not in (tmp_path / "release-notes.md").read_text()
 
 
 @pytest.mark.parametrize(
@@ -124,10 +121,12 @@ def test_render_release_notes_converts_rst_reference(
         version="0.2.0",
         TAG="0.2.0",
         CHANGELOG="CHANGELOG.rst",
-        OUTPUT=str(tmp_path / "notes.md"),
     )
     assert result.returncode == 0, result.stderr
-    assert f"Correct a bug ([#4](https://github.com/tox-dev/fixture/{path}/4))" in (tmp_path / "notes.md").read_text()
+    assert (
+        f"Correct a bug ([#4](https://github.com/tox-dev/fixture/{path}/4))"
+        in (tmp_path / "release-notes.md").read_text()
+    )
 
 
 def test_render_release_notes_custom_artifact_label(
@@ -140,14 +139,13 @@ def test_render_release_notes_custom_artifact_label(
         "render-release-notes",
         version="0.2.0",
         TAG="0.2.0",
-        OUTPUT=str(tmp_path / "notes.md"),
         ARTIFACT_URL="https://github.com/tox-dev/fixture/releases/download/0.2.0/fixture.pyz",
         ARTIFACT_LABEL="Zipapp",
     )
     assert result.returncode == 0, result.stderr
     assert (
         "[Zipapp](https://github.com/tox-dev/fixture/releases/download/0.2.0/fixture.pyz)"
-        in (tmp_path / "notes.md").read_text()
+        in (tmp_path / "release-notes.md").read_text()
     )
 
 
@@ -176,7 +174,6 @@ def test_render_release_notes_rejects_invalid_source(
         "render-release-notes",
         version=tag,
         TAG=tag,
-        OUTPUT=str(tmp_path / "notes.md"),
     )
     assert result.returncode != 0
     assert error in result.stderr
