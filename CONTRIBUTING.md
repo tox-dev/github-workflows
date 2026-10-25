@@ -11,7 +11,7 @@ index:
 ```bash
 uv venv --allow-existing --python 3.15 .venv
 EXCLUDE_NEWER="7 days" tools/install_live_tools.sh .release-tools \
-  'release-creator>=2.0.0' 'towncrier>=26.9' 'prek>=0.2' 'yq>=4.4.5'
+  'release-creator>=3.1.0' 'towncrier>=26.9' 'prek>=0.2' 'yq>=4.4.5'
 uv pip install --python .venv/bin/python --group test
 export PATH="$PWD/.release-tools/bin:$PWD/.venv/bin:$PATH"
 ```

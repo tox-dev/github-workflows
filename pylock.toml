@@ -1046,7 +1046,7 @@ sha256 = "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
 
 [[packages]]
 name = "release-creator"
-version = "2.0.0"
+version = "3.1.0"
 marker = "\"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups"
 requires-python = ">=3.15"
 dependencies = [
@@ -1056,28 +1056,27 @@ dependencies = [
     { name = "mdformat-gfm" },
     { name = "packaging" },
     { name = "pyyaml" },
-    { name = "tomli-w" },
     { name = "towncrier" },
 ]
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "release_creator-2.0.0.tar.gz"
-upload-time = 2026-10-25 07:08:31.274557+00:00
-url = "https://files.pythonhosted.org/packages/5d/40/55f7a22a3cda929f9efdf09dbb825e888487e658ce14892f2340218335c1/release_creator-2.0.0.tar.gz"
-size = 209257
+name = "release_creator-3.1.0.tar.gz"
+upload-time = 2026-10-25 21:03:30.896511+00:00
+url = "https://files.pythonhosted.org/packages/03/98/73278ccb2393b27b702100a0eff5b387f2db6f06fc8aa0dea60bbfcbd402/release_creator-3.1.0.tar.gz"
+size = 178357
 
 [packages.sdist.hashes]
-sha256 = "f7ccec9787327a7e12f4a79c15dff470e894d3a88c9bb60eac9c6f1984ee63bf"
+sha256 = "7fba39aa52283c7edb4bf906656296a0696b4d23f6d6df85ef5d9a7abca7e1b2"
 
 [[packages.wheels]]
-name = "release_creator-2.0.0-py3-none-any.whl"
-upload-time = 2026-10-25 07:08:29.746110+00:00
-url = "https://files.pythonhosted.org/packages/88/f1/d7103a5c410019207015fc8229f976e8906da90409eddd5e00066bb360ca/release_creator-2.0.0-py3-none-any.whl"
-size = 66805
+name = "release_creator-3.1.0-py3-none-any.whl"
+upload-time = 2026-10-25 21:03:29.549360+00:00
+url = "https://files.pythonhosted.org/packages/35/f2/20dca23b89aadcd846a7b36d763440a2e5cf2ef3b2adda350af16406aa52/release_creator-3.1.0-py3-none-any.whl"
+size = 51886
 
 [packages.wheels.hashes]
-sha256 = "cf93c2395f4a9ba80bd503792c16189fc238c5d82bb90535250de2968d8d2e92"
+sha256 = "e378a399af800452180ca1748dfb981b9f0115b634587226be927162b4b34f17"
 
 [[packages]]
 name = "setuptools"
@@ -1107,7 +1106,7 @@ sha256 = "51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670"
 [[packages]]
 name = "tomli-w"
 version = "1.2.0"
-marker = "\"release-prepare\" in dependency_groups or \"release-validate\" in dependency_groups or \"test\" in dependency_groups"
+marker = "\"test\" in dependency_groups"
 requires-python = ">=3.9"
 index = "https://pypi.org/simple/"
 
@@ -1468,13 +1467,14 @@ sha256 = "6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab"
 
 [tool.nab]
 nab-version = "0.0.22"
-created-at = 2026-10-25 20:50:04.373872+00:00
+created-at = 2026-10-25 21:05:19.966222+00:00
 command-line = [
     "nab",
     "lock",
     "--all-groups",
     "--all-extras",
     "--no-cache",
+    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"
