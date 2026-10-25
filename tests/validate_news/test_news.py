@@ -146,6 +146,7 @@ def test_validate_news_forwards_secondary_lock_inputs() -> None:
     [
         pytest.param("pylock.zipapp.toml", False, "pylock.zipapp.toml", "true", id="selected-secondary-lock"),
         pytest.param("", False, "pylock.zipapp.toml", "false", id="unselected-secondary-lock"),
+        pytest.param("", False, "pylock.toml", "true", id="primary-lock"),
         pytest.param("", False, "pyproject.toml", "true", id="root-project"),
         pytest.param("", False, ".github/workflows/release.yaml", "true", id="workflow-repin"),
         pytest.param("", False, "README.md", "false", id="unrelated"),
@@ -181,7 +182,7 @@ def test_validate_news_detects_release_input_change(
         "[tool.nab]\nuploaded-prior-to = false\n"
         if changed_path == "nab.toml"
         else (repository / changed_path).read_text() + "\n"
-        if changed_path == "pyproject.toml"
+        if changed_path in {"pylock.toml", "pyproject.toml"}
         else "lock-version = '1.0'\ncreated-by = 'test'\n"
     )
     run(repository, "git", "add", changed_path)
@@ -206,3 +207,32 @@ def test_validate_news_detects_release_input_change(
 
     assert result.returncode == 0, result.stderr
     assert f"changed={changed}\n" in output.read_text()
+
+
+def test_validate_news_rejects_removed_release_lock(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    (repository / "pylock.toml").write_text("lock-version = '1.0'\n")
+    run(repository, "git", "add", ".")
+    run(repository, "git", "commit", "-m", "Add release lock")
+    run(repository, "git", "push", "origin", "main")
+    run(repository, "git", "checkout", "-b", "remove-lock")
+    run(repository, "git", "rm", "-q", "pylock.toml")
+    run(repository, "git", "commit", "-m", "Remove release lock")
+
+    result = subprocess.run(
+        ["bash", str(action_scripts / "validate-news-2.sh")],
+        cwd=repository,
+        env=os.environ
+        | {
+            "BASE_REF": "main",
+            "ADDITIONAL_LOCK": "",
+            "KEEP_UV_LOCK": "false",
+            "GITHUB_OUTPUT": str(tmp_path / "lock-change-output"),
+            "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "validate-news"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "the release lock was removed" in result.stderr
