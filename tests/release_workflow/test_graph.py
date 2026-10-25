@@ -85,6 +85,7 @@ def test_local_release_creator_builds_with_locked_backends(tmp_path: Path) -> No
     (fake_bin / "uv").write_text(
         '#!/bin/sh\necho "$@" >>"$RUNNER_TEMP/uv-calls"\n'
         'if [ "$1" = build ]; then mkdir -p "$RUNNER_TEMP/local-tool-dist" && touch "$RUNNER_TEMP/local-tool-dist/x.whl"; fi\n'
+        f'if [ "$1" = run ]; then shift 4; shift; exec {sys.executable} "$@"; fi\n'
     )
     (fake_bin / "uv").chmod(0o755)
     command = tmp_path / ".venv/bin/release-creator"
@@ -102,6 +103,7 @@ def test_local_release_creator_builds_with_locked_backends(tmp_path: Path) -> No
             "GITHUB_WORKSPACE": str(tmp_path),
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_PATH": str(output),
+            "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "install-local-release-creator"),
         },
         capture_output=True,
         text=True,
@@ -109,7 +111,7 @@ def test_local_release_creator_builds_with_locked_backends(tmp_path: Path) -> No
     )
 
     assert result.returncode == 0, result.stderr
-    build, install = (tmp_path / "uv-calls").read_text().splitlines()
+    build, install, _ = (tmp_path / "uv-calls").read_text().splitlines()
     assert "--build-constraints constraints.txt --require-build-hashes" in build
     assert install.endswith(f"--no-deps {tmp_path}/local-tool-dist/x.whl")
     overlay = Path(output.read_text().strip())

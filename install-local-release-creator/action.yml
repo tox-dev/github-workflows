@@ -16,6 +16,5 @@ runs:
         uv build --wheel --build-constraints "$BUILD_CONSTRAINTS" \
           --require-build-hashes --out-dir "$RUNNER_TEMP/local-tool-dist" .
         uv pip install --python .venv/bin/python --no-deps "$RUNNER_TEMP/local-tool-dist/"*.whl
-        mkdir -p "$RUNNER_TEMP/local-release-cli"
-        ln -s "$GITHUB_WORKSPACE/.venv/bin/release-creator" "$RUNNER_TEMP/local-release-cli/release-creator"
-        echo "$RUNNER_TEMP/local-release-cli" >>"$GITHUB_PATH"
+        uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
+          "$GITHUB_ACTION_PATH/../tools/expose_locked_commands.py" .venv
