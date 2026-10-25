@@ -38,7 +38,7 @@ on:
         description: Body for the dependency pull request
         type: string
         default: |-
-          Refresh the project lock and exact pre-commit hook dependency pins.
+          Refresh the project lock.
       nab-git-commit:
         description: Temporary full commit SHA of notatallshaw/nab to install instead of the Nab release
         type: string
