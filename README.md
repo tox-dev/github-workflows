@@ -260,9 +260,11 @@ Publish only after the reusable workflow succeeds, so the lock check gates publi
 with pinned `download-artifact`
 [v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
 using `artifact-ids: ${{ needs.build.outputs.distributions-artifact-id }}`. The download checks the artifact digest and
-selects the wheel and sdist from that build run. Render GitHub notes in the caller's tag workflow after fetching
-GitHub's contributor metadata; this reusable workflow does not render notes. Keep PyPI OIDC in the caller's `release`
-environment job.
+selects the wheel and sdist from that build run. This reusable workflow does not render notes. Render them in a
+read-only `notes` job of the caller's tag workflow that runs in parallel with `build`: check out the full history, call
+`render-release-notes`, and upload `$RUNNER_TEMP/release-notes.md` as an artifact. The Action finds the previous tag
+with `release-creator tags --previous`, renders the section with `release-creator notes`, and appends the artifact link
+and the Full Changelog link. Keep PyPI OIDC in the caller's `release` environment job.
 
 Run the tag workflow under `concurrency` keyed by the tag, without cancelling a run in progress. The release job has
 `contents: write` and no checkout. It reconciles the PyPI digests, requires that the tag still resolves to `GITHUB_SHA`,
@@ -490,7 +492,7 @@ branch and tag ruleset bypass. A stale branch, invalid tag, or ruleset rejection
 ## Render GitHub Release notes
 
 `render-release-notes` checks the tag and its changelog section, finds the previous tag, and renders an unwrapped GitHub
-Release body with `release-creator`. Call it on the actual tag. The publisher still fetches GitHub's generated notes and
+Release body with `release-creator`. Call it on the actual tag in a read-only job with the full history. The release job
 creates the Release; this Action only writes a local Markdown file.
 
 ```yaml
@@ -499,7 +501,6 @@ creates the Release; this Action only writes a local Markdown file.
       tag: ${{ github.ref_name }}
       changelog: CHANGELOG.md
       artifact-url: https://pypi.org/project/example/${{ github.ref_name }}/
-      generated-notes: ${{ runner.temp }}/generated-notes.md
 ```
 
 - `tag` **(required)**: Release version, such as `1.2.3`. The checkout must contain its changelog section.
@@ -508,18 +509,14 @@ creates the Release; this Action only writes a local Markdown file.
 - `artifact-url`: Ecosystem release URL, such as a PyPI version page. Omit it for a GitHub-only project.
 - `artifact-label`: Link text for `artifact-url`; default `PyPI release`. Use `Zipapp` or another product name for a
   different artifact.
-- `generated-notes`: Path to GitHub's generated-notes body. The tag publisher fetches it after PyPI publication. It
-  preserves New Contributors and fills any missing `by @handle` credit. Omit it when the release has no GitHub-generated
-  contributor metadata.
 
 The Action reads `GITHUB_REPOSITORY` for PR and comparison links. A repository with separate release namespaces, such as
 toml-fmt, calls `release-creator notes --package` directly for its package changelog.
 
 **Output:** No named output. **Working-tree effect:** The Action writes only `$RUNNER_TEMP/release-notes.md`. Pass it to
 `gh release create --notes-file` only after the ecosystem publisher succeeds. It rejects an invalid tag, a missing
-heading, an empty body, or a missing comparison link when an earlier tag exists. It neither fetches generated notes nor
-writes a GitHub Release, so a PR job needs only read permissions. Fetching generated notes uses GitHub's release
-endpoint and needs Contents write in the tag publisher.
+heading, an empty body, or a missing comparison link when an earlier tag exists. It does not write a GitHub Release, so
+it needs only read permissions.
 
 ## Select the previous release tag
 
@@ -535,8 +532,7 @@ checkout or GitHub state.
 ```
 
 `tag` is required. Install `release-creator` on `PATH` before calling the Action. The `previous` output is empty when
-this is the first matching release. Pass it as `previous_tag_name` to GitHub's generated-notes endpoint only when
-nonempty.
+this is the first matching release.
 
 ## Reconcile PyPI artifacts
 

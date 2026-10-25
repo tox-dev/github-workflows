@@ -250,7 +250,6 @@ def action(
         "ARTIFACT_URL": "",
         "ARTIFACT_LABEL": "PyPI release",
         "LOCK": "pylock.toml",
-        "GENERATED_NOTES": "",
         "MODE": "complete",
         "RUN_ID": "42",
         "WORKFLOW_PATH": ".github/workflows/check.yaml",

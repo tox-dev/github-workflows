@@ -13,9 +13,6 @@ inputs:
   artifact-label:
     description: Link text for the published artifact
     default: PyPI release
-  generated-notes:
-    description: Existing GitHub generated-notes file with contributor metadata
-    default: ""
   previous:
     description: Previous tag, or auto to calculate it from Git history
     default: auto
@@ -46,7 +43,6 @@ runs:
         CHANGELOG: ${{ inputs.changelog }}
         ARTIFACT_URL: ${{ inputs.artifact-url }}
         ARTIFACT_LABEL: ${{ inputs.artifact-label }}
-        GENERATED_NOTES: ${{ inputs.generated-notes }}
         PREVIOUS: ${{ steps.previous.outputs.previous }}
       run: |
         set -euo pipefail
@@ -56,8 +52,5 @@ runs:
         fi
         if [[ -n "$ARTIFACT_URL" ]]; then
           args+=(--artifact-url "$ARTIFACT_URL" --artifact-label "$ARTIFACT_LABEL")
-        fi
-        if [[ -n "$GENERATED_NOTES" ]]; then
-          args+=(--generated-notes "$GENERATED_NOTES")
         fi
         release-creator notes "${args[@]}" >"$RUNNER_TEMP/release-notes.md"

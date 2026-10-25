@@ -149,3 +149,14 @@ def test_release_writer_requires_the_tag_at_the_event_commit(
     )
 
     assert (result.returncode == 0) is accepted, result.stderr
+
+
+def test_release_notes_render_read_only_from_full_history() -> None:
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
+    notes = workflow["jobs"]["notes"]
+    checkout = next(step for step in notes["steps"] if "checkout" in step.get("uses", ""))
+
+    assert notes["permissions"] == {"contents": "read"}
+    assert "needs" not in notes
+    assert checkout["with"]["fetch-depth"] == 0
+    assert set(workflow["jobs"]) == {"source", "notes", "publish"}

@@ -64,28 +64,6 @@ def test_render_release_notes_uses_tagged_changelog(
     assert "previous=0.1.0" in (tmp_path / "output").read_text()
 
 
-def test_render_release_notes_uses_generated_contributors(
-    tagged_repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
-    generated = tmp_path / "generated.md"
-    generated.write_text(
-        "* Add a new feature by @gaborbernat in https://github.com/tox-dev/fixture/pull/2\n"
-        "\n## New Contributors\n* @gaborbernat made their first contribution in "
-        "https://github.com/tox-dev/fixture/pull/2\n",
-    )
-    result = action(
-        tagged_repository,
-        tmp_path,
-        action_scripts,
-        "render-release-notes",
-        version="0.2.0",
-        TAG="0.2.0",
-        GENERATED_NOTES=str(generated),
-    )
-    assert result.returncode == 0, result.stderr
-    assert "### New Contributors\n\n- @gaborbernat" in (tmp_path / "release-notes.md").read_text()
-
-
 def test_render_release_notes_accepts_first_release(
     tagged_repository: Path, tmp_path: Path, action_scripts: Path
 ) -> None:
