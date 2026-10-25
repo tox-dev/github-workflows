@@ -32,10 +32,28 @@ def test_prepare_validation_calculates_version_independently(
     if prefix:
         expected_arguments.extend(["--prefix", prefix])
     command.write_text(
-        f"#!{sys.executable}\nimport sys\nassert sys.argv[1:] == {expected_arguments!r}\nprint({f'{prefix}1.2.3'!r})\n"
+        f"#!{sys.executable}\nimport sys\nassert sys.argv[1:] == {expected_arguments!r}\n"
+        f"assert sys.stdin.read() == {f'{prefix}1.2.2' + chr(10)!r}\nprint({f'{prefix}1.2.3'!r})\n"
     )
     command.chmod(0o755)
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.org",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "x",
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(["git", "tag", f"{prefix}1.2.2"], cwd=tmp_path, check=True)
 
     result = subprocess.run(
         ["bash", "-e", "-o", "pipefail", "-c", verify["run"]],
