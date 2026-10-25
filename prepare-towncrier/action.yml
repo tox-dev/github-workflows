@@ -98,10 +98,12 @@ runs:
       shell: bash
       env:
         VERSION: ${{ steps.version.outputs.version }}
+        CHANGELOG_PREFIX: ${{ inputs.changelog-prefix }}
         CHANGELOG: ${{ steps.config.outputs.changelog }}
         REPOSITORY: ${{ github.repository }}
         GH_TOKEN: ${{ github.token }}
-      run: release-creator contributors --changelog "$CHANGELOG" --version "$VERSION" --repository "$REPOSITORY"
+      run: >-
+        release-creator contributors --changelog "$CHANGELOG" --version "$CHANGELOG_PREFIX${VERSION#v}" --repository "$REPOSITORY"
     - name: Reject other hook configurations
       if: inputs.phase != 'build'
       shell: bash
