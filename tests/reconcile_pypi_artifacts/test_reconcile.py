@@ -14,7 +14,7 @@ from pytest_httpserver import HTTPServer
     [
         pytest.param("", "1.0", True, "name is invalid", id="missing-project"),
         pytest.param("fixture", "", True, "Invalid version", id="missing-version"),
-        pytest.param("fixture", "1.0", False, "release files require a directory", id="missing-distribution"),
+        pytest.param("fixture", "1.0", False, "distribution directory does not exist", id="missing-distribution"),
     ],
 )
 def test_reconcile_rejects_invalid_inputs(
