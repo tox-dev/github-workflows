@@ -46,6 +46,42 @@ def test_resolver_upgrade_rejects_invalid_state(
     assert error in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("repository", "pin", "locked", "accepted"),
+    [
+        pytest.param("tox-dev/github-workflows", "uv==0.13.6", "0.13.6", True, id="shared-resolver"),
+        pytest.param("tox-dev/github-workflows", "uv==0.13.6", "0.13.5", False, id="lock-mismatch"),
+        pytest.param("tox-dev/github-workflows", "uv>=0.13.6", "0.13.6", False, id="range"),
+        pytest.param("tox-dev/other", "uv==0.13.6", "0.13.6", False, id="other-repository"),
+    ],
+)
+def test_writer_accepts_only_the_locked_resolver_pin(
+    tmp_path: Path, repository: str, pin: str, locked: str, accepted: bool
+) -> None:
+    project = tmp_path / "pyproject.toml"
+    project.write_text('[dependency-groups]\nrelease-resolver = ["uv==0.13.5"]\n[tool.release-creator.locks]\n')
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "pyproject.toml"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.org", "commit", "-qm", "Pin"],
+        cwd=tmp_path,
+        check=True,
+    )
+    project.write_text(project.read_text().replace("uv==0.13.5", pin))
+    (tmp_path / "pylock.toml").write_text('dependency-groups = ["release-resolver"]\n' + _uv_package(locked))
+
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parents[2] / "tools/verify_cutoff_patch.py")],
+        cwd=tmp_path,
+        env=os.environ | {"GITHUB_REPOSITORY": repository},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert (result.returncode == 0) is accepted, result.stderr
+
+
 def test_resolver_upgrade_import_has_no_side_effect() -> None:
     source = Path(__file__).resolve().parents[2] / "tools/refresh_uv_resolver.py"
 
