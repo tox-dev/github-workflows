@@ -69,3 +69,26 @@ def test_verify_frozen_hooks_rejects_missing_managed_pins(tmp_path: Path, action
 
     assert result.returncode != 0
     assert "pins do not match the resolved closure" in result.stderr
+
+
+def test_verify_frozen_hooks_proves_tagged_revisions_before_building_hooks(
+    tmp_path: Path, action_scripts: Path
+) -> None:
+    repository = _repository(
+        tmp_path,
+        "repos:\n  - repo: local\n    hooks:\n      - id: fetch\n        name: fetch\n        entry: 'true'\n"
+        "        language: python\n        additional_dependencies: [requests==2.31.0]\n",
+    )
+
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "verify-frozen-hooks",
+        version="",
+        GITHUB_REF="refs/tags/v1.0.0",
+        GITHUB_REF_NAME="v1.0.0",
+    )
+
+    assert result.returncode != 0
+    assert "pins do not match the resolved closure" not in result.stderr
