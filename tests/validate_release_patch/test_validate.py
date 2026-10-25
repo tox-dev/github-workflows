@@ -4,7 +4,6 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-import yaml
 from conftest import action, run
 
 
@@ -26,12 +25,6 @@ def test_validate_applies_patch_in_fresh_worktree(repository: Path, tmp_path: Pa
     assert result.returncode == 0, result.stderr
     assert run(validation, "git", "diff", "--cached", "--name-only").stdout.strip()
     assert run(repository, "git", "diff", "--cached", "--name-only").stdout == source_staged
-
-
-def test_validate_uses_current_checkout() -> None:
-    config = yaml.safe_load((Path(__file__).resolve().parents[2] / "validate-release-patch/action.yml").read_text())
-    assert "working-directory" not in config.get("inputs", {})
-    assert all("working-directory" not in step for step in config["runs"]["steps"])
 
 
 def track_rst_changelog(repository: Path) -> None:

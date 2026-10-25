@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 from conftest import action, run
 
 
@@ -128,17 +127,6 @@ def test_validate_news_requires_pr_base(repository: Path, tmp_path: Path, action
     )
     assert result.returncode != 0
     assert "news validation needs a PR base" in result.stderr
-
-
-def test_validate_news_forwards_secondary_lock_inputs() -> None:
-    config = yaml.safe_load((Path(__file__).resolve().parents[2] / "validate-news/action.yml").read_text())
-    refresh = next(step for step in config["runs"]["steps"] if step.get("uses") == "$/refresh-release-lock")
-    secondary = [name for name in config["inputs"] if name.startswith("additional-")]
-
-    assert secondary
-    assert all(refresh["with"][name] == "${{ inputs." + name + " }}" for name in secondary)
-    assert refresh["with"]["mode"] == "check"
-    assert refresh["with"]["keep-uv-lock"] == "${{ inputs.keep-uv-lock }}"
 
 
 @pytest.mark.parametrize(

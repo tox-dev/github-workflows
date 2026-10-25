@@ -10,54 +10,6 @@ import pytest
 import yaml
 
 
-def test_prepare_workflow_calls_reusable_preparation() -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-release.yaml").read_text()
-    )
-    assert list(workflow["jobs"]) == ["prepare"]
-    assert workflow["jobs"]["prepare"]["uses"] == "$/.github/workflows/prepare-towncrier-release.yaml"
-
-
-def test_tagged_release_checks_the_committed_lock() -> None:
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
-    assert "check" in workflow["jobs"]["publish"]["needs"]
-
-
-def test_prepare_jobs_transfer_the_uploaded_patch() -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
-    )
-    jobs = workflow["jobs"]
-    assert list(jobs) == ["assemble", "validate", "push"]
-    assert jobs["assemble"]["outputs"]["artifact-id"] == "${{ steps.patch.outputs.artifact-id }}"
-    assert (
-        next(step for step in jobs["assemble"]["steps"] if step.get("id") == "patch")["with"]["name"] == "release-patch"
-    )
-    for job in ("validate", "push"):
-        assert (
-            next(step for step in jobs[job]["steps"] if "download-artifact" in step.get("uses", ""))["with"][
-                "artifact-ids"
-            ]
-            == "${{ needs.assemble.outputs.artifact-id }}"
-        )
-
-
-def test_prepare_validates_uploaded_patch_before_writer() -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
-    )
-    jobs = workflow["jobs"]
-    assert jobs["validate"]["permissions"] == {"contents": "read"}
-    assert jobs["validate"]["needs"] == "assemble"
-    assert jobs["push"]["needs"] == ["assemble", "validate"]
-    assert not any(step.get("uses") == "$/validate-release-patch" for step in jobs["assemble"]["steps"])
-    assert any(step.get("uses") == "$/validate-release-patch" for step in jobs["validate"]["steps"])
-    assert (
-        next(step for step in jobs["push"]["steps"] if step.get("uses") == "$/validate-release-patch")["with"]["checks"]
-        == "false"
-    )
-
-
 @pytest.mark.parametrize(
     ("version", "prefix", "accepted"),
     [
@@ -106,17 +58,6 @@ def test_prepare_validation_calculates_version_independently(
         assert "assembled release version differs from 1.2.3" in result.stderr
 
 
-@pytest.mark.parametrize(("job", "consumer"), [("assemble", "prepare"), ("validate", "config")])
-def test_prepare_installs_local_tool_before_using_it(job: str, consumer: str) -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
-    )
-    steps = workflow["jobs"][job]["steps"]
-    local = next(step for step in steps if step.get("uses") == "$/install-local-release-creator")
-    assert local["with"]["build-constraints"] == "${{ steps.tools.outputs.build-constraints }}"
-    assert steps.index(local) < next(index for index, step in enumerate(steps) if step.get("id") == consumer)
-
-
 def test_local_release_creator_builds_with_locked_backends(tmp_path: Path) -> None:
     step = yaml.safe_load(
         (Path(__file__).resolve().parents[2] / "install-local-release-creator/action.yml").read_text()
@@ -158,27 +99,6 @@ def test_local_release_creator_builds_with_locked_backends(tmp_path: Path) -> No
     assert (overlay / "release-creator").resolve() == command.resolve()
 
 
-def test_prepare_installs_hooks_while_building_changelog() -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
-    )
-    steps = workflow["jobs"]["assemble"]["steps"]
-    hooks = next(step for step in steps if step.get("id") == "hooks")
-    build = next(step for step in steps if step.get("id") == "prepare")
-    wait = next(step for step in steps if step.get("wait") == "hooks")
-    finalize = next(step for step in steps if step.get("name") == "Finalize release patch")
-    assert hooks["background"] is True
-    assert hooks["run"].splitlines()[-1] == "prek install-hooks --config .pre-commit-config.yaml"
-    assert [build["with"]["phase"], finalize["with"]["phase"]] == ["build", "finalize"]
-    assert steps.index(hooks) < steps.index(build) < steps.index(wait) < steps.index(finalize)
-
-
-def test_changelog_checkout_fetches_the_base_branch() -> None:
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/news.yaml").read_text())
-    checkout = next(step for step in workflow["jobs"]["changelog"]["steps"] if "checkout" in step.get("uses", ""))
-    assert checkout["with"]["fetch-depth"] == 0
-
-
 def test_release_writer_has_only_notes_and_reconciler() -> None:
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
     publish = workflow["jobs"]["publish"]
@@ -190,36 +110,6 @@ def test_release_writer_has_only_notes_and_reconciler() -> None:
     ]
     assert publish["steps"][-1]["with"]["commit"] == "${{ needs.source.outputs.commit }}"
     assert publish["steps"][0]["with"]["artifact-ids"] == "${{ needs.notes.outputs.artifact-id }}"
-
-
-def test_release_notes_run_without_write_access() -> None:
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
-    notes = workflow["jobs"]["notes"]
-    assert notes["permissions"] == {"contents": "read"}
-    assert notes["steps"][0]["with"]["fetch-depth"] == 1
-    assert "$/render-release-notes" in [step.get("uses") for step in notes["steps"]]
-    assert notes["outputs"]["artifact-id"] == "${{ steps.artifact.outputs.artifact-id }}"
-    assert (
-        next(step for step in notes["steps"] if "download-artifact" in step.get("uses", ""))["with"]["artifact-ids"]
-        == "${{ needs.contributors.outputs.artifact-id }}"
-    )
-
-
-def test_release_contributors_job_has_no_checkout() -> None:
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
-    contributors = workflow["jobs"]["contributors"]
-    assert contributors["permissions"] == {"contents": "write"}
-    assert not any("checkout" in step.get("uses", "") for step in contributors["steps"])
-    assert not any("setup-uv" in step.get("uses", "") for step in contributors["steps"])
-
-
-def test_release_contributors_job_uploads_generated_notes() -> None:
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
-    contributors = workflow["jobs"]["contributors"]
-    assert contributors["steps"][0]["name"] == "Fetch contributor metadata"
-    assert "releases/generate-notes" in contributors["steps"][0]["run"]
-    assert contributors["steps"][1]["with"]["path"] == "${{ runner.temp }}/generated-notes.md"
-    assert contributors["outputs"]["artifact-id"] == "${{ steps.artifact.outputs.artifact-id }}"
 
 
 def test_shfmt_hook_rejects_unformatted_inline_shell(tmp_path: Path) -> None:

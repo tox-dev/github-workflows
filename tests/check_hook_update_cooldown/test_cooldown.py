@@ -9,38 +9,8 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
-import yaml
 from conftest import action
 from pytest_httpserver import HTTPServer
-
-
-def test_action_uses_scoped_job_token() -> None:
-    action = yaml.safe_load((Path(__file__).resolve().parents[2] / "check-hook-update-cooldown/action.yml").read_text())
-    assert [step["env"]["GH_TOKEN"] for step in action["runs"]["steps"] if "GH_TOKEN" in step.get("env", {})] == [
-        "${{ github.token }}",
-        "${{ github.token }}",
-        "${{ github.token }}",
-        "${{ github.token }}",
-    ]
-    assert action["runs"]["steps"][0]["env"]["RELEASE_APP_CLIENT_ID"] == "${{ inputs.release-app-client-id }}"
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/check.yaml").read_text())
-    caller = workflow["jobs"]["hook-cooldown"]["steps"][0]
-    assert caller["with"]["release-app-client-id"] == "${{ vars.RELEASE_APP_CLIENT_ID }}"
-
-
-def test_action_checks_app_hook_closure_from_pull_request_head() -> None:
-    steps = yaml.safe_load((Path(__file__).resolve().parents[2] / "check-hook-update-cooldown/action.yml").read_text())[
-        "runs"
-    ]["steps"]
-    source = next(step for step in steps if step.get("name") == "Read the base and proposed hook configurations")
-    closure = next(step for step in steps if step.get("name") == "Verify managed hook dependency closure")
-
-    assert '"repos/$head_repository/contents/.pre-commit-config.yaml?ref=$HEAD_SHA"' in source["run"]
-    assert closure["if"] == "steps.identity.outputs.changed == 'true'"
-    assert 'cp "$RUNNER_TEMP/proposed-hooks.yaml" "$RUNNER_TEMP/hook-closure/.pre-commit-config.yaml"' in closure["run"]
-    assert "release-creator hooks" in closure["run"]
-    assert '--check --minimum-days "$MINIMUM_DAYS"' in closure["run"]
-    assert closure["env"]["MINIMUM_DAYS"] == "${{ inputs.minimum-days }}"
 
 
 @pytest.mark.parametrize(

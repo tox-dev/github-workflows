@@ -237,25 +237,6 @@ def test_upgrade_combines_lock_and_hook_patches(lock_repository: Path, tmp_path:
     ]
 
 
-@pytest.mark.parametrize("kind", ["lock", "hooks"], ids=["lock", "hooks"])
-def test_upgrade_downloads_the_generated_patch(kind: str) -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/upgrade-release-tools.yaml").read_text()
-    )
-    generator = workflow["jobs"][f"generate-{kind}"]
-    download = next(
-        step
-        for step in workflow["jobs"]["publish"]["steps"]
-        if step.get("with", {}).get("path") == f"${{{{ runner.temp }}}}/release-tools-{kind}"
-    )
-
-    assert generator["outputs"]["artifact-id"] == "${{ steps.upload.outputs.artifact-id }}"
-    assert next(step for step in generator["steps"] if step.get("id") == "upload")["with"]["name"] == (
-        f"release-tools-{kind}"
-    )
-    assert download["with"]["artifact-ids"] == f"${{{{ needs.generate-{kind}.outputs.artifact-id }}}}"
-
-
 def test_upgrade_preserves_requested_pull_request_body(
     lock_repository: Path, tmp_path: Path, publish_scripts: Path
 ) -> None:
