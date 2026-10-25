@@ -8,7 +8,6 @@ from pathlib import Path
 
 from packaging.markers import Environment, default_environment
 from packaging.pylock import Pylock, PylockSelectError, PylockValidationError
-from packaging.requirements import Requirement
 from packaging.tags import Tag
 from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import Version
@@ -17,23 +16,15 @@ from packaging.version import Version
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    parser.add_argument("locks", nargs="+", type=Path)
-    parser.add_argument("--shared-policy", type=Path)
+    parser.add_argument("lock", type=Path)
     parser.add_argument("--target-platform")
     parser.add_argument("--targets")
     args = parser.parse_args()
-    if len(args.locks) > 2:
-        parser.error("at most one shared and one caller lock are supported")
-    if args.shared_policy and len(args.locks) != 2:
-        parser.error("shared-policy requires a shared and caller lock")
     try:
-        locks = []
-        for path in args.locks:
-            with path.open("rb") as stream:
-                locks.append(Pylock.from_dict(tomllib.load(stream)))
-        requirements = _shared_requirements(args.shared_policy) if args.shared_policy else {}
+        with args.lock.open("rb") as stream:
+            lock = Pylock.from_dict(tomllib.load(stream))
         targets = _target_environments(args.target_platform, args.targets) if args.targets else [None]
-        selected_by_target = [_selected_build(locks, environment, requirements) for environment in targets]
+        selected_by_target = [_selected_build(lock, environment) for environment in targets]
         versions = [{name: version for name, (version, _) in selected.items()} for selected in selected_by_target]
         if any(other != versions[0] for other in versions[1:]):
             parser.error("build package versions differ across requested targets")
@@ -55,13 +46,6 @@ def main() -> None:
         PylockSelectError,
     ) as error:
         parser.error(str(error))
-
-
-def _shared_requirements(path: Path) -> dict[str, Requirement]:
-    with path.open("rb") as stream:
-        project = tomllib.load(stream)
-    requirements = (Requirement(value) for value in project["dependency-groups"]["build"])
-    return {canonicalize_name(requirement.name): requirement for requirement in requirements}
 
 
 def _target_environments(platform: str, values: str) -> list[Environment]:
@@ -102,48 +86,38 @@ def _target_environments(platform: str, values: str) -> list[Environment]:
     return environments
 
 
-def _selected_build(
-    locks: list[Pylock], environment: Environment | None, requirements: dict[str, Requirement]
-) -> dict[str, tuple[Version, set[str]]]:
+def _selected_build(lock: Pylock, environment: Environment | None) -> dict[str, tuple[Version, set[str]]]:
+    if "build" in (lock.dependency_groups or ()):
+        groups = {"build"}
+    elif lock.dependency_groups:
+        return {}
+    else:
+        groups = set()
+    # Artifact choice is left to the installer; constraints carry every locked hash.
+    tags: list[Tag] | None = None
+    if environment is not None:
+        tags = sorted(
+            {
+                tag
+                for package in lock.packages
+                for wheel in (package.wheels if package.wheels is not None else ())
+                for tag in parse_wheel_filename(wheel.filename)[3]
+            },
+            key=str,
+        )
     selected: dict[str, tuple[Version, set[str]]] = {}
-    for index, lock in enumerate(locks):
-        if "build" not in (lock.dependency_groups or ()):
-            if (lock.dependency_groups is not None and len(lock.dependency_groups) > 0) or len(locks) == 2:
-                continue
-            groups: set[str] = set()
-        else:
-            groups = {"build"}
-        # Artifact choice is left to the installer; constraints carry every locked hash.
-        tags: list[Tag] | None = None
-        if environment is not None:
-            tags = sorted(
-                {
-                    tag
-                    for package in lock.packages
-                    for wheel in (package.wheels if package.wheels is not None else ())
-                    for tag in parse_wheel_filename(wheel.filename)[3]
-                },
-                key=str,
-            )
-        for package, _ in lock.select(environment=environment, tags=tags, dependency_groups=groups):
-            if package.version is None or package.index is None:
-                raise ValueError(f"build dependency {package.name} must be an index version")
-            name = canonicalize_name(package.name)
-            hashes = {
-                artifact.hashes["sha256"]
-                for artifact in [*(package.wheels or ()), *((package.sdist,) if package.sdist else ())]
-                if "sha256" in artifact.hashes
-            }
-            if not hashes:
-                raise ValueError(f"build dependency {package.name} has no SHA256 hash")
-            if (existing := selected.get(name)) is not None and existing[0] != package.version:
-                if index != 1 or not (requirement := requirements.get(name)):
-                    raise ValueError(f"conflicting build dependency versions for {name}")
-                if package.version not in requirement.specifier:
-                    raise ValueError(f"caller build dependency {name}=={package.version} violates {requirement}")
-            elif existing is not None:
-                hashes.update(existing[1])
-            selected[name] = (package.version, hashes)
+    for package, _ in lock.select(environment=environment, tags=tags, dependency_groups=groups):
+        if package.version is None or package.index is None:
+            raise ValueError(f"build dependency {package.name} must be an index version")
+        name = canonicalize_name(package.name)
+        hashes = {
+            artifact.hashes["sha256"]
+            for artifact in [*(package.wheels or ()), *((package.sdist,) if package.sdist else ())]
+            if "sha256" in artifact.hashes
+        }
+        if not hashes:
+            raise ValueError(f"build dependency {package.name} has no SHA256 hash")
+        selected[name] = (package.version, hashes)
     return selected
 
 

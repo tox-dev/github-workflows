@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tomllib
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import dedent
@@ -93,47 +94,6 @@ def test_export_build_constraints_covers_release_runners(tmp_path: Path, platfor
 
 
 @pytest.mark.parametrize(
-    ("version", "accepted"),
-    [pytest.param("81.0.0", True, id="compatible"), pytest.param("79.0.0", False, id="incompatible")],
-)
-def test_export_build_constraints_prefers_compatible_caller_build_pin(
-    tmp_path: Path, version: str, accepted: bool
-) -> None:
-    source = Path(__file__).resolve().parents[2]
-    shared = CALLER / "pylock.toml"
-    caller = tmp_path / "pylock.toml"
-    document = tomlkit.parse(shared.read_text())
-    for package in document["packages"]:
-        if package["name"] == "setuptools":
-            current = package["version"]
-            package["version"] = version
-            for wheel in package["wheels"]:
-                wheel["url"] = wheel["url"].replace(current, version)
-            package["sdist"]["url"] = package["sdist"]["url"].replace(current, version)
-    caller.write_text(tomlkit.dumps(document))
-    output = tmp_path / "constraints.txt"
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(source / "tools/build_constraints.py"),
-            "--shared-policy",
-            str(CALLER / "pyproject.toml"),
-            str(output),
-            str(shared),
-            str(caller),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert (result.returncode == 0) == accepted
-    if accepted:
-        assert f"setuptools=={version} " in output.read_text()
-    else:
-        assert "violates setuptools>=80" in result.stderr
-
-
-@pytest.mark.parametrize(
     ("platform", "targets"),
     [
         pytest.param("macos_arm64", "3.15.0:cpython 3.11.0:pypy", id="macos-pypy"),
@@ -167,12 +127,6 @@ def test_export_build_constraints_selects_explicit_targets(tmp_path: Path, platf
 @pytest.mark.parametrize(
     ("arguments", "message"),
     [
-        pytest.param(["{output}", "{lock}", "{lock}", "{lock}"], "at most one shared", id="three-locks"),
-        pytest.param(
-            ["--shared-policy", "{project}", "{output}", "{lock}"],
-            "shared-policy requires a shared and caller lock",
-            id="policy-without-caller",
-        ),
         pytest.param(
             ["--target-platform", "unknown", "--targets", "3.15.0:cpython", "{output}", "{lock}"],
             "unknown target platform",
@@ -254,33 +208,28 @@ def test_export_build_constraints_rejects_untrusted_build_packages(tmp_path: Pat
     assert message in result.stderr
 
 
-def test_export_build_constraints_rejects_conflicting_versions_without_policy(tmp_path: Path) -> None:
+def test_export_build_constraints_rejects_conflicting_versions(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[2]
-    shared = CALLER / "pylock.toml"
-    caller = tmp_path / "pylock.toml"
-    document = tomlkit.parse(shared.read_text())
+    document = tomlkit.parse((CALLER / "pylock.toml").read_text())
     package = next(package for package in document["packages"] if package["name"] == "setuptools")
-    current = package["version"]
-    package["version"] = "81.0.0"
-    for artifact in [package["sdist"], *package["wheels"]]:
+    other = deepcopy(package)
+    current = other["version"]
+    other["version"] = "81.0.0"
+    for artifact in [other["sdist"], *other["wheels"]]:
         artifact["url"] = artifact["url"].replace(current, "81.0.0")
-    caller.write_text(tomlkit.dumps(document))
+    document["packages"].append(other)
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(tomlkit.dumps(document))
 
     result = subprocess.run(
-        [
-            sys.executable,
-            str(source / "tools/build_constraints.py"),
-            str(tmp_path / "constraints.txt"),
-            str(shared),
-            str(caller),
-        ],
+        [sys.executable, str(source / "tools/build_constraints.py"), str(tmp_path / "constraints.txt"), str(lock)],
         text=True,
         capture_output=True,
         check=False,
     )
 
     assert result.returncode != 0
-    assert "conflicting build dependency versions for setuptools" in result.stderr
+    assert "Multiple packages with the name 'setuptools'" in result.stderr
 
 
 def test_export_build_constraints_action_selects_secondary_lock(tmp_path: Path, action_scripts: Path) -> None:
