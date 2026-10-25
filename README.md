@@ -172,10 +172,10 @@ including a workspace member's `pyproject.toml` or a secondary lock. The resulti
 `prek`; the writer checks patch paths and modes. Its `changed` output is `true` only when the refresh produces a patch.
 Neither mode pushes a branch or requests a write token.
 
-Every shared `prek` command passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek.toml` and
-also runs nested configurations, which no guard checks. `prepare-towncrier` and `validate-release-patch` therefore
-reject a `prek.toml` anywhere, a `.pre-commit-config.yml`, and a `.pre-commit-config.yaml` below the root before they
-run `prek`.
+Every shared `prek` command runs through `tools/cooled_prek.sh`, which the `cooled-prek` Action wraps for workflows, and
+passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek.toml` and also runs nested
+configurations, which no guard checks. `prepare-towncrier` and `validate-release-patch` therefore reject a `prek.toml`
+anywhere, a `.pre-commit-config.yml`, and a `.pre-commit-config.yaml` below the root before they run `prek`.
 
 The shared prepare and tagged validator run `refresh-release-lock` in `check` mode before release checks or publishing.
 `check-tagged-source` bundles the tagged checks for a custom tag publisher: it requires `GITHUB_REF` to be the tag of

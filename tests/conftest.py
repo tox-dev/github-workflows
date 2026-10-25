@@ -61,6 +61,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
     scripts = tmp_path_factory.mktemp("action-steps")
     for action_name in (
         "prepare-towncrier",
+        "cooled-prek",
         "validate-release-patch",
         "commit-and-tag",
         "render-release-notes",

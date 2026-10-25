@@ -1,0 +1,17 @@
+name: Run cooled prek
+description: Run prek with the root configuration and hook environments built under the seven-day cutoff
+inputs:
+  args:
+    description: Whitespace-separated prek arguments, such as install-hooks
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run cooled prek
+      shell: bash
+      env:
+        ARGS: ${{ inputs.args }}
+      run: |
+        set -euo pipefail
+        read -ra arguments <<<"$ARGS"
+        "$GITHUB_ACTION_PATH/../tools/cooled_prek.sh" "${arguments[@]}"

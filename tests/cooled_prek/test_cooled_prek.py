@@ -6,9 +6,10 @@ import subprocess
 from pathlib import Path
 
 import yaml
+from conftest import action
 
 
-def test_every_hook_run_uses_the_root_config() -> None:
+def test_no_hook_run_bypasses_cooled_prek() -> None:
     root = Path(__file__).resolve().parents[2]
     runs = [
         step.get("run", "")
@@ -27,25 +28,43 @@ def test_every_hook_run_uses_the_root_config() -> None:
         for command in re.findall(r"\bprek (?:run|install-hooks|update)\b[^\n]*", run.replace("\\\n", " "))
     ]
 
-    assert commands
-    assert all("--config" in command for command in commands), commands
+    assert not commands, commands
 
 
-def test_prepare_hook_install_uses_install_time_cutoff() -> None:
+def test_prepare_hook_install_uses_cooled_prek() -> None:
     workflow = yaml.load(
         (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text(),
         Loader=yaml.BaseLoader,
     )
     step = next(step for step in workflow["jobs"]["assemble"]["steps"] if step.get("name") == "Install prek hooks")
-    script = (Path(__file__).resolve().parents[2] / "tools/cooled_prek.sh").read_text()
 
-    assert {name: step["env"][name] for name in ("UV_EXCLUDE_NEWER", "UV_NO_CONFIG", "UV_NO_SOURCES")} == {
-        "UV_EXCLUDE_NEWER": "7 days",
-        "UV_NO_CONFIG": "1",
-        "UV_NO_SOURCES": "1",
-    }
-    assert [line for line in step["run"].splitlines() if line.startswith("unset ")] == [
-        line for line in script.splitlines() if line.startswith("unset ")
+    assert (step["uses"], step["with"]) == ("$/cooled-prek", {"args": "install-hooks"})
+
+
+def test_cooled_prek_action_passes_each_argument(tmp_path: Path, action_scripts: Path) -> None:
+    fake = tmp_path / "bin/prek"
+    fake.parent.mkdir()
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$RUNNER_TEMP/args"\n')
+    fake.chmod(0o755)
+
+    result = action(
+        tmp_path,
+        tmp_path,
+        action_scripts,
+        "cooled-prek",
+        version="",
+        ARGS="run mdformat --files CHANGELOG.md",
+        PATH=f"{fake.parent}:{os.environ['PATH']}",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "args").read_text().splitlines() == [
+        "--config",
+        ".pre-commit-config.yaml",
+        "run",
+        "mdformat",
+        "--files",
+        "CHANGELOG.md",
     ]
 
 
