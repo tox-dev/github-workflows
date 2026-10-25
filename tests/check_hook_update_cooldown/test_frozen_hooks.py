@@ -36,7 +36,9 @@ def test_frozen_hook_revision(tmp_path: Path, revision: str, accepted: bool) -> 
     "hooks",
     [
         pytest.param("[]", id="no-hooks"),
-        pytest.param("[{id: lint, language: python, additional_dependencies: [ruff==0.1.0]}]", id="python-dependencies"),
+        pytest.param(
+            "[{id: lint, language: python, additional_dependencies: [ruff==0.1.0]}]", id="python-dependencies"
+        ),
         pytest.param("[{id: lint, language: node}]", id="node-without-dependencies"),
     ],
 )

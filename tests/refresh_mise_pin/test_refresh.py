@@ -457,7 +457,9 @@ def test_update_keeps_crlf_line_endings(tmp_path: Path, mise_binary: tuple[Path,
     binary, digest = mise_binary
     workflow = tmp_path / ".github" / "workflows" / "release.yaml"
     workflow.parent.mkdir(parents=True)
-    workflow.write_bytes(("jobs:\n  build:\n    steps:\n" + _step("2026.10.12", "0" * 64)).replace("\n", "\r\n").encode())
+    workflow.write_bytes(
+        ("jobs:\n  build:\n    steps:\n" + _step("2026.10.12", "0" * 64)).replace("\n", "\r\n").encode()
+    )
     result = _run(
         tmp_path,
         "update",

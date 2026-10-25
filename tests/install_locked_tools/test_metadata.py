@@ -541,7 +541,11 @@ def test_lock_metadata_rejects_unnormalized_group(
 ) -> None:
     lock = lock_case[0]
     if change == "lock":
-        lock.write_text(lock.read_text().replace('dependency-groups = ["release-check"]', 'dependency-groups = ["release-check", "project_runtime"]'))
+        lock.write_text(
+            lock.read_text().replace(
+                'dependency-groups = ["release-check"]', 'dependency-groups = ["release-check", "project_runtime"]'
+            )
+        )
     source = Path(__file__).resolve().parents[2]
     monkeypatch.syspath_prepend(str(source / "tools"))
     monkeypatch.setattr(sys, "argv", ["check_lock_groups.py", str(lock), group])
@@ -556,7 +560,9 @@ def test_lock_metadata_rejects_non_table_producer(
     lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     lock = lock_case[0]
-    lock.write_text(lock.read_text().replace("[tool.nab]\ncreated-at = 2026-10-20T00:00:00Z\n", '[tool]\nnab = "oops"\n'))
+    lock.write_text(
+        lock.read_text().replace("[tool.nab]\ncreated-at = 2026-10-20T00:00:00Z\n", '[tool]\nnab = "oops"\n')
+    )
 
     with pytest.raises(SystemExit, match="2"):
         _run_check(lock_case, monkeypatch)
