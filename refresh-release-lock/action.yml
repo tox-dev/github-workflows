@@ -59,6 +59,7 @@ runs:
           exit 1
         fi
     - uses: $/install-locked-tools
+      if: inputs.mode == 'refresh' || inputs.additional-lock != ''
       with:
         groups: lock-tools
         lock-source: shared
