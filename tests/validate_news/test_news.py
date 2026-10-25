@@ -194,8 +194,21 @@ def test_validate_news_detects_release_input_change(
     assert f"changed={changed}\n" in output.read_text()
 
 
-def test_validate_news_rejects_removed_release_lock(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+@pytest.mark.parametrize(
+    ("nab_config", "additional_lock", "accepted"),
+    [
+        pytest.param(True, "", False, id="nab-config"),
+        pytest.param(False, "pylock.zipapp.toml", False, id="secondary-lock"),
+        pytest.param(False, "", True, id="no-lock-producer"),
+    ],
+)
+def test_validate_news_checks_removed_release_lock(
+    repository: Path, tmp_path: Path, action_scripts: Path, nab_config: bool, additional_lock: str, accepted: bool
+) -> None:
     (repository / "pylock.toml").write_text("lock-version = '1.0'\n")
+    if nab_config:
+        project = repository / "pyproject.toml"
+        project.write_text(project.read_text() + '\n[tool.nab]\nuploaded-prior-to = "P7D"\n')
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Add release lock")
     run(repository, "git", "push", "origin", "main")
@@ -209,7 +222,7 @@ def test_validate_news_rejects_removed_release_lock(repository: Path, tmp_path: 
         env=os.environ
         | {
             "BASE_REF": "main",
-            "ADDITIONAL_LOCK": "",
+            "ADDITIONAL_LOCK": additional_lock,
             "GITHUB_OUTPUT": str(tmp_path / "lock-change-output"),
             "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "validate-news"),
         },
@@ -218,8 +231,8 @@ def test_validate_news_rejects_removed_release_lock(repository: Path, tmp_path: 
         check=False,
     )
 
-    assert result.returncode != 0
-    assert "the release lock was removed" in result.stderr
+    assert (result.returncode == 0) is accepted, result.stderr
+    assert ("the release lock was removed" in result.stderr) is not accepted
 
 
 @pytest.mark.parametrize(

@@ -62,7 +62,11 @@ runs:
           exit 0
         fi
         if [[ ! -f pylock.toml ]]; then
-          if git cat-file -e "origin/$BASE_REF:pylock.toml" 2>/dev/null; then
+          # Removing the lock is fine only once nothing is left that would produce one.
+          if git cat-file -e "origin/$BASE_REF:pylock.toml" 2>/dev/null && { [[ -n "$ADDITIONAL_LOCK" ]] || {
+            [[ -f pyproject.toml ]] &&
+              python3 -c 'import sys, tomllib; sys.exit("nab" not in tomllib.load(open("pyproject.toml", "rb")).get("tool", {}))'
+          }; }; then
             echo '::error::the release lock was removed' >&2
             exit 1
           fi
