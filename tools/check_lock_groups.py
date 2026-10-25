@@ -44,6 +44,10 @@ def main() -> None:
             parser.error("at least one dependency group is required")
         with args.lock.open("rb") as stream:
             lock = Pylock.from_dict(tomllib.load(stream))
+        if unnormalized := sorted(
+            name for name in {*groups, *(lock.dependency_groups or ())} if canonicalize_name(name) != name
+        ):
+            raise ValueError(f"dependency group names must be normalized: {', '.join(unnormalized)}")
         if args.project:
             if (args.project.parent / "nab.toml").exists():
                 raise ValueError("project nab.toml can override the reviewed index policy")

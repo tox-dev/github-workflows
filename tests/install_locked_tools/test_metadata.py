@@ -525,6 +525,33 @@ def test_lock_metadata_rejects_unapproved_indexes(
     assert "index" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    ("change", "group"),
+    [
+        pytest.param("lock", "release-check", id="lock-group"),
+        pytest.param("argument", "Release-Check", id="selected-group"),
+    ],
+)
+def test_lock_metadata_rejects_unnormalized_group(
+    lock_case: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    change: str,
+    group: str,
+) -> None:
+    lock = lock_case[0]
+    if change == "lock":
+        lock.write_text(lock.read_text().replace('dependency-groups = ["release-check"]', 'dependency-groups = ["release-check", "project_runtime"]'))
+    source = Path(__file__).resolve().parents[2]
+    monkeypatch.syspath_prepend(str(source / "tools"))
+    monkeypatch.setattr(sys, "argv", ["check_lock_groups.py", str(lock), group])
+
+    with pytest.raises(SystemExit, match="2"):
+        runpy.run_path(str(source / "tools/check_lock_groups.py"), run_name="__main__")
+
+    assert "dependency group names must be normalized" in capsys.readouterr().err
+
+
 def _run_check(lock_case: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, *options: str) -> None:
     source = Path(__file__).resolve().parents[2]
     monkeypatch.syspath_prepend(str(source / "tools"))
