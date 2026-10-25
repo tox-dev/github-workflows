@@ -126,32 +126,12 @@ jobs:
             pyproject.toml
       - name: Check Python types
         run: uvx --with tox-uv tox run -e type
-  hook-cooldown:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-26.04
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: $/check-hook-update-cooldown
-        with:
-          release-app-client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
   gate:
     name: ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Required checks pass (non-PR)' }}
     if: ${{ !cancelled() }}
-    needs: [check, shell, test, type, hook-cooldown]
+    needs: [check, shell, test, type]
     runs-on: ubuntu-26.04
     steps:
       - env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          jq -e '
-            all(
-              to_entries[];
-              .value.result == "success" or
-              ($ENV.EVENT_NAME != "pull_request" and .value.result == "skipped" and
-                .key == "hook-cooldown")
-            )
-          ' <<<"$NEEDS_JSON"
+        run: jq -e 'all(to_entries[]; .value.result == "success")' <<<"$NEEDS_JSON"

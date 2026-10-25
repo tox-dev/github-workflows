@@ -71,8 +71,6 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "reconcile-pypi-artifacts",
         "publish-jetbrains-marketplace",
         "sign-jetbrains-plugin",
-        "check-hook-update-cooldown",
-        "recheck-hook-update-cooldown",
         "publish-post-release-pr",
         "verify-frozen-hooks",
     ):
@@ -372,8 +370,6 @@ def _run_action(
         if (condition := step.get("if")) is not None and not _condition(condition, environment, inputs, step_outputs):
             continue
         if (used := step.get("uses")) is not None:
-            if used.startswith("astral-sh/setup-uv@"):
-                continue
             if used.startswith("actions/upload-artifact@"):
                 continue
             nested_name = used.removeprefix("$/")
