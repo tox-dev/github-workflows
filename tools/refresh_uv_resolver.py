@@ -7,6 +7,7 @@ import tomllib
 from pathlib import Path
 
 import tomlkit
+from packaging.markers import InvalidMarker, Marker
 from tomlkit.exceptions import ParseError
 
 
@@ -24,19 +25,25 @@ def main() -> None:
         if args.mode == "widen":
             if not str(requirements[0]).startswith("uv=="):
                 raise ValueError("release-resolver must have an exact uv pin")
-            requirements[0] = "uv>=0.13.5"
+            requirements[0] = f"uv>={str(requirements[0]).removeprefix('uv==')}"
         else:
-            if requirements[0] != "uv>=0.13.5":
+            if not str(requirements[0]).startswith("uv>="):
                 raise ValueError("release-resolver must have the temporary uv range")
             lock = tomllib.loads(args.lock.read_text())
             if "release-resolver" not in lock["dependency-groups"]:
                 raise ValueError("candidate lock omits release-resolver")
-            versions = {package["version"] for package in lock["packages"] if package["name"] == "uv"}
+            selected = {"dependency_groups": frozenset({"release-resolver"}), "extras": frozenset()}
+            versions = {
+                package["version"]
+                for package in lock["packages"]
+                if package["name"] == "uv"
+                and ("marker" not in package or Marker(package["marker"]).evaluate(selected, "lock_file"))
+            }
             if len(versions) != 1:
                 raise ValueError("candidate lock must select one uv resolver version")
             requirements[0] = f"uv=={versions.pop()}"
         args.project.write_text(tomlkit.dumps(project))
-    except (OSError, KeyError, TypeError, ValueError, ParseError, tomllib.TOMLDecodeError) as error:
+    except (InvalidMarker, OSError, KeyError, TypeError, ValueError, ParseError, tomllib.TOMLDecodeError) as error:
         parser.error(str(error))
 
 

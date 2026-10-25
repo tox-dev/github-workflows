@@ -46,6 +46,49 @@ def test_resolver_upgrade_rejects_invalid_state(
     assert error in result.stderr
 
 
+def test_resolver_widen_starts_at_the_current_pin(tmp_path: Path) -> None:
+    project = tmp_path / "pyproject.toml"
+    project.write_text('[dependency-groups]\nrelease-resolver = ["uv==0.13.6"]\n')
+    lock = tmp_path / "pylock.toml"
+    lock.write_text('dependency-groups = ["release-resolver"]\n' + _uv_package("0.13.6"))
+
+    result = _resolver(tmp_path, "widen")
+
+    assert result.returncode == 0, result.stderr
+    assert tomllib.loads(project.read_text())["dependency-groups"]["release-resolver"] == ["uv>=0.13.6"]
+
+
+def test_resolver_pin_ignores_uv_from_other_groups(tmp_path: Path) -> None:
+    project = tmp_path / "pyproject.toml"
+    project.write_text('[dependency-groups]\nrelease-resolver = ["uv>=0.13.5"]\n')
+    lock = tmp_path / "pylock.toml"
+    lock.write_text(
+        'dependency-groups = ["release-resolver", "test"]\n'
+        + _uv_package("0.13.6")
+        + "[[packages]]\nname = 'uv'\nversion = '0.14.0'\nmarker = '\"test\" in dependency_groups'\n"
+    )
+
+    result = _resolver(tmp_path, "pin")
+
+    assert result.returncode == 0, result.stderr
+    assert tomllib.loads(project.read_text())["dependency-groups"]["release-resolver"] == ["uv==0.13.6"]
+
+
+def _resolver(root: Path, mode: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[2] / "tools/refresh_uv_resolver.py"),
+            mode,
+            str(root / "pyproject.toml"),
+            str(root / "pylock.toml"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 @pytest.mark.parametrize(
     ("repository", "pin", "locked", "accepted"),
     [
