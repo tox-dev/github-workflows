@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from pathlib import Path
 from textwrap import dedent
 
@@ -135,7 +134,7 @@ def test_prepare_renders_github_notes(
 
         ### Features
 
-        - Add a new feature ([#2](https://github.com/tox-dev/github-workflows/pull/2)) by @gaborbernat.
+        - Add a new feature ([#2](https://github.com/tox-dev/github-workflows/pull/2)) by [@gaborbernat](https://github.com/gaborbernat).
 
         [Full Changelog](https://github.com/tox-dev/github-workflows/compare/0.1.0...0.2.0)
         """,
@@ -176,7 +175,6 @@ def test_prepare_rejects_invalid_option(
         pytest.param("major", "1.0.0", id="major"),
         pytest.param("minor", "0.2.0", id="minor"),
         pytest.param("patch", "0.1.1", id="patch"),
-        pytest.param("calver", f"{date.today().year}.{date.today().month}.0", id="calver"),
     ],
 )
 def test_prepare_selects_version(

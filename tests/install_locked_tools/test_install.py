@@ -377,8 +377,6 @@ def test_install_locked_tools_uses_full_lock_provenance_and_selected_groups(
 ) -> None:
     source = Path(__file__).resolve().parents[2]
     document = tomlkit.parse((source / "pylock.toml").read_text())
-    document["tool"]["nab"]["created-at"] = datetime(2099, 1, 1, tzinfo=UTC)
-    document["tool"]["release-creator"] = {"created-at": datetime(2026, 10, 24, tzinfo=UTC)}
     document["dependency-groups"].append("test")
     package = next(package for package in document["packages"] if package["name"] == "release-creator")
     package["marker"] = '"test" in dependency_groups'

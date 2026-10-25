@@ -451,8 +451,8 @@ formatting must all succeed.
       bump: ${{ inputs.bump }}
 ```
 
-- `bump`: `auto` (default), `major`, `minor`, `patch`, or `calver`. Passed to `release-creator tags --next`; `auto` uses
-  the pending fragments. The caller's dispatch form decides which choices to expose.
+- `bump`: `auto` (default), `major`, `minor`, or `patch`. Passed to `release-creator tags --next`; `auto` uses the
+  pending fragments. The caller's dispatch form decides which choices to expose.
 - `tag-prefix`: Empty by default. Use `v` when release tags are spelled `v1.2.3`; version comparison still includes
   unprefixed numeric tags in the repository's history. This does not set the changelog heading prefix.
 - `changelog-prefix`: Empty by default, so Towncrier writes `1.2.3` even if the tag is `v1.2.3`. Set `v` for a changelog

@@ -54,7 +54,7 @@ def test_render_release_notes_uses_tagged_changelog(
 
         ### Features
 
-        - Add a new feature ([#2](https://github.com/tox-dev/fixture/pull/2)) by @gaborbernat.
+        - Add a new feature ([#2](https://github.com/tox-dev/fixture/pull/2)) by [@gaborbernat](https://github.com/gaborbernat).
 
         [PyPI release](https://pypi.org/project/fixture/0.2.0/)
 
