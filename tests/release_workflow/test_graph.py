@@ -106,56 +106,56 @@ def test_prepare_validation_calculates_version_independently(
         assert "assembled release version differs from 1.2.3" in result.stderr
 
 
-@pytest.mark.parametrize("job", ["assemble", "validate"])
-def test_prepare_builds_local_tool_with_locked_backends(job: str) -> None:
+@pytest.mark.parametrize(("job", "consumer"), [("assemble", "prepare"), ("validate", "config")])
+def test_prepare_installs_local_tool_before_using_it(job: str, consumer: str) -> None:
     workflow = yaml.safe_load(
         (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
     )
     steps = workflow["jobs"][job]["steps"]
-    builds = [step for step in steps if step.get("name") == "Build local release tool wheel"]
-    assert len(builds) == 1
-    assert builds[0]["env"]["BUILD_CONSTRAINTS"] == "${{ steps.tools.outputs.build-constraints }}"
-    assert '--build-constraints "$BUILD_CONSTRAINTS"' in builds[0]["run"]
-    assert "--require-build-hashes" in builds[0]["run"]
-    assert any(
-        step.get("name") == "Install local release tool wheel" and '"$RUNNER_TEMP/local-tool-dist/"*.whl' in step["run"]
-        for step in steps
-    )
+    local = next(step for step in steps if step.get("uses") == "$/install-local-release-creator")
+    assert local["with"]["build-constraints"] == "${{ steps.tools.outputs.build-constraints }}"
+    assert steps.index(local) < next(index for index, step in enumerate(steps) if step.get("id") == consumer)
 
 
-def test_prepare_exposes_local_command_without_shadowing_python(tmp_path: Path) -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
+def test_local_release_creator_builds_with_locked_backends(tmp_path: Path) -> None:
+    step = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / "install-local-release-creator/action.yml").read_text()
+    )["runs"]["steps"][0]
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    (fake_bin / "uv").write_text(
+        '#!/bin/sh\necho "$@" >>"$RUNNER_TEMP/uv-calls"\n'
+        'if [ "$1" = build ]; then mkdir -p "$RUNNER_TEMP/local-tool-dist" && touch "$RUNNER_TEMP/local-tool-dist/x.whl"; fi\n'
     )
-    steps = workflow["jobs"]["assemble"]["steps"]
-    expose = next(step for step in steps if step.get("name") == "Expose local release command")
-    assert expose["if"] == "inputs.local-tool-source"
-    assert steps.index(expose) > next(
-        index for index, step in enumerate(steps) if step.get("name") == "Install local release tool wheel"
-    )
-    assert steps.index(expose) < next(index for index, step in enumerate(steps) if step.get("id") == "prepare")
+    (fake_bin / "uv").chmod(0o755)
     command = tmp_path / ".venv/bin/release-creator"
     command.parent.mkdir(parents=True)
     command.symlink_to(sys.executable)
     output = tmp_path / "github-path"
 
     result = subprocess.run(
-        ["bash", "-e", "-o", "pipefail", "-c", expose["run"]],
+        ["bash", "-e", "-o", "pipefail", "-c", step["run"]],
         cwd=tmp_path,
-        env={**os.environ, "GITHUB_WORKSPACE": str(tmp_path), "RUNNER_TEMP": str(tmp_path), "GITHUB_PATH": str(output)},
+        env=os.environ
+        | {
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "BUILD_CONSTRAINTS": "constraints.txt",
+            "GITHUB_WORKSPACE": str(tmp_path),
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_PATH": str(output),
+        },
         capture_output=True,
         text=True,
         check=False,
     )
 
     assert result.returncode == 0, result.stderr
+    build, install = (tmp_path / "uv-calls").read_text().splitlines()
+    assert "--build-constraints constraints.txt --require-build-hashes" in build
+    assert install.endswith(f"--no-deps {tmp_path}/local-tool-dist/x.whl")
     overlay = Path(output.read_text().strip())
+    assert [path.name for path in overlay.iterdir()] == ["release-creator"]
     assert (overlay / "release-creator").resolve() == command.resolve()
-    assert not (overlay / "python").exists()
-    assert (
-        subprocess.run([str(overlay / "release-creator"), "--version"], check=False, capture_output=True).returncode
-        == 0
-    )
 
 
 def test_prepare_installs_hooks_while_building_changelog() -> None:

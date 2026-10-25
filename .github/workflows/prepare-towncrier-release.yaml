@@ -112,22 +112,10 @@ jobs:
           unset UV_INSECURE_HOST UV_SYSTEM_CERTS SSL_CERT_FILE SSL_CERT_DIR
           prek install-hooks --config .pre-commit-config.yaml
         background: true
-      - name: Build local release tool wheel
+      - uses: $/install-local-release-creator
         if: inputs.local-tool-source
-        env:
-          BUILD_CONSTRAINTS: ${{ steps.tools.outputs.build-constraints }}
-        run: |
-          uv build --wheel --build-constraints "$BUILD_CONSTRAINTS" \
-            --require-build-hashes --out-dir "$RUNNER_TEMP/local-tool-dist" .
-      - name: Install local release tool wheel
-        if: inputs.local-tool-source
-        run: uv pip install --python .venv/bin/python --no-deps "$RUNNER_TEMP/local-tool-dist/"*.whl
-      - name: Expose local release command
-        if: inputs.local-tool-source
-        run: |
-          mkdir -p "$RUNNER_TEMP/local-release-cli"
-          ln -s "$GITHUB_WORKSPACE/.venv/bin/release-creator" "$RUNNER_TEMP/local-release-cli/release-creator"
-          echo "$RUNNER_TEMP/local-release-cli" >>"$GITHUB_PATH"
+        with:
+          build-constraints: ${{ steps.tools.outputs.build-constraints }}
       - id: prepare
         name: Build changelog
         uses: $/prepare-towncrier
@@ -170,22 +158,10 @@ jobs:
           groups: release-validate${{ inputs.local-tool-source && ' project-runtime' || '' }}
           venv: .venv
           local-tool-source: ${{ inputs.local-tool-source }}
-      - name: Build local release tool wheel
+      - uses: $/install-local-release-creator
         if: inputs.local-tool-source
-        env:
-          BUILD_CONSTRAINTS: ${{ steps.tools.outputs.build-constraints }}
-        run: |
-          uv build --wheel --build-constraints "$BUILD_CONSTRAINTS" \
-            --require-build-hashes --out-dir "$RUNNER_TEMP/local-tool-dist" .
-      - name: Install local release tool wheel
-        if: inputs.local-tool-source
-        run: uv pip install --python .venv/bin/python --no-deps "$RUNNER_TEMP/local-tool-dist/"*.whl
-      - name: Expose local release command
-        if: inputs.local-tool-source
-        run: |
-          mkdir -p "$RUNNER_TEMP/local-release-cli"
-          ln -s "$GITHUB_WORKSPACE/.venv/bin/release-creator" "$RUNNER_TEMP/local-release-cli/release-creator"
-          echo "$RUNNER_TEMP/local-release-cli" >>"$GITHUB_PATH"
+        with:
+          build-constraints: ${{ steps.tools.outputs.build-constraints }}
       - id: config
         uses: $/read-towncrier-config
       - name: Verify selected release version
