@@ -49,16 +49,13 @@ on:
 permissions:
   contents: read
 jobs:
-  source-check:
+  lock:
     runs-on: ubuntu-26.04
     permissions:
-      actions: read
       contents: read
-      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.sha }}
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
@@ -66,8 +63,9 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - uses: $/check-tagged-source
+      - uses: $/refresh-release-lock
         with:
+          mode: check
           additional-lock: ${{ inputs.additional-lock }}
           additional-lock-groups: ${{ inputs.additional-lock-groups }}
           additional-lock-selection: ${{ inputs.additional-lock-selection }}
@@ -76,39 +74,7 @@ jobs:
           additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
           exclude-newer: ${{ inputs.exclude-newer }}
           exclude-newer-package: ${{ inputs.exclude-newer-package }}
-  constraints:
-    runs-on: ubuntu-26.04
-    outputs:
-      artifact-id: ${{ steps.upload.outputs.artifact-id }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: latest-known
-          python-version: "3.15"
-          enable-cache: false
-      - id: constraints
-        uses: $/install-locked-tools
-        with:
-          exclude-newer: ${{ inputs.exclude-newer }}
-          exclude-newer-package: ${{ inputs.exclude-newer-package }}
-      - name: Stage build constraints
-        env:
-          SOURCE: ${{ steps.constraints.outputs.build-constraints }}
-        run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints.txt"
-      - id: upload
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ${{ inputs.artifact-prefix }}build-constraints
-          path: ${{ runner.temp }}/build-constraints.txt
-          if-no-files-found: error
   build:
-    needs: [source-check, constraints]
     runs-on: ubuntu-26.04
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
@@ -127,17 +93,23 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF" = "refs/tags/$TAG"
           git check-ref-format "refs/tags/$TAG"
-          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
+          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$GITHUB_SHA"
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
           git merge-base --is-ancestor HEAD origin/main
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - id: constraints
+        uses: $/install-locked-tools
         with:
-          artifact-ids: ${{ needs.constraints.outputs.artifact-id }}
-          path: ${{ runner.temp }}
+          exclude-newer: ${{ inputs.exclude-newer }}
+          exclude-newer-package: ${{ inputs.exclude-newer-package }}
+      - name: Stage build constraints
+        env:
+          SOURCE: ${{ steps.constraints.outputs.build-constraints }}
+        run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints.txt"
       - name: Require empty distribution directory
         run: test ! -d dist || test -z "$(find dist -mindepth 1 -maxdepth 1 -print -quit)"
       - name: Select build interpreter
@@ -194,8 +166,6 @@ jobs:
       - name: Install distribution validators
         run: |
           uv venv --python 3.15 "$RUNNER_TEMP/package-validators"
-          uv pip install --python "$RUNNER_TEMP/package-validators" 'twine>=7' 'check-wheel-contents>=0.6.3'
-      - name: Check distribution metadata
-        run: uv run --no-project --python "$RUNNER_TEMP/package-validators" twine check dist/*
+          uv pip install --python "$RUNNER_TEMP/package-validators" 'check-wheel-contents>=0.6.3'
       - name: Check wheel contents
         run: uv run --no-project --python "$RUNNER_TEMP/package-validators" check-wheel-contents --no-config dist

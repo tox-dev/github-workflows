@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -47,49 +47,20 @@ def build_constraints(build_repository: Path, tmp_path: Path) -> Path:
     return path
 
 
-@pytest.mark.parametrize(
-    ("workflow_name", "job"),
-    [
-        pytest.param("validate-python-release", "source-check", id="python-release"),
-        pytest.param("release", "check", id="self-release"),
-    ],
-)
-def test_tagged_source_has_history_and_read_access_for_hook_proof(workflow_name: str, job: str) -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows" / f"{workflow_name}.yaml").read_text()
-    )
-    source = workflow["jobs"][job]
-    assert source["permissions"] == {"actions": "read", "contents": "read", "pull-requests": "read"}
-    assert next(step for step in source["steps"] if "checkout" in step.get("uses", ""))["with"]["fetch-depth"] == 0
-    assert "$/check-tagged-source" in [step.get("uses") for step in source["steps"]]
+def test_lock_check_runs_keyless_beside_the_build(release_workflow: dict[str, Any]) -> None:
+    lock = release_workflow["jobs"]["lock"]
+    check = next(step for step in lock["steps"] if step.get("uses") == "$/refresh-release-lock")
+
+    assert lock["permissions"] == {"contents": "read"}
+    assert check["with"]["mode"] == "check"
+    assert "needs" not in release_workflow["jobs"]["build"]
 
 
-def test_tagged_source_rejects_stale_project_requirement(tmp_path: Path) -> None:
-    source = Path(__file__).resolve().parents[2]
-    project = tmp_path / "pyproject.toml"
-    project.write_text(
-        '[project]\nname = "probe"\nversion = "1.0.0"\nrequires-python = ">=3.15"\ndependencies = []\n'
-        "[dependency-groups]\nrelease-check = []\n"
-        "[tool.release-creator.locks]\n"
-    )
-    tool = source / ".release-tools/bin/release-creator"
-    locked = subprocess.run([str(tool), "locks"], cwd=tmp_path, text=True, capture_output=True, check=False)
-    assert locked.returncode == 0, locked.stderr
-    project.write_text(project.read_text().replace("dependencies = []", 'dependencies = ["prek>=999"]'))
-    selected = subprocess.run(
-        [sys.executable, str(source / "tools/check_lock_groups.py"), "pylock.toml", "release-check"],
-        cwd=tmp_path,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    freshness = subprocess.run(
-        [str(tool), "locks", "--check"], cwd=tmp_path, text=True, capture_output=True, check=False
-    )
+def test_build_exports_constraints_after_checking_the_tag(release_workflow: dict[str, Any]) -> None:
+    names = [step.get("name", step.get("uses", "")) for step in release_workflow["jobs"]["build"]["steps"]]
 
-    assert selected.returncode == 0, selected.stderr
-    assert freshness.returncode != 0
-    assert "prek>=999" in freshness.stderr
+    assert names.index("Verify the exact release tag") < names.index("$/install-locked-tools")
+    assert names.index("$/install-locked-tools") < names.index("Build wheel and sdist")
 
 
 def test_validator_builds_reproducible_distributions_and_checks_them(
@@ -119,9 +90,8 @@ def test_validator_builds_reproducible_distributions_and_checks_them(
         release_workflow, "validate", "Install distribution validators", build_repository, **environment
     )
     assert validators.returncode == 0, validators.stderr
-    for name in ("Check distribution metadata", "Check wheel contents"):
-        result = run_release_step(release_workflow, "validate", name, build_repository, **environment)
-        assert result.returncode == 0, result.stderr
+    result = run_release_step(release_workflow, "validate", "Check wheel contents", build_repository, **environment)
+    assert result.returncode == 0, result.stderr
 
 
 def test_validator_rejects_nonempty_distribution_directory(tmp_path: Path, release_workflow: dict[str, Any]) -> None:
@@ -162,7 +132,12 @@ def test_validator_rejects_backend_hash_mismatch(
     ],
 )
 @pytest.mark.parametrize(
-    "location", [pytest.param("check-tagged-source/action.yml", id="source-check"), pytest.param("build", id="build")]
+    "location",
+    [
+        pytest.param("check-tagged-source/action.yml", id="source-check"),
+        pytest.param("validate-python-release:build", id="build"),
+        pytest.param("release:source", id="self-release"),
+    ],
 )
 def test_validator_requires_exact_tag(
     repository: Path, tag_kind: str, event_ref: str, accepted: bool, location: str
@@ -177,19 +152,16 @@ def test_validator_requires_exact_tag(
         run(repository, "git", "tag", "-a", "-m", "Release", "0.2.0")
     else:
         run(repository, "git", "tag", "0.2.0")
-    root = Path(__file__).resolve().parents[2]
-    steps = (
-        yaml.safe_load((root / location).read_text())["runs"]["steps"]
-        if location.endswith(".yml")
-        else yaml.safe_load((root / ".github/workflows/validate-python-release.yaml").read_text())["jobs"][location][
-            "steps"
-        ]
-    )
-    verify = next(step for step in steps if step.get("name") == "Verify the exact release tag")
+    verify = _tag_check(location)
     result = subprocess.run(
         ["bash", "-c", verify["run"]],
         cwd=repository,
-        env=os.environ | {"GITHUB_REF": event_ref, "TAG": "0.2.0"},
+        env=os.environ
+        | {
+            "GITHUB_REF": event_ref,
+            "TAG": "0.2.0",
+            "GITHUB_SHA": run(repository, "git", "rev-parse", "HEAD").stdout.strip(),
+        },
         text=True,
         capture_output=True,
         check=False,
@@ -233,3 +205,33 @@ def test_validator_matches_built_version_to_tag(
         check=False,
     )
     assert (result.returncode == 0) is accepted, result.stderr
+
+
+@pytest.mark.parametrize("location", ["validate-python-release:build", "release:source"], ids=["build", "self-release"])
+def test_validator_requires_tag_at_the_event_commit(repository: Path, location: str) -> None:
+    run(repository, "git", "tag", "0.2.0")
+    event_commit = run(repository, "git", "rev-parse", "HEAD").stdout.strip()
+    run(repository, "git", "commit", "--allow-empty", "-m", "Later change")
+    run(repository, "git", "push", "origin", "main")
+    run(repository, "git", "tag", "-f", "0.2.0")
+
+    result = subprocess.run(
+        ["bash", "-c", _tag_check(location)["run"]],
+        cwd=repository,
+        env=os.environ | {"GITHUB_REF": "refs/tags/0.2.0", "TAG": "0.2.0", "GITHUB_SHA": event_commit},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+
+
+def _tag_check(location: str) -> dict[str, str]:
+    root = Path(__file__).resolve().parents[2]
+    if location.endswith(".yml"):
+        steps = yaml.safe_load((root / location).read_text())["runs"]["steps"]
+    else:
+        workflow, job = location.split(":")
+        steps = yaml.safe_load((root / ".github/workflows" / f"{workflow}.yaml").read_text())["jobs"][job]["steps"]
+    return cast("dict[str, str]", next(step for step in steps if step.get("name") == "Verify the exact release tag"))

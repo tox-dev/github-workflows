@@ -224,37 +224,83 @@ The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-
 [PyPI disallows reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/). Repositories with the
 standard `uv` wheel and sdist build can call `validate-python-release.yaml` in the tag publisher. The
 [self-release workflow](.github/workflows/release.yaml) shows the GitHub Release path; callers keep their ecosystem
-uploads. The read-only build workflow checks the tagged source. The tag caller renders the Release body and has the only
-Contents write job that creates the GitHub Release.
+uploads. The read-only build workflow checks the tag and the lock. The tag caller renders the Release body and has the
+only Contents write job that creates the GitHub Release.
 
 ## Validate a Python release
 
-`validate-python-release.yaml` checks the tagged source, exports hashed build constraints in a separate job, builds and
-uploads the wheel and sdist, then checks the uploaded files with Twine and check-wheel-contents. The build job runs no
-release tool. It requires the tag ref to resolve to the checked-out commit on `main`.
+`validate-python-release.yaml` runs two jobs in parallel. The keyless `lock` job runs `refresh-release-lock` in `check`
+mode. The `build` job checks the tag inline: `GITHUB_REF` is `refs/tags/<tag>`, `git check-ref-format` accepts the tag,
+the tag resolves to `GITHUB_SHA`, which is the checked-out commit, and that commit is an ancestor of `origin/main`. The
+same job then exports hashed build constraints from the caller lock, builds the wheel and sdist, requires exactly one of
+each at the tag's version, and uploads them. A `validate` job runs `check-wheel-contents` on the uploaded files.
 
 ```yaml
 build:
   uses: >-
     tox-dev/github-workflows/.github/workflows/validate-python-release.yaml@SHA
   permissions:
-    actions: read
     contents: read
-    pull-requests: read
 ```
 
-The `build` job must grant `actions: read` and `pull-requests: read` as well as `contents: read`. The tagged hook age
-check has needed them since 3.0.1, and GitHub refuses to start the workflow when the caller grants less. The caller
-needs a `build` group for backend constraints. `source` defaults to `.`. Use `artifact-prefix` when one tag produces
-more than one distribution path; each call then writes a distinct `python-package-distributions` artifact. A caller
-pinned to a workflow commit runs that commit's local Actions.
+The caller needs a `build` group for backend constraints. `source` defaults to `.`. Use `artifact-prefix` when one tag
+produces more than one distribution path; each call then writes a distinct `python-package-distributions` artifact. A
+caller pinned to a workflow commit runs that commit's local Actions. Pass the secondary lock inputs and the cutoff
+inputs as for `refresh-release-lock`.
 
-Publish only after the reusable workflow succeeds. Download the distribution with pinned `download-artifact`
+Publish only after the reusable workflow succeeds, so the lock check gates publishing too. Download the distribution
+with pinned `download-artifact`
 [v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
 using `artifact-ids: ${{ needs.build.outputs.distributions-artifact-id }}`. The download checks the artifact digest and
 selects the wheel and sdist from that build run. Render GitHub notes in the caller's tag workflow after fetching
 GitHub's contributor metadata; this reusable workflow does not render notes. Keep PyPI OIDC in the caller's `release`
 environment job.
+
+Run the tag workflow under `concurrency` keyed by the tag, without cancelling a run in progress. The release job has
+`contents: write` and no checkout. It reconciles the PyPI digests, requires that the tag still resolves to `GITHUB_SHA`,
+and then creates the GitHub Release once with `publish-github-release`:
+
+```yaml
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    needs: [build, pypi, notes]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: astral-sh/setup-uv@SETUP_UV_SHA
+        with:
+          python-version: '3.15'
+      - uses: actions/download-artifact@DOWNLOAD_SHA
+        with:
+          artifact-ids: ${{ needs.build.outputs.distributions-artifact-id }}
+          path: dist
+      - uses: actions/download-artifact@DOWNLOAD_SHA
+        with:
+          artifact-ids: ${{ needs.notes.outputs.artifact-id }}
+          path: ${{ runner.temp }}
+      - uses: tox-dev/github-workflows/reconcile-pypi-artifacts@SHA
+        with:
+          project: example
+          version: ${{ github.ref_name }}
+          dist: dist
+      - name: Require the tag to still name the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: test "$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$TAG" --jq .sha)" = "$GITHUB_SHA"
+      - uses: tox-dev/github-workflows/publish-github-release@SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          tag: ${{ github.ref_name }}
+          commit: ${{ github.sha }}
+          title: ${{ github.ref_name }}
+          notes-file: ${{ runner.temp }}/release-notes.md
+```
 
 ## Build a distribution for a pull request
 

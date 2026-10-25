@@ -8,23 +8,6 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  check:
-    runs-on: ubuntu-26.04
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: latest-known
-          python-version: "3.15"
-          enable-cache: false
-      - uses: $/check-tagged-source
   source:
     runs-on: ubuntu-26.04
     permissions:
@@ -42,19 +25,22 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
+      - name: Verify the exact release tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/tags/$TAG"
+          git check-ref-format "refs/tags/$TAG"
+          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$GITHUB_SHA"
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
+          git merge-base --is-ancestor HEAD origin/main
       - name: Install release tools
         env:
           EXCLUDE_NEWER: 7 days
         run: |
           tools/install_live_tools.sh .venv 'release-creator>=2.0.0'
           uv run --no-project --python .venv python tools/expose_locked_commands.py .venv
-      - name: Verify tagged source
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
-          git merge-base --is-ancestor HEAD origin/main
       - id: previous
         uses: $/select-previous-tag
         with:
@@ -124,7 +110,7 @@ jobs:
           path: ${{ runner.temp }}/release-notes.md
           if-no-files-found: error
   publish:
-    needs: [check, source, notes]
+    needs: [source, notes]
     runs-on: ubuntu-26.04
     environment: release
     permissions:
@@ -134,6 +120,11 @@ jobs:
         with:
           artifact-ids: ${{ needs.notes.outputs.artifact-id }}
           path: ${{ runner.temp }}
+      - name: Require the tag to still name the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: test "$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$TAG" --jq .sha)" = "$GITHUB_SHA"
       - uses: $/publish-github-release
         env:
           GH_TOKEN: ${{ github.token }}
