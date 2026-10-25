@@ -35,9 +35,9 @@ uploaded-prior-to = "P7D"
 python = ">=3.15,<3.16"
 platforms = ["linux_x86_64"]
 
-# Temporary: release-creator 2.0.0 is younger than seven days. Delete after 2026-11-01.
+# Temporary: release-creator 3.1.0 is younger than seven days. Delete after 2026-11-02.
 [tool.nab.packages.release-creator]
-uploaded-prior-to = 2026-10-25T07:08:32Z
+uploaded-prior-to = 2026-10-25T21:03:31Z
 
 [tool.ruff]
 line-length = 120
