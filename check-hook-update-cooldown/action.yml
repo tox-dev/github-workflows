@@ -35,9 +35,17 @@ runs:
           .head.sha == $head and
           (.user.login | type == "string")
         ' "$RUNNER_TEMP/hook-update-pr.json" >/dev/null
-        gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' \
+        gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[] | [.status, .filename] | @tsv' \
           >"$RUNNER_TEMP/hook-update-files"
-        if grep -Fxq .pre-commit-config.yaml "$RUNNER_TEMP/hook-update-files"; then
+        while IFS=$'\t' read -r status file; do
+          name=${file##*/}
+          if [[ "$status" != removed && ("$name" == prek.toml || "$name" == .pre-commit-config.yml ||
+            ("$name" == .pre-commit-config.yaml && "$file" != .pre-commit-config.yaml)) ]]; then
+            echo "::error::hooks must be configured only in the root .pre-commit-config.yaml: $file" >&2
+            exit 1
+          fi
+        done <"$RUNNER_TEMP/hook-update-files"
+        if cut -f2 "$RUNNER_TEMP/hook-update-files" | grep -Fxq .pre-commit-config.yaml; then
           if [[ $(jq -r .user.type "$RUNNER_TEMP/hook-update-pr.json") == Bot ]]; then
             jq -e --arg repository "$REPOSITORY" '.head.repo.full_name == $repository' \
               "$RUNNER_TEMP/hook-update-pr.json" >/dev/null || {

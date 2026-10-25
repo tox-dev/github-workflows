@@ -115,8 +115,8 @@ runs:
           exit 1
           ;;
         esac
-        if ! prek run "$formatter" --files "$CHANGELOG"; then
-          prek run "$formatter" --files "$CHANGELOG"
+        if ! prek run --config .pre-commit-config.yaml "$formatter" --files "$CHANGELOG"; then
+          prek run --config .pre-commit-config.yaml "$formatter" --files "$CHANGELOG"
         fi
     - name: Check generated files
       if: inputs.phase != 'build'

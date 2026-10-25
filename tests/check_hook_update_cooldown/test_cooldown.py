@@ -332,6 +332,39 @@ def test_cooldown_checks_human_local_hook_dependencies(
     assert (tmp_path / "hook-closure/.pre-commit-config.yaml").read_text() == proposed
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("prek.toml", id="root-prek-toml"),
+        pytest.param("sub/prek.toml", id="nested-prek-toml"),
+        pytest.param(".pre-commit-config.yml", id="root-yml"),
+        pytest.param("sub/.pre-commit-config.yaml", id="nested-yaml"),
+        pytest.param("sub/.pre-commit-config.yml", id="nested-yml"),
+    ],
+)
+def test_cooldown_rejects_other_hook_configuration(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]], path: str
+) -> None:
+    server, environment = github_api
+    expect_pull(server, author="gaborbernat", hook_update=False, other_files=(("added", path),))
+
+    result = run_cooldown(action_scripts, tmp_path, environment)
+
+    assert result.returncode != 0
+    assert f"only in the root .pre-commit-config.yaml: {path}" in result.stderr
+
+
+def test_cooldown_allows_removing_other_hook_configuration(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
+    server, environment = github_api
+    expect_pull(server, author="gaborbernat", hook_update=False, other_files=(("removed", "prek.toml"),))
+
+    result = run_cooldown(action_scripts, tmp_path, environment)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_cooldown_skips_bot_without_hook_changes(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
@@ -742,6 +775,7 @@ def expect_pull(
     associated_pull_request: int | None = 7,
     observed_repository: str | None = None,
     workflow_path: str = ".github/workflows/check.yaml",
+    other_files: tuple[tuple[str, str], ...] = (),
 ) -> None:
     server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7", method="GET").respond_with_json(
         {
@@ -754,7 +788,10 @@ def expect_pull(
         }
     )
     server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7/files", method="GET").respond_with_json(
-        [{"filename": ".pre-commit-config.yaml" if hook_update else "pyproject.toml"}]
+        [
+            {"status": "modified", "filename": ".pre-commit-config.yaml" if hook_update else "pyproject.toml"},
+            *({"status": status, "filename": filename} for status, filename in other_files),
+        ]
     )
     if hook_update:
         if author.endswith("[bot]") and branch == "automation/update-release-tools":

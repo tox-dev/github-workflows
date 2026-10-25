@@ -41,7 +41,7 @@ jobs:
           unset UV_CONFIG_FILE UV_INDEX UV_INDEX_URL UV_DEFAULT_INDEX UV_EXTRA_INDEX_URL
           unset UV_FIND_LINKS UV_EXCLUDE_NEWER_PACKAGE
           unset UV_INSECURE_HOST UV_SYSTEM_CERTS SSL_CERT_FILE SSL_CERT_DIR
-          .venv/bin/prek run --all-files
+          .venv/bin/prek run --config .pre-commit-config.yaml --all-files
   source:
     runs-on: ubuntu-26.04
     permissions:

@@ -75,6 +75,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "check-hook-update-cooldown",
         "recheck-hook-update-cooldown",
         "publish-post-release-pr",
+        "verify-frozen-hooks",
     ):
         action = yaml.safe_load((source / action_name / "action.yml").read_text())
         for index, step in enumerate(action["runs"]["steps"]):
@@ -528,9 +529,11 @@ def _condition(
         return any(_condition(part, environment, inputs, step_outputs) for part in expression.split(" || "))
     if " && " in expression:
         return all(_condition(part, environment, inputs, step_outputs) for part in expression.split(" && "))
-    if expression.startswith("endsWith(") and expression.endswith(")"):
-        arguments = expression.removeprefix("endsWith(").removesuffix(")").split(", ", 1)
-        return _expression(arguments[0], environment, inputs, step_outputs).endswith(arguments[1].strip("'"))
+    for function in ("startsWith", "endsWith"):
+        if expression.startswith(f"{function}(") and expression.endswith(")"):
+            subject, affix = expression.removeprefix(f"{function}(").removesuffix(")").split(", ", 1)
+            value = _expression(subject, environment, inputs, step_outputs)
+            return value.startswith(affix.strip("'")) if function == "startsWith" else value.endswith(affix.strip("'"))
     for operator in (" == ", " != "):
         if operator in expression:
             left, right = expression.split(operator, 1)
@@ -637,6 +640,10 @@ def _expression(
         return step_outputs.get(step_id, {}).get(output_name, "")
     if expression == "runner.temp":
         return environment["RUNNER_TEMP"]
+    if expression == "github.ref":
+        return environment.get("GITHUB_REF", "")
+    if expression == "github.ref_name":
+        return environment.get("GITHUB_REF_NAME", "")
     if expression == "github.repository":
         return environment["GITHUB_REPOSITORY"]
     if expression == "github.base_ref":
