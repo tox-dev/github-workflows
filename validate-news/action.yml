@@ -49,7 +49,7 @@ runs:
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
         KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}
       run: |
-        paths=(pyproject.toml ':(glob)**/pyproject.toml' pylock.toml nab.toml)
+        paths=(':(glob)**/pyproject.toml' pylock.toml nab.toml ':(glob).github/workflows/**')
         if [[ -n "$ADDITIONAL_LOCK" ]]; then paths+=("$ADDITIONAL_LOCK"); fi
         if [[ "$KEEP_UV_LOCK" == true ]]; then paths+=(uv.lock); fi
         changed=$(git diff --name-only "origin/$BASE_REF...HEAD" -- "${paths[@]}")

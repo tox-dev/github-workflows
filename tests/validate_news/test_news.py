@@ -146,6 +146,9 @@ def test_validate_news_forwards_secondary_lock_inputs() -> None:
     [
         pytest.param("pylock.zipapp.toml", False, "pylock.zipapp.toml", "true", id="selected-secondary-lock"),
         pytest.param("", False, "pylock.zipapp.toml", "false", id="unselected-secondary-lock"),
+        pytest.param("", False, "pyproject.toml", "true", id="root-project"),
+        pytest.param("", False, ".github/workflows/release.yaml", "true", id="workflow-repin"),
+        pytest.param("", False, "README.md", "false", id="unrelated"),
         pytest.param("", False, "nab.toml", "true", id="nab-policy"),
         pytest.param("", False, "meta/pyproject.toml", "true", id="workspace-member"),
         pytest.param("", True, "uv.lock", "true", id="selected-native-uv-lock"),
@@ -177,6 +180,8 @@ def test_validate_news_detects_release_input_change(
     (repository / changed_path).write_text(
         "[tool.nab]\nuploaded-prior-to = false\n"
         if changed_path == "nab.toml"
+        else (repository / changed_path).read_text() + "\n"
+        if changed_path == "pyproject.toml"
         else "lock-version = '1.0'\ncreated-by = 'test'\n"
     )
     run(repository, "git", "add", changed_path)
