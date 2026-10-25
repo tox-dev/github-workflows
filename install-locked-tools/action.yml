@@ -62,14 +62,8 @@ runs:
       run: |
         set -euo pipefail
         case "$LOCK_SOURCE" in
-        caller)
-          lock=pylock.toml
-          lock_check=(--shared-lock "$GITHUB_ACTION_PATH/../pylock.toml" --verify-pypi --project pyproject.toml)
-          ;;
-        shared)
-          lock="$GITHUB_ACTION_PATH/../pylock.toml"
-          lock_check=()
-          ;;
+        caller) lock=pylock.toml ;;
+        shared) lock="$GITHUB_ACTION_PATH/../pylock.toml" ;;
         *)
           echo "::error::unknown lock source: $LOCK_SOURCE" >&2
           exit 1
@@ -86,16 +80,19 @@ runs:
             exit 1
           }
           uv venv --allow-existing --python 3.15 "$VENV"
+          selection=("${groups[@]}")
+          printf '%s\n' "${groups[@]}" >"$RUNNER_TEMP/selected-lock-groups"
+        else
+          selection=(--build-constraints)
+        fi
+        # The shared lock is checked in github-workflows CI; only a caller lock needs the cooling and PyPI checks.
+        if [[ "$LOCK_SOURCE" == caller ]]; then
           source_check=()
           if [[ "$LOCAL_TOOL_SOURCE" == true ]]; then source_check=(--local-tool-source); fi
           uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
-            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" "${groups[@]}" \
-            "${lock_check[@]}" "${source_check[@]}"
-          printf '%s\n' "${groups[@]}" >"$RUNNER_TEMP/selected-lock-groups"
-        else
-          uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
-            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" --build-constraints \
-            "${lock_check[@]}"
+            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$lock" "${selection[@]}" \
+            --shared-lock "$GITHUB_ACTION_PATH/../pylock.toml" --verify-pypi --project pyproject.toml \
+            "${source_check[@]}"
         fi
         printf 'lock=%s\n' "$lock" >>"$GITHUB_OUTPUT"
     - name: Verify additional release lock
@@ -124,11 +121,13 @@ runs:
       env:
         BUILD_LOCK: ${{ steps.selection.outputs.lock }}
         CONSTRAINTS_LOCK: ${{ inputs.constraints-lock }}
+        VERIFY_LOCK: ${{ inputs.verify-lock }}
         TARGET_PLATFORM: ${{ inputs.target-platform }}
         TARGETS: ${{ inputs.targets }}
       run: |
         set -euo pipefail
-        if [[ -n "$CONSTRAINTS_LOCK" && "$CONSTRAINTS_LOCK" != "$BUILD_LOCK" ]]; then
+        # A verified lock already had its build selection checked against PyPI with its groups.
+        if [[ -n "$CONSTRAINTS_LOCK" && "$CONSTRAINTS_LOCK" != "$BUILD_LOCK" && "$CONSTRAINTS_LOCK" != "$VERIFY_LOCK" ]]; then
           lock_check=()
           if [[ "$CONSTRAINTS_LOCK" != "$GITHUB_ACTION_PATH/../pylock.toml" ]]; then
             lock_check=(--verify-pypi --project pyproject.toml)
