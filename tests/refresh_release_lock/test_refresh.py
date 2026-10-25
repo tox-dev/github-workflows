@@ -214,7 +214,7 @@ def test_refresh_installs_nab_under_cutoff(lock_project: Path, tmp_path: Path, a
     )
 
     assert result.returncode != 0
-    assert "nab==0.0.22" in result.stderr
+    assert "nab>=0.0.22" in result.stderr
 
 
 @pytest.mark.parametrize("commit", ["abc123", "g" * 40, "a" * 41], ids=["short", "not-hex", "long"])
@@ -228,7 +228,7 @@ def test_refresh_rejects_invalid_nab_commit(tmp_path: Path, action_scripts: Path
 @pytest.mark.parametrize(
     ("commit", "requirement"),
     [
-        pytest.param("", "nab==0.0.22", id="release"),
+        pytest.param("", "nab>=0.0.22", id="release"),
         pytest.param("0123456789abcdef0123456789abcdef01234567", None, id="git-commit"),
     ],
 )

@@ -55,8 +55,9 @@ the `build` group, such as profile-guided optimization tools in a `pgo` group.
 ## Tools the Actions install
 
 The Actions install the tools they run themselves, such as Nab, `packaging`, `certifi`, and `pypi-attestations`, from
-PyPI with `uv pip install --exclude-newer`, without hashes. There is no shared lock, so a tool release reaches callers
-once it is older than the cutoff. Every Action and reusable workflow that installs such a tool takes two inputs:
+PyPI with `uv pip install --exclude-newer`, without hashes. Each tool has only a minimum version, such as `nab>=0.0.22`,
+and there is no shared lock, so a tool release reaches callers once it is older than the cutoff. Every Action and
+reusable workflow that installs such a tool takes two inputs:
 
 - `exclude-newer`: the cutoff, `7 days` by default. uv accepts a timestamp or a duration.
 - `exclude-newer-package`: newline-separated `name=date` pairs, each passed to uv as `--exclude-newer-package`, to let a

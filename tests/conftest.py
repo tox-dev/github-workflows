@@ -145,7 +145,7 @@ def pypi_metadata_environment(pypi_metadata: Path, monkeypatch: pytest.MonkeyPat
 def nab_executable(tmp_path_factory: pytest.TempPathFactory) -> Path:
     environment = tmp_path_factory.mktemp("nab-tools")
     subprocess.run(
-        [str(Path(__file__).resolve().parents[1] / "tools/install_live_tools.sh"), str(environment), "nab==0.0.22"],
+        [str(Path(__file__).resolve().parents[1] / "tools/install_live_tools.sh"), str(environment), "nab>=0.0.22"],
         env=os.environ | {"EXCLUDE_NEWER": "7 days"},
         check=True,
         capture_output=True,

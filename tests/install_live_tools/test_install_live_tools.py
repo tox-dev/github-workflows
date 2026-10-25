@@ -28,7 +28,7 @@ def fake_uv(tmp_path: Path) -> Path:
 def _install(tmp_path: Path, fake_uv: Path, **environment: str) -> list[dict[str, Any]]:
     calls = tmp_path / "calls.jsonl"
     subprocess.run(
-        [str(_SCRIPT), str(tmp_path / "tools"), "nab==0.0.22", "packaging>=26.3"],
+        [str(_SCRIPT), str(tmp_path / "tools"), "nab>=0.0.22", "packaging>=26.3"],
         env=os.environ
         | {"PATH": f"{fake_uv.parent}{os.pathsep}{os.environ['PATH']}", "UV_CALLS": str(calls)}
         | environment,
@@ -48,7 +48,7 @@ def test_install_live_tools_applies_the_cutoff(tmp_path: Path, fake_uv: Path) ->
         str(tmp_path / "tools"),
         "--exclude-newer",
         "7 days",
-        "nab==0.0.22",
+        "nab>=0.0.22",
         "packaging>=26.3",
     ]
 
@@ -85,7 +85,7 @@ def test_install_live_tools_ignores_inherited_uv_cutoffs(tmp_path: Path, fake_uv
 
 def test_install_live_tools_requires_a_cutoff(tmp_path: Path, fake_uv: Path) -> None:
     result = subprocess.run(
-        [str(_SCRIPT), str(tmp_path / "tools"), "nab==0.0.22"],
+        [str(_SCRIPT), str(tmp_path / "tools"), "nab>=0.0.22"],
         env={name: value for name, value in os.environ.items() if name != "EXCLUDE_NEWER"}
         | {"PATH": f"{fake_uv.parent}{os.pathsep}{os.environ['PATH']}", "UV_CALLS": str(tmp_path / "calls.jsonl")},
         text=True,

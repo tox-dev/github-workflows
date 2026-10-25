@@ -68,7 +68,7 @@ runs:
         NAB_GIT_COMMIT: ${{ inputs.nab-git-commit }}
       run: |
         set -euo pipefail
-        requirement=nab==0.0.22
+        requirement="nab>=0.0.22"
         if [[ -n "$NAB_GIT_COMMIT" ]]; then requirement=git+https://github.com/notatallshaw/nab@$NAB_GIT_COMMIT; fi
         "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-tools" "$requirement"
     - name: Resolve all project groups and extras
