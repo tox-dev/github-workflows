@@ -25,9 +25,6 @@ inputs:
   keep-uv-lock:
     description: Refresh and check uv.lock alongside pylock.toml for projects that use both
     default: "false"
-  upgrade-resolver:
-    description: Upgrade the shared uv pin before refreshing this repository's lock
-    default: "false"
 outputs:
   changed:
     description: Whether the lock or expired package cutoffs differ from the checkout
@@ -83,16 +80,10 @@ runs:
       run: >-
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" python "$GITHUB_ACTION_PATH/../tools/expire_cutoffs.py" pyproject.toml
     - name: Widen the shared uv pin
-      if: inputs.mode == 'refresh' && inputs.upgrade-resolver == 'true'
+      if: inputs.mode == 'refresh' && github.repository == 'tox-dev/github-workflows'
       shell: bash
-      run: |
-        set -euo pipefail
-        [[ "$GITHUB_REPOSITORY" == tox-dev/github-workflows ]] || {
-          echo '::error::only github-workflows can upgrade the shared resolver' >&2
-          exit 1
-        }
-        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python \
-          "$GITHUB_ACTION_PATH/../tools/refresh_uv_resolver.py" widen pyproject.toml pylock.toml
+      run: >-
+        uv run --no-project --python "$RUNNER_TEMP/lock-tools" python "$GITHUB_ACTION_PATH/../tools/refresh_uv_resolver.py" widen pyproject.toml pylock.toml
     - name: Resolve all project groups and extras
       shell: bash
       env:
@@ -112,17 +103,17 @@ runs:
           ;;
         esac
     - name: Pin the updated uv resolver
-      if: inputs.mode == 'refresh' && inputs.upgrade-resolver == 'true'
+      if: inputs.mode == 'refresh' && github.repository == 'tox-dev/github-workflows'
       shell: bash
       run: >-
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" python "$GITHUB_ACTION_PATH/../tools/refresh_uv_resolver.py" pin pyproject.toml pylock.toml
     - uses: $/install-locked-tools
-      if: inputs.mode == 'refresh' && inputs.upgrade-resolver == 'true'
+      if: inputs.mode == 'refresh' && github.repository == 'tox-dev/github-workflows'
       with:
         groups: release-resolver
         venv: ${{ runner.temp }}/updated-release-resolver
     - name: Resolve with the updated uv resolver
-      if: inputs.mode == 'refresh' && inputs.upgrade-resolver == 'true'
+      if: inputs.mode == 'refresh' && github.repository == 'tox-dev/github-workflows'
       shell: bash
       env:
         KEEP_UV_LOCK: ${{ inputs.keep-uv-lock }}

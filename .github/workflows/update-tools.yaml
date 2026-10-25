@@ -12,7 +12,6 @@ jobs:
     secrets:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
     with:
-      upgrade-resolver: true
       commit-message: "🔧 build: refresh release tool lock"
       pull-request-title: "🔧 build: refresh release tool lock"
       pull-request-body: "Refresh the locked tools used by release preparation and CI."

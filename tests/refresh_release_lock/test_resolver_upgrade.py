@@ -131,20 +131,6 @@ def test_resolver_upgrade_import_has_no_side_effect() -> None:
     assert runpy.run_path(str(source), run_name="imported")["__all__"] == ["main"]
 
 
-def test_weekly_resolver_upgrade_is_opt_in() -> None:
-    source = Path(__file__).resolve().parents[2]
-    caller = yaml.safe_load((source / ".github/workflows/update-tools.yaml").read_text())
-    reusable = yaml.safe_load((source / ".github/workflows/upgrade-release-tools.yaml").read_text())
-    action = yaml.safe_load((source / "refresh-release-lock/action.yml").read_text())
-
-    assert caller["jobs"]["update"]["with"]["upgrade-resolver"] is True
-    refresh = next(
-        step for step in reusable["jobs"]["generate-lock"]["steps"] if step.get("uses") == "$/refresh-release-lock"
-    )
-    assert refresh["with"]["upgrade-resolver"] == "${{ inputs.upgrade-resolver }}"
-    assert action["inputs"]["upgrade-resolver"]["default"] == "false"
-
-
 def test_resolver_upgrade_uses_candidate_to_regenerate_lock(tmp_path: Path, action_scripts: Path) -> None:
     source = Path(__file__).resolve().parents[2]
     steps = yaml.safe_load((source / "refresh-release-lock/action.yml").read_text())["runs"]["steps"]

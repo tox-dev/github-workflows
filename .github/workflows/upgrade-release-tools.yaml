@@ -26,10 +26,6 @@ on:
         description: Space-separated implementations for the secondary lock
         type: string
         default: ""
-      upgrade-resolver:
-        description: Upgrade this repository's exact shared uv resolver pin with its lock
-        type: boolean
-        default: false
       keep-uv-lock:
         description: Refresh and check uv.lock alongside pylock.toml
         type: boolean
@@ -79,7 +75,6 @@ jobs:
           additional-matrix-python: ${{ inputs.additional-matrix-python }}
           additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
           additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
-          upgrade-resolver: ${{ inputs.upgrade-resolver }}
           keep-uv-lock: ${{ inputs.keep-uv-lock }}
       - id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
