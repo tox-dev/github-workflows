@@ -335,6 +335,30 @@ def test_lock_metadata_allows_local_release_creator(
 
 
 @pytest.mark.parametrize(
+    ("name", "path"),
+    [pytest.param("release-creator", "../other", id="other-directory"), pytest.param("six", ".", id="other-package")],
+)
+def test_lock_metadata_limits_local_tool_exemption(
+    lock_case: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    name: str,
+    path: str,
+) -> None:
+    lock = lock_case[0]
+    lock.write_text(
+        lock.read_text().split("[[packages]]", 1)[0]
+        + f'[[packages]]\nname = "{name}"\nmarker = \'"release-check" in dependency_groups\'\n'
+        + f'directory = {{ path = "{path}" }}\n'
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_check(lock_case, monkeypatch, "--local-tool-source")
+
+    assert "direct-source package" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
     ("source", "message"),
     [
         pytest.param(
