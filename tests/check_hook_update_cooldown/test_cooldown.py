@@ -560,6 +560,7 @@ def test_cooldown_rejects_invalid_minimum(
     server, environment = github_api
     result = run_cooldown(action_scripts, tmp_path, environment, minimum_days=minimum_days)
     assert result.returncode != 0
+    assert "minimum-days must be a whole number of at least seven" in result.stderr
     assert not server.log
 
 
