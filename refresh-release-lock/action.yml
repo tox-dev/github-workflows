@@ -79,17 +79,17 @@ runs:
         set -euo pipefail
         unset SSL_CERT_FILE SSL_CERT_DIR
         case "$MODE" in
-        check)
-          refresh=()
-          cp pylock.toml "$RUNNER_TEMP/lock-before.toml"
-          ;;
+        check) refresh=() ;;
         refresh) refresh=(--upgrade) ;;
         *)
           echo "::error::invalid lock mode: $MODE" >&2
           exit 1
           ;;
         esac
+        cp pylock.toml "$RUNNER_TEMP/lock-before.toml"
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --all-groups --all-extras --no-cache "${refresh[@]}"
+        python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" --environments-only \
+          "$RUNNER_TEMP/lock-before.toml" pylock.toml
         if [[ "$MODE" == check ]]; then
           python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" "$RUNNER_TEMP/lock-before.toml" pylock.toml
         fi

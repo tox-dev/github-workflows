@@ -276,3 +276,20 @@ def test_refresh_callers_forward_nab_commit(path: str, steps: tuple[str, ...]) -
 
     assert inputs["nab-git-commit"]["default"] == ""
     assert refresh["with"]["nab-git-commit"] == "${{ inputs.nab-git-commit }}"
+
+
+@pytest.mark.parametrize("mode", ["check", "refresh"])
+def test_refresh_rejects_changed_primary_environments(tmp_path: Path, action_scripts: Path, mode: str) -> None:
+    (tmp_path / "pylock.toml").write_text(_LOCK)
+    retargeting = tmp_path / "bin/uv"
+    retargeting.parent.mkdir()
+    retargeting.write_text(
+        f"#!{sys.executable}\nimport pathlib\nlock = pathlib.Path('pylock.toml')\n"
+        "lock.write_text(lock.read_text().replace('3.15', '3.14'))\n"
+    )
+    retargeting.chmod(0o755)
+
+    result = _run_step(action_scripts, "Resolve all project groups and extras", tmp_path, retargeting, MODE=mode)
+
+    assert result.returncode != 0
+    assert "regenerated Nab lock changed its target environments" in result.stderr
