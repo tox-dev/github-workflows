@@ -225,15 +225,30 @@ def test_refresh_rejects_invalid_nab_commit(tmp_path: Path, action_scripts: Path
     assert "nab-git-commit must be a full 40-character commit SHA" in result.stderr
 
 
+_NAB_COMMIT: Final = "0123456789abcdef0123456789abcdef01234567"
+_NAB_SOURCE: Final = f"git+https://github.com/notatallshaw/nab@{_NAB_COMMIT}"
+
+
 @pytest.mark.parametrize(
-    ("commit", "requirement"),
+    ("commit", "requirements"),
     [
-        pytest.param("", "nab>=0.0.22", id="release"),
-        pytest.param("0123456789abcdef0123456789abcdef01234567", None, id="git-commit"),
+        pytest.param("", ["nab>=0.0.22"], id="release"),
+        pytest.param(
+            _NAB_COMMIT,
+            [
+                f"nab @ {_NAB_SOURCE}",
+                f"nab-index @ {_NAB_SOURCE}#subdirectory=nab-index",
+                f"nab-markersets @ {_NAB_SOURCE}#subdirectory=nab-markersets",
+                f"nab-project @ {_NAB_SOURCE}#subdirectory=nab-project",
+                f"nab-provider @ {_NAB_SOURCE}#subdirectory=nab-provider",
+                f"nab-resolver @ {_NAB_SOURCE}#subdirectory=nab-resolver",
+            ],
+            id="git-commit-workspace",
+        ),
     ],
 )
 def test_refresh_installs_selected_nab(
-    tmp_path: Path, action_scripts: Path, commit: str, requirement: str | None
+    tmp_path: Path, action_scripts: Path, commit: str, requirements: list[str]
 ) -> None:
     installer = tmp_path / "tools/install_live_tools.sh"
     installer.parent.mkdir()
@@ -251,10 +266,7 @@ def test_refresh_installs_selected_nab(
     )
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "installed").read_text().splitlines() == [
-        f"{tmp_path}/lock-tools",
-        requirement or f"git+https://github.com/notatallshaw/nab@{commit}",
-    ]
+    assert (tmp_path / "installed").read_text().splitlines() == [f"{tmp_path}/lock-tools", *requirements]
 
 
 @pytest.mark.parametrize(
