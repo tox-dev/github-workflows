@@ -406,3 +406,17 @@ def test_prepare_rejects_other_hook_configuration(
 
     assert result.returncode != 0
     assert f"only in the root .pre-commit-config.yaml: {path}" in result.stderr
+
+
+def test_prepare_adds_new_contributors_after_building(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0", PHASE="build")
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "new-contributors").read_text().splitlines() == [
+        "--changelog",
+        "CHANGELOG.md",
+        "--version",
+        "0.2.0",
+        "--repository",
+        "tox-dev/fixture",
+    ]

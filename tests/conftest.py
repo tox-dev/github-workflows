@@ -377,7 +377,10 @@ def run(directory: Path, *command: str) -> subprocess.CompletedProcess[str]:
 
 
 def _tools_path(environment: dict[str, str]) -> str:
-    return f"{Path(__file__).resolve().parents[1] / '.release-tools/bin'}:{Path(sys.executable).parent}:{environment['PATH']}"
+    tools = Path(__file__).resolve().parents[1] / ".release-tools/bin"
+    return (
+        f"{Path(__file__).parent / 'release_creator_shim'}:{tools}:{Path(sys.executable).parent}:{environment['PATH']}"
+    )
 
 
 def _condition(
