@@ -101,8 +101,7 @@ runs:
         CHANGELOG: ${{ steps.config.outputs.changelog }}
         REPOSITORY: ${{ github.repository }}
         GH_TOKEN: ${{ github.token }}
-      # Pending: release-creator 3.1.0 adds this step; the command name and options are placeholders until it ships.
-      run: release-creator new-contributors --changelog "$CHANGELOG" --version "$VERSION" --repository "$REPOSITORY"
+      run: release-creator contributors --changelog "$CHANGELOG" --version "$VERSION" --repository "$REPOSITORY"
     - name: Reject other hook configurations
       if: inputs.phase != 'build'
       shell: bash

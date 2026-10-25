@@ -1,2 +1,2 @@
-Run release-creator's new "New Contributors" step after the Towncrier build in `prepare-towncrier`, so the changelog
-section credits first-time contributors. The command name is a placeholder until release-creator 3.1.0 ships it.
+Run `release-creator contributors` after the Towncrier build in `prepare-towncrier`, so the changelog section gets a
+"New Contributors" subsection. It needs release-creator 3.1.0.

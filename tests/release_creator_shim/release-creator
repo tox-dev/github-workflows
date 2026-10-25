@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
-# release-creator 3.1.0 adds new-contributors; until it ships, the tests record the call and run the rest for real.
+# release-creator 3.1.0 adds contributors; until it is on PyPI, the tests record the call and run the rest for real.
 set -euo pipefail
-if [[ "$1" == new-contributors ]]; then
-  printf '%s\n' "${@:2}" >"$RUNNER_TEMP/new-contributors"
+if [[ "$1" == contributors ]]; then
+  shift
+  while (($#)); do
+    case "$1" in
+    --changelog | --version | --repository) printf '%s\n' "$1" "$2" >>"$RUNNER_TEMP/contributors" ;;
+    *)
+      echo "release-creator contributors: unrecognized arguments: $1" >&2
+      exit 2
+      ;;
+    esac
+    shift 2
+  done
   exit 0
 fi
 exec "$(dirname "$0")/../../.release-tools/bin/release-creator" "$@"

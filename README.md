@@ -406,8 +406,8 @@ path, fragment directory, categories, and Markdown or RST format from committed 
 formatting must all succeed.
 
 After the Towncrier build, the Action runs release-creator's step that adds a "New Contributors" subsection to the new
-changelog section. That step arrives in release-creator 3.1.0; the command name `release-creator new-contributors` and
-its options are placeholders until it ships.
+changelog section with `release-creator contributors`, which release-creator 3.1.0 adds. The caller's `release-prepare`
+group needs that version once it is published.
 
 ```yaml
   - id: prepare
