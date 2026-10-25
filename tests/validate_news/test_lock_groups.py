@@ -4,17 +4,18 @@ import runpy
 import subprocess
 import sys
 from pathlib import Path
+from typing import Final
 
 import pytest
 
 from tools.lock_groups import validate_workspace_sources
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
+_TOOLS: Final = Path(__file__).resolve().parents[2] / "tools"
 
 
 def _producer(lock: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(TOOLS / "lock_groups.py"), str(lock)], capture_output=True, text=True, check=False
+        [sys.executable, str(_TOOLS / "lock_groups.py"), str(lock)], capture_output=True, text=True, check=False
     )
 
 
@@ -45,7 +46,7 @@ def test_lock_groups_rejects_other_producer(tmp_path: Path, content: str, messag
 
 
 def test_lock_groups_import_has_no_cli_side_effect(capsys: pytest.CaptureFixture[str]) -> None:
-    runpy.run_path(str(TOOLS / "lock_groups.py"), run_name="lock_groups")
+    runpy.run_path(str(_TOOLS / "lock_groups.py"), run_name="lock_groups")
 
     assert capsys.readouterr() == ("", "")
 
@@ -115,7 +116,7 @@ def test_lock_check_rejects_unapproved_workspace_sources(tmp_path: Path, source:
     result = subprocess.run(
         [
             sys.executable,
-            str(TOOLS / "check_lock_groups.py"),
+            str(_TOOLS / "check_lock_groups.py"),
             str(lock),
             "release-news",
             "--project",

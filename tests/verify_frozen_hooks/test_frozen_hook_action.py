@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 import pytest
 from conftest import action, run
 
-LOCAL_HOOK = "repos:\n  - repo: local\n    hooks:\n      - id: noop\n        name: noop\n        entry: 'true'\n        language: system\n"
+_LOCAL_HOOK: Final = (
+    "repos:\n  - repo: local\n    hooks:\n      - id: noop\n        name: noop\n        entry: 'true'\n"
+    "        language: system\n"
+)
 
 
 def _repository(tmp_path: Path, config: str, *extra: str) -> Path:
@@ -15,14 +19,14 @@ def _repository(tmp_path: Path, config: str, *extra: str) -> Path:
     (repository / ".pre-commit-config.yaml").write_text(config)
     for path in extra:
         (repository / path).parent.mkdir(parents=True, exist_ok=True)
-        (repository / path).write_text(LOCAL_HOOK)
+        (repository / path).write_text(_LOCAL_HOOK)
     run(repository, "git", "add", ".")
     run(repository, "git", "-c", "user.name=Test", "-c", "user.email=test@example.org", "commit", "-qm", "Hooks")
     return repository
 
 
 def test_verify_frozen_hooks_accepts_root_configuration(tmp_path: Path, action_scripts: Path) -> None:
-    repository = _repository(tmp_path, LOCAL_HOOK)
+    repository = _repository(tmp_path, _LOCAL_HOOK)
 
     result = action(repository, tmp_path, action_scripts, "verify-frozen-hooks", version="")
 
@@ -39,7 +43,7 @@ def test_verify_frozen_hooks_accepts_root_configuration(tmp_path: Path, action_s
     ],
 )
 def test_verify_frozen_hooks_rejects_other_configuration(tmp_path: Path, action_scripts: Path, path: str) -> None:
-    repository = _repository(tmp_path, LOCAL_HOOK, path)
+    repository = _repository(tmp_path, _LOCAL_HOOK, path)
 
     result = action(repository, tmp_path, action_scripts, "verify-frozen-hooks", version="")
 

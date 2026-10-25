@@ -45,31 +45,29 @@ def main() -> None:
             removed_names = {name for name in names if name not in after.get("exclude-newer-package", {})}
             if removed_names:
                 remove_release_creator_cutoffs(before, removed_names)
-        if os.environ.get("GITHUB_REPOSITORY") == "tox-dev/github-workflows":
-            _accept_resolver_pin(original, actual, args.project.with_name("pylock.toml"))
+        resolvers = [project.get("dependency-groups", {}).get("release-resolver") for project in (original, actual)]
+        if (
+            os.environ.get("GITHUB_REPOSITORY") == "tox-dev/github-workflows"
+            and resolvers[0] != resolvers[1]
+            and all(
+                isinstance(pins, list) and len(pins) == 1 and re.fullmatch(r"uv==[0-9.]+", str(pins[0]))
+                for pins in resolvers
+            )
+        ):
+            version = resolvers[1][0].removeprefix("uv==")
+            if not any(
+                package.get("name") == "uv"
+                and package.get("version") == version
+                and '"release-resolver" in dependency_groups' in package.get("marker", "")
+                for package in tomllib.loads(args.project.with_name("pylock.toml").read_text())["packages"]
+            ):
+                raise ValueError(f"pylock.toml does not lock the updated resolver uv {version}")
+            original["dependency-groups"]["release-resolver"] = resolvers[1]
         if original != actual:
             producer = "package" if "release-creator" in original["tool"] else "Nab"
             parser.error(f"pyproject.toml has changes beyond expired {producer} cutoffs")
     except (OSError, KeyError, TypeError, ValueError, subprocess.CalledProcessError, tomllib.TOMLDecodeError) as error:
         parser.error(str(error))
-
-
-def _accept_resolver_pin(original: dict, actual: dict, lock: Path) -> None:
-    before = original.get("dependency-groups", {}).get("release-resolver")
-    after = actual.get("dependency-groups", {}).get("release-resolver")
-    if before == after or not all(
-        isinstance(pins, list) and len(pins) == 1 and isinstance(pins[0], str) and re.fullmatch(r"uv==[0-9.]+", pins[0])
-        for pins in (before, after)
-    ):
-        return
-    version = after[0].removeprefix("uv==")
-    resolver = '"release-resolver" in dependency_groups'
-    if not any(
-        package.get("name") == "uv" and package.get("version") == version and resolver in package.get("marker", "")
-        for package in tomllib.loads(lock.read_text())["packages"]
-    ):
-        raise ValueError(f"pylock.toml does not lock the updated resolver uv {version}")
-    original["dependency-groups"]["release-resolver"] = after
 
 
 if __name__ == "__main__":

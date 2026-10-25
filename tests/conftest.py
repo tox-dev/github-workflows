@@ -478,8 +478,7 @@ def _condition(
             left, right = expression.split(operator, 1)
             equal = _expression(left, environment, inputs, step_outputs) == right.strip("'")
             return equal if operator == " == " else not equal
-    msg = f"unsupported GitHub step condition: {expression}"
-    raise ValueError(msg)
+    raise ValueError(f"unsupported GitHub step condition: {expression}")  # pragma: no cover - new syntax only
 
 
 def _safe_environment() -> dict[str, str]:
@@ -533,8 +532,7 @@ def _step_value(
     while (start := remainder.find("${{")) != -1:
         end = remainder.find("}}", start + 3)
         if end == -1:
-            msg = f"unterminated GitHub expression: {value}"
-            raise ValueError(msg)
+            raise ValueError(f"unterminated GitHub expression: {value}")  # pragma: no cover - new syntax only
         parts.append(remainder[:start])
         parts.append(_expression(remainder[start + 3 : end].strip(), environment, inputs, step_outputs))
         remainder = remainder[end + 2 :]
@@ -590,8 +588,7 @@ def _expression(
         return "Bot" if environment.get("BOT_AUTHOR") == "true" else "User"
     if expression == "contains(github.event.pull_request.labels.*.name, 'skip news')":
         return environment.get("SKIP_NEWS", "false")
-    msg = f"unsupported GitHub step environment: {expression}"
-    raise ValueError(msg)
+    raise ValueError(f"unsupported GitHub step environment: {expression}")  # pragma: no cover - new syntax only
 
 
 def _lock_metadata(lock: Path) -> dict[str, list[_PyPIFile]]:

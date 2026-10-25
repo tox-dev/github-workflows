@@ -303,9 +303,8 @@ def test_verify_files_rejects_bad_local_release(distribution: Path, change: str,
         verify_files("fixture", "1.0", distribution)
 
 
-def test_verify_files_waits_for_incomplete_listing(
-    distribution: Path, mocker: MockerFixture, waiting_clock: None
-) -> None:
+@pytest.mark.usefixtures("waiting_clock")
+def test_verify_files_waits_for_incomplete_listing(distribution: Path, mocker: MockerFixture) -> None:
     files = _listing(distribution)
     response = mocker.patch.object(
         _MODULE,
@@ -337,11 +336,11 @@ def test_verify_files_waits_for_incomplete_listing(
         pytest.param(json.JSONDecodeError("truncated", "{", 1), id="truncated-json"),
     ],
 )
+@pytest.mark.usefixtures("waiting_clock")
 def test_verify_files_retries_transient_listing_failure(
     distribution: Path,
     mocker: MockerFixture,
     failure: OSError | IncompleteRead | json.JSONDecodeError,
-    waiting_clock: None,
 ) -> None:
     response = mocker.patch.object(
         _MODULE, "urlopen", autospec=True, side_effect=[failure, _body(_listing(distribution))]
@@ -361,8 +360,9 @@ def test_verify_files_retries_transient_listing_failure(
         pytest.param(IncompleteRead(b"partial", 10), id="incomplete-read"),
     ],
 )
+@pytest.mark.usefixtures("waiting_clock")
 def test_verify_files_retries_response_read_failure(
-    distribution: Path, mocker: MockerFixture, failure: TimeoutError | IncompleteRead, waiting_clock: None
+    distribution: Path, mocker: MockerFixture, failure: TimeoutError | IncompleteRead
 ) -> None:
     response = mocker.create_autospec(io.BytesIO, instance=True)
     response.__enter__.return_value.read.side_effect = failure
@@ -374,9 +374,8 @@ def test_verify_files_retries_response_read_failure(
     ]
 
 
-def test_verify_files_retries_truncated_json_response(
-    distribution: Path, mocker: MockerFixture, waiting_clock: None
-) -> None:
+@pytest.mark.usefixtures("waiting_clock")
+def test_verify_files_retries_truncated_json_response(distribution: Path, mocker: MockerFixture) -> None:
     response = mocker.patch.object(
         _MODULE, "urlopen", side_effect=[io.BytesIO(b'{"meta":'), _body(_listing(distribution))]
     )
@@ -402,7 +401,8 @@ def test_main_reports_exhausted_incomplete_read(
     assert "IncompleteRead" in capsys.readouterr().err
 
 
-def test_verify_files_backs_off_between_retries(distribution: Path, mocker: MockerFixture, waiting_clock: None) -> None:
+@pytest.mark.usefixtures("waiting_clock")
+def test_verify_files_backs_off_between_retries(distribution: Path, mocker: MockerFixture) -> None:
     mocker.patch.object(
         _MODULE,
         "urlopen",

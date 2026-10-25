@@ -21,6 +21,14 @@ def main() -> None:
         parser.error(f"{args.lock} must come from release-creator locks; relock it")
 
 
+def lock_provider(tool: Mapping[str, object] | None) -> str:
+    if "release-creator" in (tool or {}):
+        return "release-creator"
+    if "nab" in (tool or {}):
+        return "nab"
+    raise ValueError("lock has no recognized producer")
+
+
 def validate_workspace_sources(project: Path) -> None:
     with project.open("rb") as stream:
         root = tomllib.load(stream)
@@ -56,14 +64,6 @@ def validate_workspace_sources(project: Path) -> None:
 
 def _normalized_name(name: str) -> str:
     return "-".join(filter(None, name.casefold().replace("_", "-").replace(".", "-").split("-")))
-
-
-def lock_provider(tool: Mapping[str, object] | None) -> str:
-    if "release-creator" in (tool or {}):
-        return "release-creator"
-    if "nab" in (tool or {}):
-        return "nab"
-    raise ValueError("lock has no recognized producer")
 
 
 if __name__ == "__main__":
