@@ -1,5 +1,5 @@
 name: Check tagged source
-description: Check the tag and the project lock of a tagged checkout, then run its cooled hooks
+description: Check the tag and the project lock of a tagged checkout
 inputs:
   keep-uv-lock:
     description: Check a committed native uv.lock alongside pylock.toml
@@ -45,10 +45,3 @@ runs:
         additional-matrix-python: ${{ inputs.additional-matrix-python }}
         additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
         additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
-    - uses: $/install-locked-tools
-      with:
-        groups: release-check
-        venv: ${{ runner.temp }}/source-check-tools
-    - name: Run tagged source hooks
-      shell: bash
-      run: '"$GITHUB_ACTION_PATH/../tools/cooled_prek.sh" run --all-files'

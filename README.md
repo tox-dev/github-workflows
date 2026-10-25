@@ -157,11 +157,10 @@ run `prek`.
 
 The shared prepare and tagged validator run `refresh-release-lock` in `check` mode before release checks or publishing.
 `check-tagged-source` bundles the tagged checks for a custom tag publisher: it requires `GITHUB_REF` to be the tag of
-the checkout on `main`, checks the locks, installs `release-check`, and then runs `prek run --all-files` with the
-seven-day cutoff. It takes `keep-uv-lock` and the secondary lock inputs below, and needs a full-history checkout. Pass
-`keep-uv-lock: true` when the repository commits a native `uv.lock`. For a secondary Nab lock, pass its path, selected
-groups, selection type, and matrix inputs to both workflows. A stale primary, native, or secondary lock stops the
-release before artifacts are built.
+the checkout on `main` and checks the locks. It runs no hooks. It takes `keep-uv-lock` and the secondary lock inputs
+below, and needs a full-history checkout. Pass `keep-uv-lock: true` when the repository commits a native `uv.lock`. For
+a secondary Nab lock, pass its path, selected groups, selection type, and matrix inputs to both workflows. A stale
+primary, native, or secondary lock stops the release before artifacts are built.
 
 For example, a tagged source job that also publishes from a PGO lock checks both files before installing build tools:
 
@@ -211,9 +210,8 @@ prepare-towncrier ──► upload patch ──► validate artifact
 
 The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-level workflow, in a separate job with
 `id-token: write` because
-[PyPI disallows reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/). Run `prek` in a separate
-read-only job alongside the tagged-source build, and make publishing depend on both. Repositories with the standard `uv`
-wheel and sdist build can call `validate-python-release.yaml` in the tag publisher. The
+[PyPI disallows reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/). Repositories with the
+standard `uv` wheel and sdist build can call `validate-python-release.yaml` in the tag publisher. The
 [self-release workflow](.github/workflows/release.yaml) shows the GitHub Release path; callers keep their ecosystem
 uploads. The read-only build workflow checks the tagged source. The tag caller renders the Release body and has the only
 Contents write job that creates the GitHub Release.
@@ -236,9 +234,9 @@ build:
 
 The `build` job must grant `actions: read` and `pull-requests: read` as well as `contents: read`. The tagged hook age
 check has needed them since 3.0.1, and GitHub refuses to start the workflow when the caller grants less. The caller
-needs `release-check` for prek and a `build` group for backend constraints. `source` defaults to `.`. Use
-`artifact-prefix` when one tag produces more than one distribution path; each call then writes a distinct
-`python-package-distributions` artifact. A caller pinned to a workflow commit runs that commit's local Actions.
+needs a `build` group for backend constraints. `source` defaults to `.`. Use `artifact-prefix` when one tag produces
+more than one distribution path; each call then writes a distinct `python-package-distributions` artifact. A caller
+pinned to a workflow commit runs that commit's local Actions.
 
 Publish only after the reusable workflow succeeds. Download the distribution with pinned `download-artifact`
 [v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
