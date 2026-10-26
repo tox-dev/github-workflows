@@ -34,19 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.sha }}
-      - name: Verify the exact release tag
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF" = "refs/tags/$TAG"
-          git check-ref-format "refs/tags/$TAG"
-          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$GITHUB_SHA"
-          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
-          git merge-base --is-ancestor HEAD origin/main
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known

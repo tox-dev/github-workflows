@@ -8,27 +8,6 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  source:
-    runs-on: ubuntu-26.04
-    permissions:
-      contents: read
-    outputs:
-      commit: ${{ github.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Verify the exact release tag
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF" = "refs/tags/$TAG"
-          git check-ref-format "refs/tags/$TAG"
-          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$GITHUB_SHA"
-          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
-          git merge-base --is-ancestor HEAD origin/main
   notes:
     runs-on: ubuntu-26.04
     permissions:
@@ -64,7 +43,7 @@ jobs:
           path: ${{ runner.temp }}/release-notes.md
           if-no-files-found: error
   publish:
-    needs: [source, notes]
+    needs: notes
     runs-on: ubuntu-26.04
     environment: release
     permissions:
@@ -84,6 +63,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           tag: ${{ github.ref_name }}
-          commit: ${{ needs.source.outputs.commit }}
+          commit: ${{ github.sha }}
           title: ${{ github.ref_name }}
           notes-file: ${{ runner.temp }}/release-notes.md

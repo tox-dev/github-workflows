@@ -81,13 +81,13 @@ def test_release_writer_has_only_notes_and_reconciler() -> None:
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
     publish = workflow["jobs"]["publish"]
     assert publish["permissions"] == {"contents": "write"}
-    assert publish["needs"] == ["source", "notes"]
+    assert publish["needs"] == "notes"
     assert [step.get("uses", step.get("name")) for step in publish["steps"]] == [
         "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
         "Require the tag to still name the release commit",
         "$/publish-github-release",
     ]
-    assert publish["steps"][-1]["with"]["commit"] == "${{ needs.source.outputs.commit }}"
+    assert publish["steps"][-1]["with"]["commit"] == "${{ github.sha }}"
     assert publish["steps"][0]["with"]["artifact-ids"] == "${{ needs.notes.outputs.artifact-id }}"
 
 
@@ -160,4 +160,4 @@ def test_release_notes_render_read_only_from_full_history() -> None:
     assert notes["permissions"] == {"contents": "read"}
     assert "needs" not in notes
     assert checkout["with"]["fetch-depth"] == 0
-    assert set(workflow["jobs"]) == {"source", "notes", "publish"}
+    assert set(workflow["jobs"]) == {"notes", "publish"}

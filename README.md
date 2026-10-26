@@ -73,13 +73,13 @@ reusable workflow that installs such a tool takes two inputs:
 The tools the caller's release jobs run, such as release-creator, Towncrier, and prek, still come hash-checked from the
 caller's `pylock.toml`.
 
-`nab-git-commit` is a temporary input of `refresh-release-lock`, `validate-news`, `check-tagged-source`,
-`prepare-towncrier-release.yaml`, `upgrade-release-tools.yaml`, and `validate-python-release.yaml`. It is empty by
-default. When set, it must be a full 40-character commit SHA, and the whole Nab workspace is installed from
-`git+https://github.com/notatallshaw/nab@<sha>` instead of the release: `nab` from the root, and `nab-index`,
-`nab-markersets`, `nab-project`, `nab-provider`, and `nab-resolver` from their `#subdirectory=` paths, because the root
-pins them to an unreleased version. That commit gets no cooldown: `exclude-newer` applies only to its dependencies. It
-exists until a Nab release carries the needed fix and will be removed then.
+`nab-git-commit` is a temporary input of `refresh-release-lock`, `validate-news`, `prepare-towncrier-release.yaml`,
+`upgrade-release-tools.yaml`, and `validate-python-release.yaml`. It is empty by default. When set, it must be a full
+40-character commit SHA, and the whole Nab workspace is installed from `git+https://github.com/notatallshaw/nab@<sha>`
+instead of the release: `nab` from the root, and `nab-index`, `nab-markersets`, `nab-project`, `nab-provider`, and
+`nab-resolver` from their `#subdirectory=` paths, because the root pins them to an unreleased version. That commit gets
+no cooldown: `exclude-newer` applies only to its dependencies. It exists until a Nab release carries the needed fix and
+will be removed then.
 
 ## Check pull request news
 
@@ -180,11 +180,6 @@ passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek
 configurations, which no guard checks. `prepare-towncrier` and `validate-release-patch` therefore reject a `prek.toml`
 anywhere, a `.pre-commit-config.yml`, and a `.pre-commit-config.yaml` below the root before they run `prek`.
 
-`check-tagged-source` bundles the tagged checks for a custom tag publisher: on a tag ref it requires the tag to name
-both `GITHUB_SHA` and the checkout, on `main`. Any other event, such as a `workflow_dispatch` from `main`, must check
-out the commit that the `tag` input of the `workflow_dispatch` event (`github.event.inputs.tag`) names, on `main`. It
-runs no hooks and needs a full-history checkout.
-
 ## Start with a caller
 
 The [release preparation workflow](.github/workflows/prepare-release.yaml) in this repository calls the reusable
@@ -224,9 +219,7 @@ uploads. The tag caller renders the Release body and has the only Contents write
 
 ## Validate a Python release
 
-`validate-python-release.yaml` runs one `build` job. It checks the tag inline: `GITHUB_REF` is `refs/tags/<tag>`,
-`git check-ref-format` accepts the tag, the tag resolves to `GITHUB_SHA`, which is the checked-out commit, and that
-commit is an ancestor of `origin/main`. The same job then exports hashed build constraints from the caller lock, builds
+`validate-python-release.yaml` runs one `build` job. It exports hashed build constraints from the caller lock, builds
 the wheel and sdist, requires exactly one of each at the tag's version, and uploads them. The workflow does not inspect
 the built files further; check package metadata and wheel contents in the package's own `tox -e pkg_meta` run.
 
