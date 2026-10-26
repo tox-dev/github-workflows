@@ -419,7 +419,7 @@ def _serve(mocker: MockerFixture, distribution: Path, *, change: str = "") -> No
 def _listing(distribution: Path) -> list[_ListingFile]:
     return [
         {"filename": path.name, "hashes": {"sha256": hashlib.sha256(path.read_bytes()).hexdigest()}, "yanked": False}
-        for path in distribution.iterdir()
+        for path in sorted(distribution.iterdir())
     ]
 
 
