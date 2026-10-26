@@ -13,7 +13,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Read committed Towncrier configuration
+    - name: ⚙️ Read committed Towncrier configuration
       id: config
       shell: bash
       run: |

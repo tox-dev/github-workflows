@@ -36,7 +36,7 @@ def test_prepare_hook_install_uses_cooled_prek() -> None:
         (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    step = next(step for step in workflow["jobs"]["assemble"]["steps"] if step.get("name") == "Install prek hooks")
+    step = next(step for step in workflow["jobs"]["assemble"]["steps"] if step.get("id") == "hooks")
 
     assert (step["uses"], step["with"]) == ("$/cooled-prek", {"args": "install-hooks"})
 

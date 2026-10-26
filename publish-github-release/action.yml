@@ -25,7 +25,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Verify the tagged release request
+    - name: ⚙️ Record asset digests
       shell: bash
       env:
         ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
@@ -43,7 +43,7 @@ runs:
           jq -R -s '[split("\n")[] | select(length > 0) | split("\t") | {name: .[0], digest: .[1]}]' \
             "$RUNNER_TEMP/release-assets.tsv" >"$RUNNER_TEMP/release-assets.json"
         fi
-    - name: Inspect any existing release
+    - name: 🔍 Inspect any existing release
       id: inspect
       shell: bash
       env:
@@ -62,7 +62,7 @@ runs:
             --slurpfile assets "$RUNNER_TEMP/release-assets.json" -f "$GITHUB_ACTION_PATH/match.jq" >/dev/null
         fi
         printf 'immutable=%s\n' "$immutable" >>"$GITHUB_OUTPUT"
-    - name: Create a missing draft
+    - name: 🚀 Create or update the draft
       shell: bash
       env:
         GH_REPO: ${{ github.repository }}
@@ -89,7 +89,7 @@ runs:
           gh api -X PATCH "repos/$GH_REPO/releases/$(<"$RUNNER_TEMP/release-id")" \
             --input "$RUNNER_TEMP/release-update.json" >/dev/null
         fi
-    - name: Upload missing draft assets
+    - name: 🚀 Upload missing draft assets
       if: steps.inspect.outputs.immutable != 'true'
       shell: bash
       env:
@@ -156,7 +156,7 @@ runs:
             done
           fi
         fi
-    - name: Verify the complete asset set
+    - name: 🔍 Verify the complete asset set
       if: steps.inspect.outputs.immutable != 'true'
       shell: bash
       env:
@@ -175,7 +175,7 @@ runs:
           echo '::error::release assets did not match after publication' >&2
           exit 1
         fi
-    - name: Publish the draft
+    - name: 🚀 Publish the draft
       if: steps.inspect.outputs.immutable != 'true'
       shell: bash
       env:
@@ -187,7 +187,7 @@ runs:
           release_id=$(<"$RUNNER_TEMP/release-id")
           gh api -X PATCH "repos/$GH_REPO/releases/$release_id" -F draft=false >/dev/null
         fi
-    - name: Verify published asset attestations
+    - name: 🔍 Verify published asset attestations
       if: inputs.mode != 'stage' && inputs.assets-directory != ''
       shell: bash
       env:

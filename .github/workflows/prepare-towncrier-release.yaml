@@ -40,6 +40,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   assemble:
+    name: 🏷️ Assemble release
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -48,49 +49,55 @@ jobs:
       version: ${{ steps.prepare.outputs.version }}
       artifact-id: ${{ steps.patch.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - uses: $/install-locked-tools
+      - name: 📦 Install locked release tools
+        uses: $/install-locked-tools
         with:
           groups: release-prepare
           venv: .venv
           exclude-newer: ${{ inputs.exclude-newer }}
           exclude-newer-package: ${{ inputs.exclude-newer-package }}
-      - name: Install prek hooks
+      - name: 🧹 Install prek hooks
         id: hooks
         uses: $/cooled-prek
         with:
           args: install-hooks
         background: true
       - id: prepare
-        name: Build changelog
+        name: 📝 Build changelog
         uses: $/prepare-towncrier
         with:
           bump: ${{ inputs.bump }}
           tag-prefix: ${{ inputs.tag-prefix }}
           changelog-prefix: ${{ inputs.changelog-prefix }}
           phase: build
-      - wait: hooks
-      - name: Finalize release patch
+      - name: ⏳ Wait for prek hooks
+        wait: hooks
+      - name: 📝 Finalize release patch
         uses: $/prepare-towncrier
         with:
           version: ${{ steps.prepare.outputs.version }}
           phase: finalize
-      - id: patch
+      - name: 📤 Upload release patch
+        id: patch
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-patch
           path: ${{ runner.temp }}/release.patch
           if-no-files-found: error
   push:
+    name: ⬆️ Push release commit and tag
     needs: assemble
     runs-on: ubuntu-26.04
     environment:
@@ -99,21 +106,25 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: 📩 Download release patch
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.assemble.outputs.artifact-id }}
           path: ${{ runner.temp }}/release-patch
-      - uses: $/validate-release-patch
+      - name: ⚙️ Apply release patch
+        uses: $/validate-release-patch
       - id: repository
-        name: Select the current repository
+        name: ⚙️ Select the current repository
         env:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=${REPOSITORY#*/}" >>"$GITHUB_OUTPUT"
-      - id: token
+      - name: 🔑 Create release App token
+        id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
@@ -121,7 +132,8 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ steps.repository.outputs.name }}
           permission-contents: write
-      - uses: $/commit-and-tag
+      - name: 🏷️ Commit and tag release
+        uses: $/commit-and-tag
         with:
           version: ${{ needs.assemble.outputs.version }}
           token: ${{ steps.token.outputs.token }}

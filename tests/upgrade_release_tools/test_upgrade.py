@@ -22,7 +22,7 @@ def publish_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
     workflow = yaml.safe_load((source / ".github/workflows/upgrade-release-tools.yaml").read_text())
     for step in workflow["jobs"]["publish"]["steps"]:
         if "run" in step:
-            name = step.get("id", step.get("name", "step")).replace(" ", "-").lower()
+            name = step.get("id", step["name"].split(" ", 1)[1]).replace(" ", "-").lower()
             (scripts / f"publish-{name}.sh").write_text(step["run"])
     return scripts
 
@@ -203,5 +203,5 @@ def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) 
 def refresh_script(scripts: Path, name: str) -> Path:
     source = Path(__file__).resolve().parents[2]
     steps = yaml.safe_load((source / "refresh-release-lock/action.yml").read_text())["runs"]["steps"]
-    index = next(index for index, step in enumerate(steps) if step.get("name", step.get("id")) == name)
+    index = next(index for index, step in enumerate(steps) if step.get("id") == name)
     return scripts / f"refresh-release-lock-{index}.sh"

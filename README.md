@@ -649,7 +649,7 @@ marketplace-publish:
       with:
         artifact-ids: ${{ needs.notes.outputs.artifact-id }}
         path: ${{ runner.temp }}/notes
-    - name: Publish signed ZIP
+    - name: 🚀 Publish signed ZIP
       uses: tox-dev/github-workflows/publish-jetbrains-marketplace@SHA
       with:
         archive: dist/Plugin-1.2.3-signed.zip
@@ -666,9 +666,9 @@ marketplace-publish:
 ```
 
 `channel` is empty for Stable; use a Marketplace channel name for a prerelease. Keep the publishing step named
-`Publish signed ZIP`. The Action recognizes that name and two older upload step names in prior runs. Keep those names in
-the Action when adding another. Give the job Actions read access and the workflow a concurrency group keyed by tag. Use
-the `release` environment on the upload job. The Action searches earlier tag runs for a started upload step. An
+`🚀 Publish signed ZIP`. The Action recognizes that name and three older upload step names in prior runs. Keep those
+names in the Action when adding another. Give the job Actions read access and the workflow a concurrency group keyed by
+tag. Use the `release` environment on the upload job. The Action searches earlier tag runs for a started upload step. An
 acceptance receipt must match the original artifact IDs, signed ZIP digest, and release notes bytes before the Action
 skips upload. An earlier upload step without a receipt stops for manual reconciliation. A renamed publishing step is not
 recognized in earlier runs until the Action knows its name.

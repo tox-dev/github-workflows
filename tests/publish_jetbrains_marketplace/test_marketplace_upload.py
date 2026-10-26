@@ -118,18 +118,29 @@ def test_multipart_upload_uses_exact_archive_and_channel(
     assert request.files["file"].read() == signed_archive.read_bytes()
 
 
+@pytest.mark.parametrize(
+    "previous_step",
+    [
+        pytest.param("🚀 Publish signed ZIP", id="current"),
+        pytest.param("Publish signed ZIP", id="before-emoji"),
+        pytest.param("Upload signed ZIP", id="upload"),
+        pytest.param("📤 Publish to JetBrains Marketplace", id="legacy"),
+    ],
+)
 def test_prior_upload_without_receipt_blocks_retry(
     signed_archive: Path,
     tmp_path: Path,
     marketplace_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     httpserver: HTTPServer,
+    previous_step: str,
 ) -> None:
     result = publish_action(
         tmp_path,
         marketplace_scripts,
         github_api,
         previous_run=True,
+        previous_step=previous_step,
         ARCHIVE=str(signed_archive),
         SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
         PLUGIN_ID="29973",
@@ -337,6 +348,7 @@ def publish_action(
     *,
     runner_temp: Path | None = None,
     previous_run: bool = False,
+    previous_step: str = "🚀 Publish signed ZIP",
     previous_workflow: str = "release.yaml",
     accepted_archive: Path | None = None,
     missing_receipt: bool = False,
@@ -384,7 +396,7 @@ def publish_action(
                 "jobs": [
                     {
                         "run_attempt": attempt,
-                        "steps": [{"name": "Publish signed ZIP", "started_at": "2026-10-23T00:00:00Z"}],
+                        "steps": [{"name": previous_step, "started_at": "2026-10-23T00:00:00Z"}],
                     }
                     for attempt in ((1, 2) if reconciled_attempt else (1,))
                 ]
@@ -485,7 +497,7 @@ def marketplace_scripts(action_scripts: Path, tmp_path: Path, httpserver: HTTPSe
     steps = yaml.safe_load(
         (Path(__file__).resolve().parents[2] / "publish-jetbrains-marketplace/action.yml").read_text()
     )["runs"]["steps"]
-    upload_index = next(index for index, step in enumerate(steps) if step.get("name") == "Upload signed ZIP")
+    upload_index = next(index for index, step in enumerate(steps) if step.get("name") == "🚀 Upload signed ZIP")
     upload = scripts / f"publish-jetbrains-marketplace-{upload_index}.sh"
     upload.write_text(
         upload.read_text().replace(

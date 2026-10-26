@@ -6,20 +6,23 @@ permissions:
   contents: read
 jobs:
   changelog:
+    name: 📝 News fragment
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
           cache-dependency-glob: pyproject.toml
-      - name: Install release tools
+      - name: 📦 Install release tools
         env:
           EXCLUDE_NEWER: 7 days
           # Temporary: release-creator 3.1.0 is younger than seven days. Delete after 2026-11-02.
@@ -27,7 +30,8 @@ jobs:
         run: |
           tools/install_live_tools.sh "$RUNNER_TEMP/release-tools" 'release-creator>=2.0.0' 'towncrier>=26.9'
           uv run --no-project --python "$RUNNER_TEMP/release-tools" python tools/expose_locked_commands.py "$RUNNER_TEMP/release-tools"
-      - uses: $/validate-news
+      - name: 🔍 Validate news fragments
+        uses: $/validate-news
         with:
           # Temporary: release-creator 3.1.0 is younger than seven days. Delete after 2026-11-02.
           exclude-newer-package: release-creator=2026-10-25T21:03:31Z

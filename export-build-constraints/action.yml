@@ -23,7 +23,8 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: tools
+    - name: 📦 Export locked build constraints
+      id: tools
       uses: $/install-locked-tools
       with:
         constraints-lock: ${{ inputs.lock }}

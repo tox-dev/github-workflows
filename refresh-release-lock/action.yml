@@ -35,7 +35,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install Nab
+    - name: 📦 Install Nab
       shell: bash
       env:
         EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
@@ -59,7 +59,7 @@ runs:
           requirements=("nab==$version")
         fi
         "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-tools" "${requirements[@]}"
-    - name: Resolve all project groups and extras
+    - name: 🔒 Resolve all project groups and extras
       shell: bash
       env:
         MODE: ${{ inputs.mode }}
@@ -75,7 +75,7 @@ runs:
         if [[ "$MODE" == check ]]; then
           python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" "$RUNNER_TEMP/lock-before.toml" pylock.toml
         fi
-    - name: Resolve optional Nab matrix
+    - name: 🔒 Resolve optional Nab matrix
       if: inputs.additional-lock != ''
       shell: bash
       env:
@@ -125,7 +125,8 @@ runs:
           python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" \
             "$RUNNER_TEMP/additional-lock-before.toml" "$ADDITIONAL_LOCK"
         fi
-    - id: lock
+    - name: 🔒 Write lock patch
+      id: lock
       shell: bash
       env:
         MODE: ${{ inputs.mode }}

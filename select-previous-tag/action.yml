@@ -11,7 +11,8 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: select
+    - name: 🏷️ Find previous release tag
+      id: select
       shell: bash
       env:
         TAG: ${{ inputs.tag }}

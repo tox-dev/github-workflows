@@ -26,33 +26,37 @@ permissions:
   contents: read
 jobs:
   build:
+    name: 🏗️ Build distributions
     runs-on: ubuntu-26.04
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - id: constraints
+      - name: 📦 Export locked build constraints
+        id: constraints
         uses: $/install-locked-tools
         with:
           exclude-newer: ${{ inputs.exclude-newer }}
           exclude-newer-package: ${{ inputs.exclude-newer-package }}
-      - name: Stage build constraints
+      - name: ⚙️ Stage build constraints
         env:
           SOURCE: ${{ steps.constraints.outputs.build-constraints }}
         run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints.txt"
-      - name: Select build interpreter
+      - name: 🐍 Select build interpreter
         run: uv venv --python 3.15 "$RUNNER_TEMP/build-python"
-      - name: Build wheel and sdist
+      - name: 🏗️ Build wheel and sdist
         env:
           SOURCE: ${{ inputs.source }}
         run: |
@@ -62,7 +66,8 @@ jobs:
           SOURCE_DATE_EPOCH=$(git -C "$SOURCE" log -1 --format=%ct)
           uv build --python "$build_python" --python-preference only-managed --sdist --wheel \
             --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir dist
-      - id: upload
+      - name: 📤 Upload distributions
+        id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.artifact-prefix }}python-package-distributions

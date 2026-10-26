@@ -3,12 +3,13 @@ description: Apply the release patch downloaded to $RUNNER_TEMP/release-patch an
 runs:
   using: composite
   steps:
-    - name: Apply release patch
+    - name: ⚙️ Apply release patch
       shell: bash
       run: git apply --index "$RUNNER_TEMP/release-patch/release.patch"
-    - id: config
+    - name: ⚙️ Read Towncrier configuration
+      id: config
       uses: $/read-towncrier-config
-    - name: Check release patch paths
+    - name: 🔍 Check release patch paths
       shell: bash
       env:
         CHANGELOG: ${{ steps.config.outputs.changelog }}
@@ -29,7 +30,7 @@ runs:
             exit 1
           fi
         done <"$RUNNER_TEMP/release-paths"
-    - name: Check release patch file modes
+    - name: 🔍 Check release patch file modes
       shell: bash
       run: |
         set -euo pipefail

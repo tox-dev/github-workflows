@@ -19,7 +19,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Set App commit identity
+    - name: ⚙️ Set App commit identity
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -29,12 +29,12 @@ runs:
         app_user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
         git config user.name "${APP_SLUG}[bot]"
         git config user.email "${app_user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
-    - name: Commit release patch
+    - name: 🏷️ Commit release patch
       shell: bash
       env:
         MESSAGE: ${{ inputs.message }}
       run: git commit -m "$MESSAGE"
-    - name: Create release tag
+    - name: 🏷️ Create release tag
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
@@ -45,7 +45,7 @@ runs:
         true) git tag -a -m "$MESSAGE" -- "$VERSION" ;;
         *) git tag -- "$VERSION" ;;
         esac
-    - name: Push release commit and tag
+    - name: ⬆️ Push release commit and tag
       shell: bash
       env:
         VERSION: ${{ inputs.version }}

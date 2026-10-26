@@ -7,7 +7,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Run cooled prek
+    - name: 🧹 Run cooled prek
       shell: bash
       env:
         ARGS: ${{ inputs.args }}

@@ -53,7 +53,7 @@ def test_refresh_locks_every_group_and_extra_with_nab(
 ) -> None:
     (tmp_path / "pylock.toml").write_text(_LOCK)
 
-    result = _run_step(action_scripts, "Resolve all project groups and extras", tmp_path, fake_uv, MODE=mode)
+    result = _run_step(action_scripts, "🔒 Resolve all project groups and extras", tmp_path, fake_uv, MODE=mode)
 
     assert result.returncode == 0, result.stderr
     call = _uv_call(tmp_path)
@@ -71,7 +71,7 @@ def test_refresh_locks_every_group_and_extra_with_nab(
     ]
 
 
-@pytest.mark.parametrize("step", ["Resolve all project groups and extras", "Resolve optional Nab matrix"])
+@pytest.mark.parametrize("step", ["🔒 Resolve all project groups and extras", "🔒 Resolve optional Nab matrix"])
 def test_refresh_hides_certificate_overrides_from_nab(
     tmp_path: Path, action_scripts: Path, fake_uv: Path, step: str
 ) -> None:
@@ -224,7 +224,7 @@ def test_refresh_installs_selected_nab(
 
     result = _run_step(
         action_scripts,
-        "Install Nab",
+        "📦 Install Nab",
         tmp_path,
         tmp_path / "bin/uv",
         GITHUB_ACTION_PATH=str(tmp_path / "action"),
@@ -243,7 +243,7 @@ def test_refresh_check_requires_locked_nab_version(tmp_path: Path, action_script
 
     result = _run_step(
         action_scripts,
-        "Install Nab",
+        "📦 Install Nab",
         tmp_path,
         tmp_path / "bin/uv",
         GITHUB_ACTION_PATH=str(tmp_path / "action"),

@@ -28,7 +28,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Check the allowed path manifest
+    - name: 🔍 Check the allowed path manifest
       shell: bash
       env:
         PATHS_FILE: ${{ inputs.paths-file }}
@@ -55,7 +55,7 @@ runs:
         test "${#paths[@]}" -gt 0
         test "$(printf '%s\n' "${paths[@]}" | LC_ALL=C sort -u | wc -l)" -eq "${#paths[@]}"
         printf '%s\n' "${paths[@]}" | LC_ALL=C sort >"$RUNNER_TEMP/expected-paths"
-    - name: Verify the prepared commit
+    - name: 🔍 Verify the prepared commit
       shell: bash
       env:
         BASE_COMMIT: ${{ inputs.base-commit }}
@@ -89,7 +89,7 @@ runs:
             test "$actual" = "$blob"
           done <"$PATHS_FILE"
         fi
-    - name: Inspect the existing pull request
+    - name: 🔀 Inspect the existing pull request
       shell: bash
       env:
         BASE: main
@@ -111,14 +111,14 @@ runs:
             (.state == "open" or .merged_at != null)
           )] end
         ' "$RUNNER_TEMP/post-release-all-prs.json" >"$RUNNER_TEMP/post-release-prs.json"
-    - name: Verify an already merged pull request
+    - name: ⚙️ Record an already merged pull request
       shell: bash
       run: |
         set -euo pipefail
         if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") == true ]]; then
           jq -r '.[0].number' "$RUNNER_TEMP/post-release-prs.json" >"$RUNNER_TEMP/post-release-number"
         fi
-    - name: Publish or verify the prepared branch
+    - name: ⬆️ Push a missing prepared branch
       shell: bash
       env:
         BRANCH: ${{ inputs.branch }}
@@ -135,7 +135,7 @@ runs:
             "https://${GH_HOST:-github.com}/$GITHUB_REPOSITORY.git"
           git -C "$RUNNER_TEMP/post-release.git" push origin "refs/heads/release-candidate:refs/heads/$BRANCH"
         fi
-    - name: Create or verify the pull request
+    - name: 🔀 Create a missing pull request
       shell: bash
       env:
         BASE: main
@@ -153,7 +153,7 @@ runs:
           fi
           printf '%s\n' "$pr_number" >"$RUNNER_TEMP/post-release-number"
         fi
-    - name: Ensure the maintenance label
+    - name: 🔀 Ensure the maintenance label
       shell: bash
       run: |
         set -euo pipefail

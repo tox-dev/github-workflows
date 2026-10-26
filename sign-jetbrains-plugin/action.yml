@@ -26,7 +26,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Verify unsigned plugin ZIP
+    - name: 🔍 Verify unsigned plugin ZIP
       id: unsigned
       shell: bash
       env:
@@ -37,7 +37,7 @@ runs:
         test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
         echo "archive=${ARCHIVE%.zip}-signed.zip" >>"$GITHUB_OUTPUT"
-    - name: Download pinned Marketplace signer
+    - name: 📦 Download pinned Marketplace signer
       shell: bash
       env:
         SIGNER_BASE_URL: https://repo.maven.apache.org/maven2/org/jetbrains/marketplace-zip-signer/0.1.43
@@ -45,12 +45,12 @@ runs:
         curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
           --output "$RUNNER_TEMP/marketplace-signer-cli.jar" \
           "$SIGNER_BASE_URL/marketplace-zip-signer-0.1.43-cli.jar"
-    - name: Verify Marketplace signer digest
+    - name: 🔍 Verify Marketplace signer digest
       shell: bash
       env:
         SIGNER_SHA256: 2958a0f42221d6062b50f22754e413ae5cc42f60c441467202c6700df2e22f44
       run: echo "$SIGNER_SHA256  $RUNNER_TEMP/marketplace-signer-cli.jar" | sha256sum --check
-    - name: Sign and verify plugin ZIP
+    - name: ✍️ Sign plugin ZIP
       shell: bash
       env:
         ARCHIVE: ${{ inputs.archive }}
@@ -87,7 +87,7 @@ runs:
         "$JAVA_HOME_17_X64/bin/java" -jar "$RUNNER_TEMP/marketplace-signer-cli.jar" sign \
           -in "$ARCHIVE" -out "$SIGNED" -cert-file "$RUNNER_TEMP/signing-chain.pem" \
           -key-file "$signing_key"
-    - name: Record signed plugin ZIP
+    - name: ⚙️ Record signed plugin ZIP
       id: digest
       shell: bash
       env:

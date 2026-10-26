@@ -281,7 +281,7 @@ def test_install_locked_tools_installs_only_binary_reader(tmp_path: Path, action
     installer.chmod(0o755)
     (tmp_path / "action").mkdir()
     steps = yaml.safe_load((Path(__file__).resolve().parents[2] / "install-locked-tools/action.yml").read_text())
-    index = next(index for index, step in enumerate(steps["runs"]["steps"]) if step["name"] == "Install lock reader")
+    index = next(index for index, step in enumerate(steps["runs"]["steps"]) if step["name"] == "📦 Install lock reader")
 
     result = subprocess.run(
         ["bash", str(action_scripts / f"install-locked-tools-{index}.sh")],

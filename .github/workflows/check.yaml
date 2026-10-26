@@ -9,60 +9,68 @@ concurrency:
   cancel-in-progress: ${{ github.run_attempt == 1 }}
 jobs:
   check:
+    name: 🧹 Check formatting
     runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: 💾 Restore prek cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/prek
           key: prek-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.pre-commit-config.yaml') }}
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
           cache-dependency-glob: pyproject.toml
-      - name: Install release tools
+      - name: 📦 Install release tools
         env:
           EXCLUDE_NEWER: 7 days
         run: |
           tools/install_live_tools.sh .release-tools 'prek>=0.2'
           uv run --no-project --python .release-tools python tools/expose_locked_commands.py .release-tools
-      - name: Check repository formatting
+      - name: 🧹 Check repository formatting
         run: tools/cooled_prek.sh run --all-files
   shell:
+    name: 🧹 Check inline shell
     runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: 💾 Restore prek cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/prek
           key: prek-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.pre-commit-config.yaml') }}
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
           cache-dependency-glob: pyproject.toml
-      - name: Install release tools
+      - name: 📦 Install release tools
         env:
           EXCLUDE_NEWER: 7 days
         run: |
           tools/install_live_tools.sh .release-tools 'prek>=0.2' 'yq>=4.4.5'
           uv run --no-project --python .release-tools python tools/expose_locked_commands.py .release-tools
-      - name: Check inline shell
+      - name: 🧹 Check inline shell
         run: |
           set -euo pipefail
           script_dir=./inline-shell-check
@@ -81,46 +89,53 @@ jobs:
           tools/cooled_prek.sh run shellcheck --files "$script_dir"/*.sh
           tools/cooled_prek.sh run shfmt --files "$script_dir"/*.sh
   test:
+    name: 🧪 Test actions
     runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
           cache-dependency-glob: pyproject.toml
-      - name: Run Action tests
+      - name: 🧪 Run Action tests
         run: uvx --with tox-uv tox run -e test
   type:
+    name: 🔎 Type check
     runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: true
           cache-suffix: ${{ github.job }}
           cache-dependency-glob: pyproject.toml
-      - name: Check Python types
+      - name: 🔎 Check Python types
         run: uvx --with tox-uv tox run -e type
   gate:
-    name: Required checks pass
+    name: 🚦 Required checks pass
     if: ${{ !cancelled() }}
     needs: [check, shell, test, type]
     runs-on: ubuntu-26.04
     steps:
-      - env:
+      - name: 🚦 Require all needed jobs to pass
+        env:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: jq -e 'all(to_entries[]; .value.result == "success")' <<<"$NEEDS_JSON"

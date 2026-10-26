@@ -54,6 +54,7 @@ on:
 permissions: {}
 jobs:
   generate-lock:
+    name: 🔒 Refresh release lock
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -61,16 +62,19 @@ jobs:
       changed: ${{ steps.lock.outputs.changed }}
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - id: lock
+      - name: 🔒 Refresh release lock
+        id: lock
         uses: $/refresh-release-lock
         with:
           additional-lock: ${{ inputs.additional-lock }}
@@ -81,7 +85,8 @@ jobs:
           additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
           exclude-newer: ${{ inputs.exclude-newer }}
           exclude-newer-package: ${{ inputs.exclude-newer-package }}
-      - id: upload
+      - name: 📤 Upload lock patch
+        id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.lock.outputs.changed == 'true'
         with:
@@ -90,6 +95,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   publish:
+    name: 🔀 Open release tools PR
     needs: generate-lock
     if: needs.generate-lock.outputs.changed == 'true'
     runs-on: ubuntu-26.04
@@ -97,16 +103,18 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: 📩 Download lock patch
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.generate-lock.outputs.artifact-id }}
           path: ${{ runner.temp }}/release-tools-lock
-      - name: Check artifact patch paths
+      - name: 🔍 Check artifact patch paths
         env:
           ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
         run: |
@@ -121,9 +129,9 @@ jobs:
               exit 1
             fi
           done <"$RUNNER_TEMP/lock-paths"
-      - name: Apply lock patch
+      - name: 🔒 Apply lock patch
         run: git apply --index "$RUNNER_TEMP/release-tools-lock/lock.patch"
-      - name: Check dependency patch file mode
+      - name: 🔍 Check dependency patch file mode
         run: |
           set -euo pipefail
           git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/dependency-modes"
@@ -134,7 +142,7 @@ jobs:
               exit 1
             fi
           done <"$RUNNER_TEMP/dependency-modes"
-      - name: Commit refreshed tools
+      - name: 🏷️ Commit refreshed tools
         env:
           COMMIT_MESSAGE: ${{ inputs.commit-message }}
         run: |
@@ -142,11 +150,12 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m "$COMMIT_MESSAGE"
       - id: repository
-        name: Select the current repository
+        name: ⚙️ Select the current repository
         env:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=${REPOSITORY#*/}" >>"$GITHUB_OUTPUT"
-      - id: token
+      - name: 🔑 Create release App token
+        id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
@@ -155,17 +164,17 @@ jobs:
           repositories: ${{ steps.repository.outputs.name }}
           permission-contents: write
           permission-pull-requests: write
-      - name: Push dependency branch
+      - name: ⬆️ Push dependency branch
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
         run: |
           gh auth setup-git --hostname github.com --force
           git push --force-with-lease origin HEAD:refs/heads/automation/update-release-tools
-      - name: Write dependency pull request body
+      - name: 📝 Write dependency pull request body
         env:
           PR_BODY: ${{ inputs.pull-request-body }}
         run: printf '%s\n' "$PR_BODY" >"$RUNNER_TEMP/pull-request.md"
-      - name: Find dependency pull request
+      - name: 🔀 Find dependency pull request
         id: pr
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -181,7 +190,7 @@ jobs:
               elif length == 1 then "number=\(.[0].number)"
               else error("multiple dependency pull requests") end
             ' >>"$GITHUB_OUTPUT"
-      - name: Update dependency pull request
+      - name: 🔀 Update dependency pull request
         if: steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -190,7 +199,7 @@ jobs:
         run: |
           gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body-file "$RUNNER_TEMP/pull-request.md" \
             --add-label dependencies --add-label 'skip news'
-      - name: Open dependency pull request
+      - name: 🔀 Open dependency pull request
         if: steps.pr.outputs.number == ''
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}

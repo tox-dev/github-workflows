@@ -29,10 +29,10 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Create lock-tool environment
+    - name: 🐍 Create lock-tool environment
       shell: bash
       run: uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/lock-reader"
-    - name: Install lock reader
+    - name: 📦 Install lock reader
       shell: bash
       env:
         EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
@@ -40,7 +40,7 @@ runs:
       run: >-
         "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-reader" --only-binary :all: 'certifi>=2026.7.22' 'packaging>=26.3'
     - id: selection
-      name: Select locked groups and build constraints
+      name: ⚙️ Select locked groups and build constraints
       shell: bash
       env:
         DEPENDENCY_GROUPS: ${{ inputs.groups }}
@@ -58,7 +58,7 @@ runs:
         fi
         printf 'lock=pylock.toml\n' >>"$GITHUB_OUTPUT"
     - id: constraints
-      name: Export locked build requirements
+      name: 🔒 Export locked build requirements
       shell: bash
       env:
         BUILD_LOCK: ${{ steps.selection.outputs.lock }}
@@ -83,7 +83,7 @@ runs:
             "$GITHUB_ACTION_PATH/../tools/build_constraints.py" "${args[@]}" "$output" "$BUILD_LOCK"
         fi
         echo "path=$output" >>"$GITHUB_OUTPUT"
-    - name: Install selected groups
+    - name: 📦 Install selected groups
       if: inputs.groups != ''
       shell: bash
       env:
@@ -100,7 +100,7 @@ runs:
         uv pip sync --preview-features pylock --preview-features build-dependency-hashes --python "$VENV" \
           "${groups[@]}" --build-constraints "$BUILD_CONSTRAINTS" \
           --require-build-hashes --require-hashes "$LOCK"
-    - name: Expose installed commands
+    - name: ⚙️ Expose installed commands
       if: inputs.groups != ''
       shell: bash
       env:

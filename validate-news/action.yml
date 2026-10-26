@@ -29,7 +29,7 @@ runs:
   using: composite
   steps:
     - id: news-change
-      name: Check whether news inputs changed
+      name: 🧭 Check whether news inputs changed
       shell: bash
       env:
         BASE_REF: ${{ github.base_ref }}
@@ -69,13 +69,13 @@ runs:
         with Path(output).open("a", encoding="utf-8") as stream:
             stream.write(f"fragments={str(fragments).lower()}\nconfig={str(config).lower()}\n")
         PY
-    - name: Count changed fragments
+    - name: 🔍 Count changed fragments
       if: steps.news-change.outputs.fragments == 'true' || steps.news-change.outputs.config == 'true'
       shell: bash
       env:
         BASE_REF: ${{ github.base_ref }}
       run: release-creator validate-news --base "$BASE_REF" >"$RUNNER_TEMP/news-fragment-count"
-    - name: Require news for human changes
+    - name: 🔍 Require news for human changes
       shell: bash
       env:
         SKIP_NEWS: ${{ contains(github.event.pull_request.labels.*.name, 'skip news') }}
@@ -88,7 +88,7 @@ runs:
           exit 1
         fi
     - id: lock-change
-      name: Check whether release inputs changed
+      name: 🧭 Check whether release inputs changed
       shell: bash
       env:
         BASE_REF: ${{ github.base_ref }}
@@ -113,7 +113,7 @@ runs:
           exit 0
         fi
         echo 'changed=true' >>"$GITHUB_OUTPUT"
-    - name: Check the release lock against the project
+    - name: 🔒 Check the release lock against the project
       if: steps.lock-change.outputs.changed == 'true'
       uses: $/refresh-release-lock
       with:

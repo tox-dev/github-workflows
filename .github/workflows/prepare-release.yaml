@@ -11,6 +11,7 @@ on:
 permissions: {}
 jobs:
   prepare:
+    name: 🏷️ Prepare Towncrier release
     uses: $/.github/workflows/prepare-towncrier-release.yaml
     permissions:
       contents: read

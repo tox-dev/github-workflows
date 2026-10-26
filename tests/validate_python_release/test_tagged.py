@@ -51,9 +51,9 @@ def test_release_workflow_leaves_distribution_checks_to_the_package(release_work
 
 
 def test_build_exports_constraints_before_building(release_workflow: dict[str, Any]) -> None:
-    names = [step.get("name", step.get("uses", "")) for step in release_workflow["jobs"]["build"]["steps"]]
+    names = [step["name"] for step in release_workflow["jobs"]["build"]["steps"]]
 
-    assert names.index("$/install-locked-tools") < names.index("Build wheel and sdist")
+    assert names.index("📦 Export locked build constraints") < names.index("🏗️ Build wheel and sdist")
 
 
 def test_validator_builds_reproducible_distributions(
@@ -62,12 +62,12 @@ def test_validator_builds_reproducible_distributions(
     assert "hatchling==" in build_constraints.read_text()
     environment = {"RUNNER_TEMP": str(tmp_path), "SOURCE": "."}
     interpreter = run_release_step(
-        release_workflow, "build", "Select build interpreter", build_repository, **environment
+        release_workflow, "build", "🐍 Select build interpreter", build_repository, **environment
     )
     assert interpreter.returncode == 0, interpreter.stderr
     outputs: list[dict[str, bytes]] = []
     for _ in range(2):
-        result = run_release_step(release_workflow, "build", "Build wheel and sdist", build_repository, **environment)
+        result = run_release_step(release_workflow, "build", "🏗️ Build wheel and sdist", build_repository, **environment)
         assert result.returncode == 0, result.stderr
         outputs.append(
             {path.name: path.read_bytes() for path in (build_repository / "dist").iterdir() if path.suffix != ""}
@@ -89,9 +89,9 @@ def test_validator_rejects_backend_hash_mismatch(
     build_constraints.write_text("\n".join(lines) + "\n")
     environment = {"RUNNER_TEMP": str(tmp_path), "SOURCE": ".", "UV_CACHE_DIR": str(tmp_path / "uv-cache")}
     interpreter = run_release_step(
-        release_workflow, "build", "Select build interpreter", build_repository, **environment
+        release_workflow, "build", "🐍 Select build interpreter", build_repository, **environment
     )
     assert interpreter.returncode == 0, interpreter.stderr
-    result = run_release_step(release_workflow, "build", "Build wheel and sdist", build_repository, **environment)
+    result = run_release_step(release_workflow, "build", "🏗️ Build wheel and sdist", build_repository, **environment)
     assert result.returncode != 0
     assert "Hash mismatch" in result.stderr

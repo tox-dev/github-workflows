@@ -6,6 +6,7 @@ on:
 permissions: {}
 jobs:
   update:
+    name: 🔀 Upgrade release tools
     uses: $/.github/workflows/upgrade-release-tools.yaml
     permissions:
       contents: read

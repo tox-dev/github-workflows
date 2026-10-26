@@ -19,13 +19,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - id: selected
+    - name: 🏷️ Find previous release tag
+      id: selected
       if: inputs.previous == 'auto'
       uses: $/select-previous-tag
       with:
         tag: ${{ inputs.tag }}
     - id: previous
-      name: Select previous tag
+      name: 🏷️ Select previous tag
       shell: bash
       env:
         INPUT_PREVIOUS: ${{ inputs.previous }}
@@ -36,7 +37,7 @@ runs:
         else
           echo "previous=$INPUT_PREVIOUS" >>"$GITHUB_OUTPUT"
         fi
-    - name: Render GitHub Release notes
+    - name: 📝 Render GitHub Release notes
       shell: bash
       env:
         TAG: ${{ inputs.tag }}

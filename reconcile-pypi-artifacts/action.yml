@@ -19,14 +19,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install provenance verifier
+    - name: 📦 Install provenance verifier
       shell: bash
       env:
         EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
         EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
       run: >-
         "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/pypi-attestations" 'certifi>=2026.7.22' 'pypi-attestations>=0.0.30'
-    - name: Compare published files
+    - name: 🔍 Compare published files
       shell: bash
       env:
         PROJECT: ${{ inputs.project }}
@@ -36,7 +36,7 @@ runs:
         uv run --no-project --python "$RUNNER_TEMP/pypi-attestations" python \
           "$GITHUB_ACTION_PATH/../tools/verify_pypi_files.py" "$PROJECT" "$VERSION" "$DIST" \
           >"$RUNNER_TEMP/pypi-local-files"
-    - name: Verify trusted-publisher attestations
+    - name: 🔍 Verify trusted-publisher attestations
       shell: bash
       env:
         REPOSITORY: ${{ github.repository }}

@@ -10,15 +10,16 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Select build interpreter
+    - name: 🐍 Select build interpreter
       shell: bash
       run: uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/build-python"
-    - id: constraints
+    - name: 📦 Export locked build constraints
+      id: constraints
       uses: $/export-build-constraints
       with:
         exclude-newer: ${{ inputs.exclude-newer }}
         exclude-newer-package: ${{ inputs.exclude-newer-package }}
-    - name: Build wheel and sdist
+    - name: 🏗️ Build wheel and sdist
       shell: bash
       env:
         BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}

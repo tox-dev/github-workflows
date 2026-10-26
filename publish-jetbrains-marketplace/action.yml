@@ -37,7 +37,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Verify signed ZIP bytes
+    - name: 🔍 Verify signed ZIP bytes
       shell: bash
       env:
         ARCHIVE: ${{ inputs.archive }}
@@ -46,7 +46,7 @@ runs:
         set -euo pipefail
         test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
-    - name: Find earlier Marketplace upload
+    - name: 🔍 Find earlier Marketplace upload
       id: earlier
       shell: bash
       env:
@@ -63,7 +63,8 @@ runs:
           [[ "$branch" == "$TAG" && "$source" == "$GITHUB_REPOSITORY" ]] || continue
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?filter=all&per_page=100" \
             --jq ".jobs[] | .run_attempt as \$attempt | .steps[] |
-              select((.name == \"Publish signed ZIP\" or .name == \"Upload signed ZIP\" or
+              select((.name == \"🚀 Publish signed ZIP\" or .name == \"Publish signed ZIP\" or
+                .name == \"Upload signed ZIP\" or
                 .name == \"📤 Publish to JetBrains Marketplace\") and .started_at != null) | \$attempt" \
             >"$RUNNER_TEMP/marketplace-attempts.txt"
           while IFS= read -r attempt; do
@@ -90,7 +91,7 @@ runs:
           } >>"$GITHUB_OUTPUT"
         fi
         echo "accepted=$prior" >>"$GITHUB_OUTPUT"
-    - name: Download earlier Marketplace acceptance
+    - name: 📩 Download earlier Marketplace acceptance
       if: steps.earlier.outputs.accepted == '1'
       shell: bash
       env:
@@ -103,14 +104,15 @@ runs:
         gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "$RECEIPT_NAME" \
           --dir "$RUNNER_TEMP/prior-acceptance"
     # A later attempt finds this attempt's started upload step; the copy shows it skipped the upload.
-    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+    - name: 📤 Upload earlier Marketplace acceptance
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: steps.earlier.outputs.accepted == '1'
       with:
         name: marketplace-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
         path: ${{ runner.temp }}/prior-acceptance/marketplace-acceptance.json
         if-no-files-found: error
         retention-days: 30
-    - name: Verify earlier Marketplace acceptance
+    - name: 🔍 Verify earlier Marketplace acceptance
       if: steps.earlier.outputs.accepted == '1'
       shell: bash
       env:
@@ -150,7 +152,7 @@ runs:
           --dir "$RUNNER_TEMP/prior-notes"
         test "$(sha256sum "$RUNNER_TEMP/prior-signed/${ARCHIVE##*/}" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         cmp "$NOTES_FILE" "$RUNNER_TEMP/prior-notes/release-notes.md"
-    - name: Upload signed ZIP
+    - name: 🚀 Upload signed ZIP
       if: steps.earlier.outputs.accepted == '0'
       shell: bash
       env:
@@ -175,7 +177,7 @@ runs:
           cat "$RUNNER_TEMP/marketplace-response.json" >&2
           exit 1
         fi
-    - name: Record Marketplace acceptance
+    - name: ⚙️ Record Marketplace acceptance
       if: steps.earlier.outputs.accepted == '0'
       shell: bash
       env:
@@ -199,7 +201,8 @@ runs:
             pluginId: $pluginId, version: $version, channel: $channel, signedArchive: $archive,
             sha256: $sha, signedArtifactId: $signedArtifactId, notesArtifactId: $notesArtifactId,
             notesSha256: $notesSha}' >"$RUNNER_TEMP/marketplace-acceptance.json"
-    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+    - name: 📤 Upload Marketplace acceptance
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: steps.earlier.outputs.accepted == '0'
       with:
         name: marketplace-acceptance-${{ github.run_id }}-${{ github.run_attempt }}

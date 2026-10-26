@@ -23,10 +23,11 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: config
+    - name: ⚙️ Read Towncrier configuration
+      id: config
       uses: $/read-towncrier-config
     - id: version
-      name: Select release version
+      name: 🏷️ Select release version
       shell: bash
       env:
         BUMP: ${{ inputs.bump }}
@@ -48,7 +49,7 @@ runs:
           VERSION=$(git tag --list | release-creator tags "${args[@]}")
         fi
         printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
-    - name: Link fragments and authors
+    - name: 📝 Link fragments and authors
       if: inputs.phase != 'finalize'
       shell: bash
       env:
@@ -58,7 +59,7 @@ runs:
       run: |
         set -euo pipefail
         release-creator fragments --directory "$FRAGMENTS" --repository "$REPOSITORY"
-    - name: Build changelog
+    - name: 📝 Build changelog
       if: inputs.phase != 'finalize'
       shell: bash
       env:
@@ -67,7 +68,7 @@ runs:
       run: |
         set -euo pipefail
         towncrier build --yes --version "$CHANGELOG_PREFIX${VERSION#v}"
-    - name: Add new contributors to the changelog
+    - name: 📝 Add new contributors to the changelog
       if: inputs.phase != 'finalize'
       shell: bash
       env:
@@ -78,7 +79,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
       run: >-
         release-creator contributors --changelog "$CHANGELOG" --version "$CHANGELOG_PREFIX${VERSION#v}" --repository "$REPOSITORY"
-    - name: Format changelog
+    - name: 🧹 Format changelog
       if: inputs.phase != 'build'
       shell: bash
       env:
@@ -94,7 +95,7 @@ runs:
         if ! "$prek" run "$formatter" --files "$CHANGELOG"; then
           "$prek" run "$formatter" --files "$CHANGELOG"
         fi
-    - name: Check generated files
+    - name: 🔍 Check generated files
       if: inputs.phase != 'build'
       shell: bash
       env:
@@ -103,7 +104,7 @@ runs:
         if [[ -f "$CHANGELOG" ]] && ! git ls-files --error-unmatch "$CHANGELOG" >/dev/null 2>&1; then
           git add -N -- "$CHANGELOG"
         fi
-    - name: Write release patch
+    - name: ⚙️ Write release patch
       if: inputs.phase != 'build'
       shell: bash
       run: |
