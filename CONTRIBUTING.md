@@ -5,15 +5,12 @@ and test its inputs and outputs before opening a pull request.
 
 ## Set up
 
-Use Python 3.15. Install the release tools under the seven-day cutoff, as CI does, and test tools from the current
-index:
+Use Python 3.15. The `test` group holds the test tools, release-creator, and prek:
 
 ```bash
 uv venv --allow-existing --python 3.15 .venv
-EXCLUDE_NEWER="7 days" tools/install_live_tools.sh .release-tools \
-  'release-creator>=3.1.0' 'towncrier>=26.9' 'prek>=0.2' 'yq>=4.4.5'
 uv pip install --python .venv/bin/python --group test
-export PATH="$PWD/.release-tools/bin:$PWD/.venv/bin:$PATH"
+export PATH="$PWD/.venv/bin:$PATH"
 ```
 
 Run the checks before pushing:
