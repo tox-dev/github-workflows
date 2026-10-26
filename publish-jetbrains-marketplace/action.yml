@@ -29,7 +29,7 @@ inputs:
     description: Release notes downloaded from notes-artifact-id
     required: true
   github-token:
-    description: Token with Actions and Deployments read permissions
+    description: Token with Actions read permission
     required: true
   publish-token:
     description: JetBrains Marketplace upload token
@@ -90,62 +90,6 @@ runs:
           } >>"$GITHUB_OUTPUT"
         fi
         echo "accepted=$prior" >>"$GITHUB_OUTPUT"
-    - name: Check earlier release deployments
-      if: steps.earlier.outputs.accepted == '0'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.github-token }}
-        TAG: ${{ inputs.tag }}
-        COMMIT: ${{ inputs.commit }}
-      run: |
-        set -euo pipefail
-        encoded_tag=$(jq -rn --arg tag "$TAG" '$tag | @uri')
-        gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?ref=$encoded_tag&environment=release&per_page=100" \
-          --jq '.[] | [.id, .sha] | @tsv' >"$RUNNER_TEMP/marketplace-deployments.tsv"
-        current=0
-        while IFS=$'\t' read -r deployment sha; do
-          target=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses?per_page=1" \
-            --jq '.[0].log_url // ""')
-          prefix="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/"
-          if [[ "$target" != "$prefix"* ]]; then
-            echo "::error::Cannot identify release deployment $deployment. Reconcile tag $TAG manually." >&2
-            exit 1
-          fi
-          path=${target#"$prefix"}
-          run=${path%%/*}
-          job=${path##*/}
-          if [[ "$path" != "$run/job/$job" || ! "$run" =~ ^[0-9]+$ || ! "$job" =~ ^[0-9]+$ ]]; then
-            echo "::error::Cannot identify release deployment $deployment. Reconcile tag $TAG manually." >&2
-            exit 1
-          fi
-          identity=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$job" \
-            --jq '[.run_id, .run_attempt, any(.steps[]; (.name == "Publish signed ZIP" or
-              .name == "Upload signed ZIP" or .name == "📤 Publish to JetBrains Marketplace") and
-              .started_at != null)] | @tsv') || {
-            echo "::error::Cannot inspect release deployment $deployment. Reconcile tag $TAG manually." >&2
-            exit 1
-          }
-          read -r job_run attempt upload_started <<<"$identity"
-          if [[ "$sha" != "$COMMIT" ]]; then
-            echo "::error::Tag $TAG has a release deployment on another commit." \
-              "Reconcile deployment $deployment manually." >&2
-            exit 1
-          fi
-          if [[ "$run" != "$job_run" ]]; then
-            echo "::error::Cannot identify release deployment $deployment. Reconcile tag $TAG manually." >&2
-            exit 1
-          fi
-          if [[ "$run" != "$GITHUB_RUN_ID" || "$attempt" != "$GITHUB_RUN_ATTEMPT" ]]; then
-            echo "::error::Tag $TAG has a prior release deployment $deployment" \
-              "from run $run attempt $attempt. Reconcile it manually." >&2
-            exit 1
-          fi
-          if [[ "$upload_started" == true ]]; then current=1; fi
-        done <"$RUNNER_TEMP/marketplace-deployments.tsv"
-        if ((current == 0)); then
-          echo "::error::Marketplace upload needs a release environment deployment for tag $TAG." >&2
-          exit 1
-        fi
     - name: Download earlier Marketplace acceptance
       if: steps.earlier.outputs.accepted == '1'
       shell: bash

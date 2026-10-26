@@ -105,50 +105,6 @@ def test_multiline_allowed_paths_accepts_trailing_newline(
     assert [request.method for request, _ in server.log] == ["GET"] * 2
 
 
-def test_open_pull_request_metadata_change_fails(
-    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
-) -> None:
-    server, environment = github_api
-    body = tmp_path / "body.md"
-    body.write_text("Set the next development version.\n")
-    paths = tmp_path / "paths.tsv"
-    paths.write_text(f"gradle.properties\t{'b' * 40}\n")
-    server.expect_request("/api/v3/repos/tox-dev/fixture/pulls", method="GET").respond_with_json(
-        [
-            {
-                "number": 7,
-                "state": "open",
-                "merged_at": None,
-                "title": "Different title",
-                "body": body.read_text(),
-                "base": {"ref": "main"},
-                "head": {"repo": {"full_name": "tox-dev/fixture"}, "ref": "post-release-v2.4.7"},
-            }
-        ]
-    )
-    result = run_publish(
-        action_scripts,
-        cwd=tmp_path,
-        env=os.environ
-        | environment
-        | {
-            "GITHUB_REPOSITORY": "tox-dev/fixture",
-            "BASE": "main",
-            "BASE_COMMIT": "a" * 40,
-            "BRANCH": "post-release-v2.4.7",
-            "TITLE": "Bump version to 2.4.8-dev",
-            "BODY_FILE": str(body),
-            "PATHS_FILE": str(paths),
-            "ALLOWED_PATHS": "gradle.properties",
-            "BUNDLE": "",
-            "CANDIDATE_COMMIT": "",
-            "RUNNER_TEMP": str(tmp_path),
-        },
-    )
-    assert result.returncode != 0
-    assert "open pull request metadata changed" in result.stderr
-
-
 def test_closed_unmerged_pr_blocks_retry_before_write(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:

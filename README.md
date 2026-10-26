@@ -567,9 +567,8 @@ Pass the keyless job's `base-commit`, the desired `branch` and `title`, and the 
 
 A matching open branch and PR need no second push. If a matching branch has no PR, it creates one. A merged PR with a
 deleted branch succeeds. A closed, unmerged PR fails before the Action creates a replacement branch or PR; reopen the PR
-before retrying. A different PR title, body, or base fails without a force-push. When the prepared change has already
-merged and produced no new commit, pass empty `bundle` and `candidate-commit` values with the same path manifest; the
-Action finds the merged PR. The Action has no named output.
+before retrying. When the prepared change has already merged and produced no new commit, pass empty `bundle` and
+`candidate-commit` values with the same path manifest; the Action finds the merged PR. The Action has no named output.
 
 ## Sign a JetBrains plugin
 
@@ -628,7 +627,6 @@ marketplace-publish:
   runs-on: ubuntu-26.04
   permissions:
     actions: read
-    deployments: read
   environment: release
   steps:
     - uses: actions/download-artifact@DOWNLOAD_SHA
@@ -656,13 +654,12 @@ marketplace-publish:
 ```
 
 `channel` is empty for Stable; use a Marketplace channel name for a prerelease. Keep the publishing step named
-`Publish signed ZIP`. The Action recognizes that name and two older upload step names in prior runs and deployment jobs.
-Keep those names in the Action when adding another. Give the job Actions and Deployments read access and the workflow a
-concurrency group keyed by tag. Use the `release` environment on the upload job. The Action searches earlier tag runs
-and release deployments. An acceptance receipt must match the original artifact IDs, signed ZIP digest, and release
-notes bytes before the Action skips upload. Any earlier release deployment without a verified receipt stops for manual
-reconciliation, even if that run did not reach the Marketplace step. The same applies when the linked job is no longer
-available. A changed publishing step name fails before upload until the Action recognizes it.
+`Publish signed ZIP`. The Action recognizes that name and two older upload step names in prior runs. Keep those names in
+the Action when adding another. Give the job Actions read access and the workflow a concurrency group keyed by tag. Use
+the `release` environment on the upload job. The Action searches earlier tag runs for a started upload step. An
+acceptance receipt must match the original artifact IDs, signed ZIP digest, and release notes bytes before the Action
+skips upload. An earlier upload step without a receipt stops for manual reconciliation. A renamed publishing step is not
+recognized in earlier runs until the Action knows its name.
 
 **Output:** A `marketplace-acceptance-<run>-<attempt>` Actions artifact after a new upload. It records the tag, commit,
 plugin, channel, signed ZIP artifact and SHA256, and notes artifact and SHA256. **Remote effect:** One multipart upload
@@ -675,20 +672,6 @@ the update is pending review, wait until it is public and verify its member byte
 rerun the tag workflow: the keyless stage check must skip Marketplace upload before GitHub Release publication. If
 Marketplace rejected the update, resolve the rejection and prepare a new release tag. A 404 alone does not authorize
 another upload of the same tag.
-
-If an earlier `release` deployment blocks a retry, inspect its linked run and job. Only when its logs prove the
-Marketplace upload step never started, mark that deployment inactive and delete it with the
-[GitHub deployment API](https://docs.github.com/en/rest/deployments/deployments#delete-a-deployment), then rerun the tag
-workflow:
-
-```shell
-gh api -X POST repos/OWNER/REPO/deployments/ID/statuses -f state=inactive
-gh api -X DELETE repos/OWNER/REPO/deployments/ID
-```
-
-If the run or its logs have expired, do not delete the deployment based on absence from the public Marketplace download
-API: JetBrains may still be reviewing the upload. Ask JetBrains to confirm its status or cut a new release tag and
-version.
 
 ## Test a caller
 

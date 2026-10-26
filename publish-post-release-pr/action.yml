@@ -106,13 +106,10 @@ runs:
           [.[] | select(.head.repo.full_name == $repository and .head.ref == $branch)] as $existing |
           if any($existing[]; .state == "closed" and .merged_at == null) then
             error("post-release pull request was closed without merging; reopen it to retry")
-          elif any($existing[]; .state == "open" and
-            (.title != $title or .body != $body or .base.ref != $base)) then
-            error("open pull request metadata changed")
           else [$existing[] | select(
             .title == $title and .body == $body and .base.ref == $base and
             (.state == "open" or .merged_at != null)
-          )] | if length <= 1 then . else error("multiple matching pull requests") end end
+          )] end
         ' "$RUNNER_TEMP/post-release-all-prs.json" >"$RUNNER_TEMP/post-release-prs.json"
     - name: Verify an already merged pull request
       shell: bash
@@ -163,9 +160,5 @@ runs:
         pr_number=$(cat "$RUNNER_TEMP/post-release-number")
         labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr_number/labels" --jq '.[].name')
         if ! grep -Fxq 'skip news' <<<"$labels"; then
-          if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") == true ]]; then
-            echo '::error::merged pull request lost its required label' >&2
-            exit 1
-          fi
           gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr_number/labels" -f 'labels[]=skip news' >/dev/null
         fi
