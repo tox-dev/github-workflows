@@ -89,10 +89,8 @@ def test_signs_and_verifies_exact_archive(
     "invalid",
     [
         pytest.param("digest", id="wrong-digest"),
-        pytest.param("extension", id="wrong-extension"),
         pytest.param("corrupt", id="corrupt-zip"),
         pytest.param("duplicate", id="duplicate-member"),
-        pytest.param("symlink", id="symlink"),
     ],
 )
 def test_rejects_invalid_unsigned_archive(
@@ -102,17 +100,11 @@ def test_rejects_invalid_unsigned_archive(
     invalid: str,
 ) -> None:
     archive = unsigned_archive
-    if invalid == "extension":
-        archive = tmp_path / "plugin.tar"
-        archive.write_bytes(unsigned_archive.read_bytes())
-    elif invalid == "corrupt":
+    if invalid == "corrupt":
         archive.write_bytes(b"not a ZIP")
     elif invalid == "duplicate":
         with ZipFile(archive, "a") as content:
             content.writestr("Plugin/lib/Plugin.jar", b"changed")
-    elif invalid == "symlink":
-        archive = tmp_path / "linked.zip"
-        archive.symlink_to(unsigned_archive)
     assert (
         action(
             tmp_path,

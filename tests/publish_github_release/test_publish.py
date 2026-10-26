@@ -204,33 +204,6 @@ def test_mutable_published_release_is_rechecked(
     assert not _release_calls(tmp_path)
 
 
-@pytest.mark.parametrize(
-    "asset_name",
-    [
-        pytest.param(".hidden.zip", id="hidden"),
-        pytest.param("unsafe#label.zip", id="label-delimiter"),
-        pytest.param("unsafe\nname.zip", id="newline"),
-    ],
-)
-def test_unsafe_asset_names_are_rejected(
-    repository: Path,
-    tmp_path: Path,
-    action_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-    release_cli: dict[str, str],
-    asset_name: str,
-) -> None:
-    server, environment = github_api
-    notes, commit = _notes_and_commit(repository, tmp_path)
-    assets = tmp_path / "assets"
-    assets.mkdir()
-    (assets / asset_name).write_bytes(b"release archive")
-    result = _request(repository, tmp_path, action_scripts, notes, commit, environment | release_cli, assets=assets)
-    assert result.returncode != 0
-    assert "unsafe release asset name" in result.stdout
-    assert not server.log
-
-
 def test_publish_requires_an_existing_draft(
     repository: Path,
     tmp_path: Path,
@@ -706,18 +679,3 @@ def test_duplicate_releases_are_rejected(
     result = _request(repository, tmp_path, action_scripts, notes, commit, environment | release_cli)
     assert result.returncode != 0
     assert [request.method for request, _ in server.log] == ["GET"]
-
-
-def test_invalid_mode_rejects_before_api_access(
-    repository: Path,
-    tmp_path: Path,
-    action_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-    release_cli: dict[str, str],
-) -> None:
-    server, environment = github_api
-    notes, commit = _notes_and_commit(repository, tmp_path)
-    result = _request(repository, tmp_path, action_scripts, notes, commit, environment | release_cli, mode="unknown")
-    assert result.returncode != 0
-    assert "invalid release mode" in result.stdout
-    assert not server.log

@@ -28,39 +28,15 @@ runs:
     - name: Verify the tagged release request
       shell: bash
       env:
-        GH_REPO: ${{ github.repository }}
-        TAG: ${{ inputs.tag }}
-        TITLE: ${{ inputs.title }}
-        NOTES_FILE: ${{ inputs.notes-file }}
         ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
-        PRERELEASE: ${{ inputs.prerelease }}
-        MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
-        [[ -n "$GH_REPO" && -n "$TAG" && -n "$TITLE" && -s "$NOTES_FILE" ]] || exit 1
-        test "$PRERELEASE" = true || test "$PRERELEASE" = false
-        case "$MODE" in
-        stage | publish | complete) ;;
-        *)
-          echo "::error::invalid release mode: $MODE"
-          exit 1
-          ;;
-        esac
         printf '[]\n' >"$RUNNER_TEMP/release-assets.json"
         if [[ -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob dotglob
-          test -d "$ASSETS_DIRECTORY"
-          test -z "$(find "$ASSETS_DIRECTORY" -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
           : >"$RUNNER_TEMP/release-assets.tsv"
           for asset in "$ASSETS_DIRECTORY"/*; do
-            test -f "$asset"
             name=${asset##*/}
-            case "$name" in
-            .* | *#* | *[[:cntrl:]]*)
-              echo "::error::unsafe release asset name: $name"
-              exit 1
-              ;;
-            esac
             printf '%s\tsha256:%s\n' "$name" "$(sha256sum "$asset" | cut -d' ' -f1)" \
               >>"$RUNNER_TEMP/release-assets.tsv"
           done

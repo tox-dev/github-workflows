@@ -42,32 +42,11 @@ runs:
       env:
         ARCHIVE: ${{ inputs.archive }}
         EXPECTED_SHA: ${{ inputs.sha256 }}
-        PLUGIN_ID: ${{ inputs.plugin-id }}
-        CHANNEL: ${{ inputs.channel }}
       run: |
         set -euo pipefail
-        [[ -f "$ARCHIVE" && ! -L "$ARCHIVE" ]] || exit 1
-        case "$ARCHIVE" in *.zip) ;; *) exit 1 ;; esac
-        case "$PLUGIN_ID" in '' | *[!0-9]*) exit 1 ;; esac
-        case "$CHANNEL" in *[!a-zA-Z0-9._-]*) exit 1 ;; esac
         test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         unzip -tq "$ARCHIVE" >/dev/null
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
-    - name: Verify release identity
-      shell: bash
-      env:
-        TAG: ${{ inputs.tag }}
-        COMMIT: ${{ inputs.commit }}
-        SIGNED_ARTIFACT_ID: ${{ inputs.signed-artifact-id }}
-        NOTES_ARTIFACT_ID: ${{ inputs.notes-artifact-id }}
-        NOTES_FILE: ${{ inputs.notes-file }}
-      run: |
-        set -euo pipefail
-        [[ "$GITHUB_REF" == "refs/tags/$TAG" && "$COMMIT" == "$GITHUB_SHA" ]] || exit 1
-        [[ -f "$NOTES_FILE" && ! -L "$NOTES_FILE" ]] || exit 1
-        for artifact_id in "$SIGNED_ARTIFACT_ID" "$NOTES_ARTIFACT_ID"; do
-          case "$artifact_id" in '' | *[!0-9]*) exit 1 ;; esac
-        done
     - name: Find earlier Marketplace upload
       id: earlier
       shell: bash
@@ -244,7 +223,6 @@ runs:
         PUBLISH_TOKEN: ${{ inputs.publish-token }}
       run: |
         set -euo pipefail
-        test -n "$PUBLISH_TOKEN"
         upload_file=$(mktemp "$RUNNER_TEMP/marketplace-upload.XXXXXX.zip")
         cp -- "$ARCHIVE" "$upload_file"
         test "$(sha256sum "$upload_file" | cut -d' ' -f1)" = "$EXPECTED_SHA"

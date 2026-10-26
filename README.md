@@ -514,9 +514,9 @@ no write or second metadata fetch. Older mutable releases retain the recheck.
 - `tag`, `commit`, `title`, and `notes-file` are required. The Action uses the caller repository; `commit` is the tag's
   commit, used as the target when the Action creates the Release. `title` and the file bytes must match an existing
   Release exactly.
-- `assets-directory`: Optional directory containing only the assets to attach. The Action compares each filename and
-  SHA256 digest with GitHub's Release asset metadata, uploads missing draft assets, and rejects extra or changed assets.
-  After publication it verifies GitHub's release attestation for each local asset.
+- `assets-directory`: Optional directory of the assets to attach. The Action compares each filename and SHA256 digest
+  with GitHub's Release asset metadata, uploads missing draft assets, and rejects extra or changed assets. After
+  publication it verifies GitHub's release attestation for each local asset.
 - `prerelease`: `true` or `false`; default `false`. It must match an existing Release.
 - `mode`: `complete` (default) creates or resumes a draft and publishes it in one call. `stage` creates or resumes a
   draft and uploads assets without publishing. `publish` requires an existing draft and publishes it after checking the

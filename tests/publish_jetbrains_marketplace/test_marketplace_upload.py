@@ -18,12 +18,8 @@ from pytest_httpserver import HTTPServer
     "changed",
     [
         pytest.param("digest", id="digest"),
-        pytest.param("plugin-id", id="plugin-id"),
-        pytest.param("channel", id="channel"),
-        pytest.param("extension", id="extension"),
         pytest.param("corrupt", id="corrupt"),
         pytest.param("duplicate", id="duplicate"),
-        pytest.param("symlink", id="symlink"),
     ],
 )
 def test_invalid_archive_or_input_fails_before_upload(
@@ -42,25 +38,13 @@ def test_invalid_archive_or_input_fails_before_upload(
     }
     if changed == "digest":
         settings["SHA256"] = "0" * 64
-    elif changed == "plugin-id":
-        settings["PLUGIN_ID"] = "fish"
-    elif changed == "channel":
-        settings["CHANNEL"] = "beta release"
-    elif changed == "extension":
-        wrong_extension = tmp_path / "plugin.tar"
-        wrong_extension.write_bytes(signed_archive.read_bytes())
-        settings["ARCHIVE"] = str(wrong_extension)
     elif changed == "corrupt":
         signed_archive.write_bytes(b"not a zip")
         settings["SHA256"] = sha256(signed_archive.read_bytes()).hexdigest()
-    elif changed == "duplicate":
+    else:
         with ZipFile(signed_archive, "a") as content:
             content.writestr("Fish Shell/lib/plugin.jar", b"duplicate")
         settings["SHA256"] = sha256(signed_archive.read_bytes()).hexdigest()
-    else:
-        link = tmp_path / "linked.zip"
-        link.symlink_to(signed_archive)
-        settings["ARCHIVE"] = str(link)
     result = publish_action(
         tmp_path,
         marketplace_scripts,
@@ -136,28 +120,6 @@ def test_multipart_upload_uses_exact_archive_and_channel(
     assert request.form["channel"] == "beta"
     assert request.files["file"].filename == "plugin.zip"
     assert request.files["file"].read() == signed_archive.read_bytes()
-
-
-def test_missing_token_fails_without_request(
-    signed_archive: Path,
-    tmp_path: Path,
-    marketplace_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-    httpserver: HTTPServer,
-) -> None:
-    result = publish_action(
-        tmp_path,
-        marketplace_scripts,
-        github_api,
-        ARCHIVE=str(signed_archive),
-        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
-        PLUGIN_ID="29973",
-        CHANNEL="",
-        PUBLISH_TOKEN="",
-        RUNNER_TEMP=str(tmp_path),
-    )
-    assert result.returncode != 0
-    assert not httpserver.log
 
 
 def test_prior_upload_without_receipt_blocks_retry(

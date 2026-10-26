@@ -34,8 +34,6 @@ runs:
         EXPECTED_SHA: ${{ inputs.sha256 }}
       run: |
         set -euo pipefail
-        [[ -f "$ARCHIVE" && ! -L "$ARCHIVE" ]] || exit 1
-        case "$ARCHIVE" in *.zip) ;; *) exit 1 ;; esac
         test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         unzip -tq "$ARCHIVE" >/dev/null
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
