@@ -64,6 +64,8 @@ jobs:
           build_python=$(uv python find "$RUNNER_TEMP/build-python")
           export SOURCE_DATE_EPOCH
           SOURCE_DATE_EPOCH=$(git -C "$SOURCE" log -1 --format=%ct)
+          echo "Building wheel and sdist from $SOURCE with $build_python," \
+            "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH (last commit time)"
           uv build --python "$build_python" --python-preference only-managed --sdist --wheel \
             --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-build-hashes "$SOURCE" --out-dir dist
       - name: 📤 Upload distributions

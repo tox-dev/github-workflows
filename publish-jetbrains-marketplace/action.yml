@@ -46,6 +46,7 @@ runs:
         set -euo pipefail
         test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
+        echo "Signed ZIP ${ARCHIVE##*/}: SHA256 matches the signing job, no duplicate entries"
     - name: 🔍 Find earlier Marketplace upload
       id: earlier
       shell: bash
@@ -79,16 +80,20 @@ runs:
                 "Reconcile run $run attempt $attempt manually." >&2
               exit 1
             fi
+            echo "Run $run attempt $attempt started a Marketplace upload and left receipt $receipt_name"
             prior=1
             receipt_run=$run
             receipt=$receipt_name
           done <"$RUNNER_TEMP/marketplace-attempts.txt"
         done <"$RUNNER_TEMP/marketplace-runs.tsv"
         if ((prior)); then
+          echo "Marketplace upload skipped: $TAG was already uploaded, reusing receipt $receipt from run $receipt_run"
           {
             echo "run=$receipt_run"
             echo "receipt-name=$receipt"
           } >>"$GITHUB_OUTPUT"
+        else
+          echo "No earlier Marketplace upload for $TAG, uploading the signed ZIP"
         fi
         echo "accepted=$prior" >>"$GITHUB_OUTPUT"
     - name: 📩 Download earlier Marketplace acceptance
@@ -138,6 +143,7 @@ runs:
            .notesSha256 == $notesSha and (.signedArtifactId | type == "number") and
            (.notesArtifactId | type == "number")' "$receipt" >/dev/null
         source_run=$(jq -r .sourceRunId "$receipt")
+        echo "Earlier receipt matches $TAG, $COMMIT, plugin $PLUGIN_ID, the archive and the notes; source run $source_run"
         artifacts="$RUNNER_TEMP/marketplace-artifacts-$source_run.tsv"
         # Only runs on this tag and commit with a started upload step have their artifacts listed.
         [[ -f "$artifacts" ]] || exit 1
@@ -152,6 +158,7 @@ runs:
           --dir "$RUNNER_TEMP/prior-notes"
         test "$(sha256sum "$RUNNER_TEMP/prior-signed/${ARCHIVE##*/}" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         cmp "$NOTES_FILE" "$RUNNER_TEMP/prior-notes/release-notes.md"
+        echo "Earlier upload's signed ZIP and release notes match this run"
     - name: 🚀 Upload signed ZIP
       if: steps.earlier.outputs.accepted == '0'
       shell: bash
@@ -165,7 +172,12 @@ runs:
         upload_file=$(mktemp "$RUNNER_TEMP/marketplace-upload.XXXXXX.zip")
         cp -- "$ARCHIVE" "$upload_file"
         cd "$RUNNER_TEMP"
-        status=$(curl --fail-with-body --max-time 120 --silent --show-error --write-out '%{http_code}' \
+        if [[ -n "$CHANNEL" ]]; then
+          echo "Uploading ${ARCHIVE##*/} to Marketplace plugin $PLUGIN_ID, channel $CHANNEL (from the channel input)"
+        else
+          echo "Uploading ${ARCHIVE##*/} to Marketplace plugin $PLUGIN_ID, channel Stable (channel input is empty)"
+        fi
+        status=$(curl --fail-with-body --max-time 120 --write-out '%{http_code}' \
           --output "$RUNNER_TEMP/marketplace-response.json" \
           --config <(printf 'header = "Authorization: Bearer %s"\n' "$PUBLISH_TOKEN") \
           --form "pluginId=$PLUGIN_ID" --form "file=@${upload_file##*/};filename=plugin.zip" --form "channel=$CHANNEL" \
@@ -177,6 +189,7 @@ runs:
           cat "$RUNNER_TEMP/marketplace-response.json" >&2
           exit 1
         fi
+        echo "Marketplace accepted the upload: HTTP $status"
     - name: ⚙️ Record Marketplace acceptance
       if: steps.earlier.outputs.accepted == '0'
       shell: bash
@@ -201,6 +214,7 @@ runs:
             pluginId: $pluginId, version: $version, channel: $channel, signedArchive: $archive,
             sha256: $sha, signedArtifactId: $signedArtifactId, notesArtifactId: $notesArtifactId,
             notesSha256: $notesSha}' >"$RUNNER_TEMP/marketplace-acceptance.json"
+        echo "Recorded Marketplace acceptance for $TAG in run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
     - name: 📤 Upload Marketplace acceptance
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: steps.earlier.outputs.accepted == '0'

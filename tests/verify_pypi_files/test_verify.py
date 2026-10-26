@@ -281,6 +281,21 @@ def test_verify_files_waits_for_incomplete_listing(distribution: Path, mocker: M
     assert response.call_count == 2
 
 
+@pytest.mark.usefixtures("waiting_clock")
+def test_verify_files_explains_wait_and_match(
+    distribution: Path, mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    files = _listing(distribution)
+    mocker.patch.object(_MODULE, "urlopen", side_effect=[_body(files[:-1]), _body(files)])
+
+    verify_files("fixture", "1.0", distribution)
+
+    assert capsys.readouterr().err.splitlines() == [
+        "PyPI: 1 of 2 files not listed yet (fixture-1.0.tar.gz), checking again in 1s",
+        "PyPI: 2 files match the local SHA256 digests: fixture-1.0-py3-none-any.whl, fixture-1.0.tar.gz",
+    ]
+
+
 @pytest.mark.parametrize(
     "failure",
     [

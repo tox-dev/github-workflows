@@ -10,6 +10,7 @@ from typing import Final
 
 def main() -> None:
     overlay: Final[Path] = Path(tempfile.mkdtemp(prefix="locked-cli-", dir=os.environ["RUNNER_TEMP"]))
+    exposed: list[str] = []
     for command in (Path(sys.argv[1]).resolve() / ("Scripts" if os.name == "nt" else "bin")).iterdir():
         name = command.stem.casefold() if os.name == "nt" else command.name.casefold()
         if (
@@ -23,8 +24,13 @@ def main() -> None:
                 shutil.copy2(command, overlay / command.name)
             else:
                 os.symlink(command, overlay / command.name)
+            exposed.append(command.name)
     with Path(os.environ["GITHUB_PATH"]).open("a", encoding="utf-8") as stream:
         print(overlay, file=stream)
+    print(
+        f"Exposed {len(exposed)} commands from {sys.argv[1]} on PATH: {', '.join(sorted(exposed)) or 'none'}",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

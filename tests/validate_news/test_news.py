@@ -397,3 +397,29 @@ def test_validate_news_checks_towncrier_config_only_when_touched(
 
     assert (result.returncode == 0) is accepted, result.stderr
     assert ("set an explicit Towncrier fragment directory" in result.stderr) is not accepted
+
+
+@pytest.mark.parametrize(
+    ("bot", "skip", "explanation"),
+    [
+        pytest.param("true", "false", "News requirement: waived for a bot author", id="bot"),
+        pytest.param("false", "true", "News requirement: waived by the skip news label", id="skip-news"),
+        pytest.param("true", "true", "Fragment check skipped: nothing changed in changelog.d", id="fragments"),
+        pytest.param("true", "true", "Lock check skipped: no lock inputs changed", id="lock"),
+    ],
+)
+def test_validate_news_explains_choices(
+    repository: Path, tmp_path: Path, action_scripts: Path, bot: str, skip: str, explanation: str
+) -> None:
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-news",
+        version="0.2.0",
+        BASE_REF="main",
+        BOT_AUTHOR=bot,
+        SKIP_NEWS=skip,
+    )
+
+    assert explanation in result.stdout

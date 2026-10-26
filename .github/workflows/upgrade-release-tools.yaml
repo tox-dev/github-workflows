@@ -128,9 +128,10 @@ jobs:
               echo "::error::unexpected lock patch path: $path" >&2
               exit 1
             fi
+            echo "Lock patch path: $path (allowed lock)"
           done <"$RUNNER_TEMP/lock-paths"
       - name: 🔒 Apply lock patch
-        run: git apply --index "$RUNNER_TEMP/release-tools-lock/lock.patch"
+        run: git apply --index --verbose "$RUNNER_TEMP/release-tools-lock/lock.patch"
       - name: 🔍 Check dependency patch file mode
         run: |
           set -euo pipefail
@@ -141,6 +142,7 @@ jobs:
               echo "::error::unexpected dependency file mode in $path: ${fields[1]}" >&2
               exit 1
             fi
+            echo "Lock patch file mode: $path is a regular non-executable file"
           done <"$RUNNER_TEMP/dependency-modes"
       - name: 🏷️ Commit refreshed tools
         env:
@@ -169,6 +171,7 @@ jobs:
           GH_TOKEN: ${{ steps.token.outputs.token }}
         run: |
           gh auth setup-git --hostname github.com --force
+          echo 'Pushing automation/update-release-tools, replacing any earlier refresh (force with lease)'
           git push --force-with-lease origin HEAD:refs/heads/automation/update-release-tools
       - name: 📝 Write dependency pull request body
         env:
@@ -181,15 +184,23 @@ jobs:
         run: |
           set -euo pipefail
           owner=${GITHUB_REPOSITORY%%/*}
-          gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open \
-            -f head="$owner:automation/update-release-tools" -f base=main |
-            jq -r --arg repository "$GITHUB_REPOSITORY" '
-              [.[] | select(.head.repo.full_name == $repository and
-                .head.ref == "automation/update-release-tools" and .base.ref == "main")] |
-              if length == 0 then "number="
-              elif length == 1 then "number=\(.[0].number)"
-              else error("multiple dependency pull requests") end
-            ' >>"$GITHUB_OUTPUT"
+          number=$(
+            gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open \
+              -f head="$owner:automation/update-release-tools" -f base=main |
+              jq -r --arg repository "$GITHUB_REPOSITORY" '
+                [.[] | select(.head.repo.full_name == $repository and
+                  .head.ref == "automation/update-release-tools" and .base.ref == "main")] |
+                if length == 0 then ""
+                elif length == 1 then .[0].number
+                else error("multiple dependency pull requests") end
+              '
+          )
+          if [[ -n "$number" ]]; then
+            echo "Dependency pull request: #$number is open, updating it"
+          else
+            echo 'Dependency pull request: none open, opening one'
+          fi
+          echo "number=$number" >>"$GITHUB_OUTPUT"
       - name: 🔀 Update dependency pull request
         if: steps.pr.outputs.number != ''
         env:

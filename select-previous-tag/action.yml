@@ -21,4 +21,9 @@ runs:
         args=()
         if [[ "$TAG" == */* ]]; then args+=(--package "${TAG%%/*}"); fi
         previous=$(git tag --list | release-creator tags "$TAG" --previous "${args[@]}")
+        if [[ -n "$previous" ]]; then
+          echo "Previous release tag: $previous (newest release tag before $TAG${args[*]:+ for package ${TAG%%/*}})"
+        else
+          echo "Previous release tag: none ($TAG is the first release${args[*]:+ for package ${TAG%%/*}})"
+        fi
         printf 'previous=%s\n' "$previous" >>"$GITHUB_OUTPUT"

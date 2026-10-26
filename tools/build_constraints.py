@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import tomllib
 from pathlib import Path
 
@@ -24,7 +25,8 @@ def main() -> None:
         with args.lock.open("rb") as stream:
             lock = Pylock.from_dict(tomllib.load(stream))
         targets = _target_environments(args.target_platform, args.targets) if args.targets else [None]
-        selected_by_target = [_selected_build(lock, environment) for environment in targets]
+        groups, source = _build_groups(lock)
+        selected_by_target = [_selected_build(lock, groups, environment) for environment in targets]
         selected = selected_by_target[0]
         for other in selected_by_target[1:]:
             for name, (_, hashes) in other.items():
@@ -34,6 +36,11 @@ def main() -> None:
                 f"{name}=={version} {' '.join(f'--hash=sha256:{digest}' for digest in sorted(hashes))}\n"
                 for name, (version, hashes) in sorted(selected.items())
             ),
+        )
+        target = f"{args.targets} on {args.target_platform}" if args.targets else "this runner"
+        print(
+            f"Build constraints: {len(selected)} packages from {args.lock} {source} for {target} -> {args.output}",
+            file=sys.stderr,
         )
     except (
         OSError,
@@ -77,13 +84,19 @@ def _target_environments(platform: str, values: str) -> list[Environment]:
     return environments
 
 
-def _selected_build(lock: Pylock, environment: Environment | None) -> dict[str, tuple[Version, set[str]]]:
+def _build_groups(lock: Pylock) -> tuple[set[str] | None, str]:
     if "build" in (lock.dependency_groups or ()):
-        groups = {"build"}
-    elif lock.dependency_groups:
+        return {"build"}, "group build"
+    if lock.dependency_groups:
+        return None, f"(no build group among {', '.join(lock.dependency_groups)})"
+    return set(), "(no dependency groups, every locked package)"
+
+
+def _selected_build(
+    lock: Pylock, groups: set[str] | None, environment: Environment | None
+) -> dict[str, tuple[Version, set[str]]]:
+    if groups is None:
         return {}
-    else:
-        groups = set()
     # Artifact choice is left to the installer; constraints carry every locked hash.
     tags: list[Tag] | None = None
     if environment is not None:

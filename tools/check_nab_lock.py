@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +26,10 @@ def main() -> None:
         if old != new:
             parser.error("regenerated Nab lock differs from the committed lock")
         args.regenerated.write_bytes(before)
+        print(
+            f"Lock check: regenerated {args.regenerated} matches the committed lock (command line ignored)",
+            file=sys.stderr,
+        )
     except (OSError, UnicodeDecodeError, KeyError, tomllib.TOMLDecodeError) as error:
         parser.error(str(error))
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tomllib
@@ -23,6 +24,29 @@ def test_export_build_constraints_uses_checked_in_locks(tmp_path: Path, action_s
     assert "setuptools==" in constraints
     assert "pytest==" not in constraints
     assert output == next(tmp_path.glob("build-constraints-*.txt"))
+
+
+@pytest.mark.parametrize(
+    ("remove_build", "explanation"),
+    [
+        pytest.param(
+            False, r"Build constraints: \d+ packages from pylock.toml group build for this runner -> ", id="build"
+        ),
+        pytest.param(True, r"Build constraints: 0 packages from pylock.toml \(no build group among ", id="no-build"),
+    ],
+)
+def test_export_build_constraints_explains_selection(
+    tmp_path: Path, action_scripts: Path, remove_build: bool, explanation: str
+) -> None:
+    (tmp_path / "pyproject.toml").write_bytes((CALLER / "pyproject.toml").read_bytes())
+    document = tomlkit.parse((CALLER / "pylock.toml").read_text())
+    if remove_build:
+        document["dependency-groups"].remove("build")
+    (tmp_path / "pylock.toml").write_text(tomlkit.dumps(document))
+
+    result = action(tmp_path, tmp_path, action_scripts, "export-build-constraints", version="")
+
+    assert re.search(explanation, result.stderr)
 
 
 def test_export_build_constraints_accepts_tool_only_project_without_build_group(

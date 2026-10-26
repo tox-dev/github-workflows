@@ -45,4 +45,5 @@ runs:
         while IFS= read -r path; do
           uv run --no-project --python "$RUNNER_TEMP/pypi-attestations" pypi-attestations verify pypi \
             --repository "https://github.com/$REPOSITORY" "$path"
+          echo "PyPI: ${path##*/} digest matches and is attested by $REPOSITORY"
         done <"$RUNNER_TEMP/pypi-local-files"

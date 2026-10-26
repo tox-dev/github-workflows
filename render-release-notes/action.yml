@@ -33,8 +33,10 @@ runs:
         SELECTED_PREVIOUS: ${{ steps.selected.outputs.previous }}
       run: |
         if [[ "$INPUT_PREVIOUS" == auto ]]; then
+          echo "Previous tag for the notes: ${SELECTED_PREVIOUS:-none} (calculated, previous input is auto)"
           echo "previous=$SELECTED_PREVIOUS" >>"$GITHUB_OUTPUT"
         else
+          echo "Previous tag for the notes: ${INPUT_PREVIOUS:-none} (from the previous input)"
           echo "previous=$INPUT_PREVIOUS" >>"$GITHUB_OUTPUT"
         fi
     - name: 📝 Render GitHub Release notes
@@ -53,5 +55,11 @@ runs:
         fi
         if [[ -n "$ARTIFACT_URL" ]]; then
           args+=(--artifact-url "$ARTIFACT_URL" --artifact-label "$ARTIFACT_LABEL")
+          echo "Artifact link: $ARTIFACT_LABEL -> $ARTIFACT_URL"
+        else
+          echo 'Artifact link skipped: artifact-url input is empty'
         fi
         release-creator notes "${args[@]}" >"$RUNNER_TEMP/release-notes.md"
+        entries=$(grep -c '^- ' "$RUNNER_TEMP/release-notes.md" || true)
+        categories=$(grep -c '^### ' "$RUNNER_TEMP/release-notes.md" || true)
+        echo "Release notes for $TAG: $entries entries in $categories categories from $CHANGELOG -> $RUNNER_TEMP/release-notes.md"

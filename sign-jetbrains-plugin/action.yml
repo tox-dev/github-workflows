@@ -36,13 +36,15 @@ runs:
         set -euo pipefail
         test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
+        echo "Unsigned ZIP ${ARCHIVE##*/}: SHA256 matches the build, no duplicate entries"
         echo "archive=${ARCHIVE%.zip}-signed.zip" >>"$GITHUB_OUTPUT"
     - name: 📦 Download pinned Marketplace signer
       shell: bash
       env:
         SIGNER_BASE_URL: https://repo.maven.apache.org/maven2/org/jetbrains/marketplace-zip-signer/0.1.43
       run: |
-        curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+        echo "Downloading marketplace-zip-signer 0.1.43 from $SIGNER_BASE_URL"
+        curl --fail --location --proto '=https' --tlsv1.2 \
           --output "$RUNNER_TEMP/marketplace-signer-cli.jar" \
           "$SIGNER_BASE_URL/marketplace-zip-signer-0.1.43-cli.jar"
     - name: 🔍 Verify Marketplace signer digest
@@ -63,20 +65,27 @@ runs:
         umask 077
         trap 'rm -f "$RUNNER_TEMP"/signing-{key,key-decrypted,chain}.pem' EXIT
         if [[ "$CERTIFICATE_CHAIN" == *'-----BEGIN CERTIFICATE-----'* ]]; then
+          echo 'Certificate chain: PEM input'
           printf '%s' "$CERTIFICATE_CHAIN" >"$RUNNER_TEMP/signing-chain.pem"
         else
+          echo 'Certificate chain: base64 input, decoding'
           printf '%s' "$CERTIFICATE_CHAIN" | base64 --decode >"$RUNNER_TEMP/signing-chain.pem"
         fi
         if [[ "$PRIVATE_KEY" == *'-----BEGIN '* ]]; then
+          echo 'Private key: PEM input'
           printf '%s' "$PRIVATE_KEY" >"$RUNNER_TEMP/signing-key.pem"
         else
+          echo 'Private key: base64 input, decoding'
           printf '%s' "$PRIVATE_KEY" | base64 --decode >"$RUNNER_TEMP/signing-key.pem"
         fi
         while IFS= read -r line; do
           [[ -z "$line" ]] || echo "::add-mask::$line"
         done <"$RUNNER_TEMP/signing-key.pem"
         signing_key="$RUNNER_TEMP/signing-key.pem"
-        if [[ -n "$PRIVATE_KEY_PASSWORD" ]]; then
+        if [[ -z "$PRIVATE_KEY_PASSWORD" ]]; then
+          echo 'Private key password: none, using the key as given'
+        else
+          echo 'Private key password: set, decrypting the key'
           openssl pkey -in "$signing_key" -out "$RUNNER_TEMP/signing-key-decrypted.pem" \
             -passin env:PRIVATE_KEY_PASSWORD
           while IFS= read -r line; do
@@ -84,6 +93,7 @@ runs:
           done <"$RUNNER_TEMP/signing-key-decrypted.pem"
           signing_key="$RUNNER_TEMP/signing-key-decrypted.pem"
         fi
+        echo "Signing ${ARCHIVE##*/} -> ${SIGNED##*/}"
         "$JAVA_HOME_17_X64/bin/java" -jar "$RUNNER_TEMP/marketplace-signer-cli.jar" sign \
           -in "$ARCHIVE" -out "$SIGNED" -cert-file "$RUNNER_TEMP/signing-chain.pem" \
           -key-file "$signing_key"
@@ -97,3 +107,4 @@ runs:
         read -r digest _ < <(sha256sum "$SIGNED")
         echo "archive=$SIGNED" >>"$GITHUB_OUTPUT"
         echo "sha256=$digest" >>"$GITHUB_OUTPUT"
+        echo "Signed ZIP ${SIGNED##*/}: SHA256 $digest"

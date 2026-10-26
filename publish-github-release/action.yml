@@ -42,6 +42,10 @@ runs:
           done
           jq -R -s '[split("\n")[] | select(length > 0) | split("\t") | {name: .[0], digest: .[1]}]' \
             "$RUNNER_TEMP/release-assets.tsv" >"$RUNNER_TEMP/release-assets.json"
+          jq -r --arg directory "$ASSETS_DIRECTORY" '"Release assets: \(length) files from \($directory)\(
+            if length > 0 then ": " + ([.[].name] | join(", ")) else "" end)"' "$RUNNER_TEMP/release-assets.json"
+        else
+          echo 'Release assets: none (assets-directory input is empty)'
         fi
     - name: 🔍 Inspect any existing release
       id: inspect
@@ -56,10 +60,17 @@ runs:
         if jq -e 'length > 0' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
           jq -er '.[0].id' "$RUNNER_TEMP/release-existing.json" >"$RUNNER_TEMP/release-id"
         fi
+        jq -r --arg tag "$TAG" 'if length == 0 then "Existing GitHub Release \($tag): none"
+          else .[0] | "Existing GitHub Release \($tag): \(if .draft then "draft" else "published" end) \(.id)\(
+            if .immutable then ", immutable" else "" end)" end' "$RUNNER_TEMP/release-existing.json"
         immutable=$(jq -r '.[0] | .draft == false and .immutable == true' "$RUNNER_TEMP/release-existing.json")
         if [[ "$immutable" == true ]]; then
-          jq '[.[0]]' "$RUNNER_TEMP/release-existing.json" | jq -e --arg phase complete \
-            --slurpfile assets "$RUNNER_TEMP/release-assets.json" -f "$GITHUB_ACTION_PATH/match.jq" >/dev/null
+          if ! jq '[.[0]]' "$RUNNER_TEMP/release-existing.json" | jq -e --arg phase complete \
+            --slurpfile assets "$RUNNER_TEMP/release-assets.json" -f "$GITHUB_ACTION_PATH/match.jq" >/dev/null; then
+            echo "::error::published immutable release $TAG does not have the expected assets" >&2
+            exit 1
+          fi
+          echo "GitHub Release $TAG is published and immutable with the expected assets; nothing to upload or publish"
         fi
         printf 'immutable=%s\n' "$immutable" >>"$GITHUB_OUTPUT"
     - name: 🚀 Create or update the draft
@@ -81,13 +92,19 @@ runs:
           gh api -X POST "repos/$GH_REPO/releases" --input "$RUNNER_TEMP/release-request.json" \
             >"$RUNNER_TEMP/release-created.json"
           jq -er '.id | select(type == "number")' "$RUNNER_TEMP/release-created.json" >"$RUNNER_TEMP/release-id"
+          echo "GitHub Release $TAG: created draft $(<"$RUNNER_TEMP/release-id") for $COMMIT (prerelease $PRERELEASE)"
         elif jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
           '.[0].draft and (.[0].name != $title or .[0].body != $body or .[0].prerelease != $prerelease)' \
           "$RUNNER_TEMP/release-existing.json" >/dev/null; then
           jq -n --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
             '{name: $title, body: $body, prerelease: $prerelease}' >"$RUNNER_TEMP/release-update.json"
           gh api -X PATCH "repos/$GH_REPO/releases/$(<"$RUNNER_TEMP/release-id")" \
-            --input "$RUNNER_TEMP/release-update.json" >/dev/null
+            --input "$RUNNER_TEMP/release-update.json" \
+            --jq '"GitHub Release \(.tag_name): updated draft \(.id) to the expected title, notes and prerelease flag"'
+        elif jq -e '.[0].draft' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
+          echo "GitHub Release $TAG: draft $(<"$RUNNER_TEMP/release-id") already has the expected title, notes and prerelease flag"
+        else
+          echo "GitHub Release $TAG: already published, leaving its title and notes unchanged"
         fi
     - name: 🚀 Upload missing draft assets
       if: steps.inspect.outputs.immutable != 'true'
@@ -101,12 +118,17 @@ runs:
         set -euo pipefail
         # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
         source "$GITHUB_ACTION_PATH/retry.sh"
-        if [[ "$MODE" != publish && -n "$ASSETS_DIRECTORY" ]]; then
+        if [[ "$MODE" == publish ]]; then
+          echo 'Asset upload skipped: mode publish only publishes the staged draft'
+        elif [[ -z "$ASSETS_DIRECTORY" ]]; then
+          echo 'Asset upload skipped: assets-directory input is empty'
+        else
           shopt -s nullglob
           release_id=$(<"$RUNNER_TEMP/release-id")
           if jq -e '.[0].draft' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
             while IFS= read -r asset_id; do
-              gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id" >/dev/null
+              echo "Deleting incomplete draft asset $asset_id left by an earlier attempt"
+              gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id"
             done < <(jq -r '.[0].assets[] | select(.state != "uploaded") | .id' "$RUNNER_TEMP/release-existing.json")
           fi
           read_draft() {
@@ -118,14 +140,21 @@ runs:
             echo '::error::draft release did not become visible' >&2
             exit 1
           fi
-          if jq -e '.[0].draft' "$RUNNER_TEMP/release-current.json" >/dev/null; then
+          if ! jq -e '.[0].draft' "$RUNNER_TEMP/release-current.json" >/dev/null; then
+            echo "Asset upload skipped: GitHub Release $TAG is already published"
+          else
+            uploaded=0
+            present=0
             for asset in "$ASSETS_DIRECTORY"/*; do
               name=${asset##*/}
-              if ! jq -e --arg name "$name" --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
+              if jq -e --arg name "$name" --slurpfile assets "$RUNNER_TEMP/release-assets.json" '
                 any(.[0].assets[]; .name == $name and .state == "uploaded" and
                   (.digest as $digest | any($assets[0][]; .name == $name and .digest == $digest)))
               ' \
                 "$RUNNER_TEMP/release-current.json" >/dev/null; then
+                echo "Asset $name: already uploaded with the expected digest"
+                present=$((present + 1))
+              else
                 for attempt in {1..6}; do
                   if ((attempt > 1)); then
                     release=$(gh api "repos/$GH_REPO/releases/$release_id")
@@ -133,9 +162,11 @@ runs:
                       '.assets[] | select(.name == $name and .state != "uploaded") | .id' <<<"$release")
                     while IFS= read -r asset_id; do
                       [[ -n "$asset_id" ]] || continue
-                      gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id" >/dev/null
+                      echo "Deleting incomplete upload $asset_id of $name before retrying"
+                      gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id"
                     done <<<"$asset_ids"
                   fi
+                  echo "Asset $name: uploading (attempt $attempt of 6)"
                   if gh release upload "$TAG" "$asset" --repo "$GH_REPO"; then
                     break
                   fi
@@ -144,6 +175,7 @@ runs:
                     any(.assets[]; .name == $name and .state == "uploaded" and
                       (.digest as $digest | any($assets[0][]; .name == $name and .digest == $digest)))
                   ' >/dev/null; then
+                    echo "Asset $name: upload reported a failure but the asset arrived with the expected digest"
                     break
                   fi
                   if ((attempt == 6)); then
@@ -152,8 +184,10 @@ runs:
                   fi
                   sleep 2
                 done
+                uploaded=$((uploaded + 1))
               fi
             done
+            echo "GitHub Release $TAG: uploaded $uploaded assets, $present already present"
           fi
         fi
     - name: 🔍 Verify the complete asset set
@@ -175,6 +209,8 @@ runs:
           echo '::error::release assets did not match after publication' >&2
           exit 1
         fi
+        jq -r '.[0] | "GitHub Release \(.tag_name): \(.assets | length) uploaded assets match the expected set"' \
+          "$RUNNER_TEMP/release-complete.json"
     - name: 🚀 Publish the draft
       if: steps.inspect.outputs.immutable != 'true'
       shell: bash
@@ -183,9 +219,14 @@ runs:
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
-        if [[ "$MODE" != stage ]] && jq -e '.[0].draft' "$RUNNER_TEMP/release-complete.json" >/dev/null; then
+        if [[ "$MODE" == stage ]]; then
+          echo 'Publish skipped: mode stage leaves the release as a draft'
+        elif jq -e '.[0].draft' "$RUNNER_TEMP/release-complete.json" >/dev/null; then
           release_id=$(<"$RUNNER_TEMP/release-id")
-          gh api -X PATCH "repos/$GH_REPO/releases/$release_id" -F draft=false >/dev/null
+          gh api -X PATCH "repos/$GH_REPO/releases/$release_id" -F draft=false \
+            --jq '"GitHub Release \(.tag_name): published \(.html_url)"'
+        else
+          echo 'Publish skipped: the release is already published'
         fi
     - name: 🔍 Verify published asset attestations
       if: inputs.mode != 'stage' && inputs.assets-directory != ''
@@ -204,4 +245,5 @@ runs:
             echo "::error::release asset attestation could not be verified: ${asset##*/}" >&2
             exit 1
           fi
+          echo "Asset ${asset##*/}: attestation verified"
         done

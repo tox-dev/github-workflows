@@ -705,3 +705,30 @@ def test_duplicate_releases_use_the_first(
     result = _request(repository, tmp_path, action_scripts, notes, commit, environment | release_cli)
     assert result.returncode == 0, result.stderr
     assert [request.method for request, _ in server.log] == ["GET", "GET", "PATCH"]
+
+
+def test_missing_release_explains_created_draft(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    release_cli: dict[str, str],
+) -> None:
+    server, environment = github_api
+    notes, commit = _notes_and_commit(repository, tmp_path)
+    draft = _release(notes, draft=True)
+    prefix = "/api/v3/repos/tox-dev/fixture"
+    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json([])
+    server.expect_ordered_request(f"{prefix}/releases", method="POST").respond_with_json(draft, status=201)
+    server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(draft)
+
+    result = _request(repository, tmp_path, action_scripts, notes, commit, environment | release_cli, mode="stage")
+
+    assert result.stdout.splitlines() == [
+        "Release assets: none (assets-directory input is empty)",
+        "Existing GitHub Release 0.1.0: none",
+        f"GitHub Release 0.1.0: created draft 42 for {commit} (prerelease false)",
+        "Asset upload skipped: assets-directory input is empty",
+        "GitHub Release 0.1.0: 0 uploaded assets match the expected set",
+        "Publish skipped: mode stage leaves the release as a draft",
+    ]

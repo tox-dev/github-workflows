@@ -73,6 +73,23 @@ def test_install_locked_tools_reuses_existing_environment(tmp_path: Path, action
     assert (tmp_path / "lock-tools" / ("Scripts/nab.exe" if os.name == "nt" else "bin/nab")).is_file()
 
 
+def test_install_locked_tools_explains_reused_constraints(tmp_path: Path, action_scripts: Path, caller: Path) -> None:
+    environment = {"GROUPS": "lock-tools", "VENV": str(tmp_path / "lock-tools")}
+    action(caller, tmp_path, action_scripts, "install-locked-tools", version="", **environment)
+
+    second = action(caller, tmp_path, action_scripts, "install-locked-tools", version="", **environment)
+
+    assert "Reusing build constraints from an earlier step (same lock and targets)" in second.stdout
+
+
+def test_install_locked_tools_explains_selected_groups(tmp_path: Path, action_scripts: Path, caller: Path) -> None:
+    environment = {"GROUPS": "lock-tools", "VENV": str(tmp_path / "lock-tools")}
+
+    result = action(caller, tmp_path, action_scripts, "install-locked-tools", version="", **environment)
+
+    assert "Selected lock groups: lock-tools (from the groups input)" in result.stdout
+
+
 def test_install_locked_tools_keeps_reader_after_nab_sync(tmp_path: Path, action_scripts: Path, caller: Path) -> None:
     first = install(caller, action_scripts, tmp_path, groups="lock-tools", venv=tmp_path / "lock-tools")
     second = install(caller, action_scripts, tmp_path, groups="release-news", venv=tmp_path / "news-tools")

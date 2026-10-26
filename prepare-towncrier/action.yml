@@ -38,6 +38,8 @@ runs:
       run: |
         set -euo pipefail
         if [[ "$PHASE" == finalize ]]; then
+          echo "Release version: $VERSION (from the version input in the finalize phase)"
+          echo 'Fragment linking, changelog build and contributors skipped: the build phase did them'
           printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
           exit 0
         fi
@@ -47,6 +49,12 @@ runs:
             args+=(--prefix "$TAG_PREFIX")
           fi
           VERSION=$(git tag --list | release-creator tags "${args[@]}")
+          echo "Next version: $VERSION (bump $BUMP from the fragments in $FRAGMENTS and the existing${TAG_PREFIX:+ $TAG_PREFIX-prefixed} tags)"
+        else
+          echo "Release version: $VERSION (from the version input)"
+        fi
+        if [[ "$PHASE" == build ]]; then
+          echo 'Changelog formatting and the release patch skipped: the finalize phase does them'
         fi
         printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
     - name: 📝 Link fragments and authors
@@ -67,6 +75,7 @@ runs:
         CHANGELOG_PREFIX: ${{ inputs.changelog-prefix }}
       run: |
         set -euo pipefail
+        echo "Changelog version: $CHANGELOG_PREFIX${VERSION#v} (tag $VERSION${CHANGELOG_PREFIX:+, changelog-prefix $CHANGELOG_PREFIX})"
         towncrier build --yes --version "$CHANGELOG_PREFIX${VERSION#v}"
     - name: 📝 Add new contributors to the changelog
       if: inputs.phase != 'finalize'
@@ -91,8 +100,10 @@ runs:
         rst) formatter=docstrfmt ;;
         *) formatter=mdformat ;;
         esac
+        echo "Changelog formatter: $formatter ($FORMAT changelog $CHANGELOG)"
         prek=$GITHUB_ACTION_PATH/../tools/cooled_prek.sh
         if ! "$prek" run "$formatter" --files "$CHANGELOG"; then
+          echo "$formatter rewrote $CHANGELOG, running it again to confirm the result is stable"
           "$prek" run "$formatter" --files "$CHANGELOG"
         fi
     - name: 🔍 Check generated files
@@ -101,7 +112,12 @@ runs:
       env:
         CHANGELOG: ${{ steps.config.outputs.changelog }}
       run: |
-        if [[ -f "$CHANGELOG" ]] && ! git ls-files --error-unmatch "$CHANGELOG" >/dev/null 2>&1; then
+        if [[ ! -f "$CHANGELOG" ]]; then
+          echo "$CHANGELOG does not exist, nothing to add to the release patch"
+        elif git ls-files --error-unmatch "$CHANGELOG" >/dev/null 2>&1; then
+          echo "$CHANGELOG is already tracked"
+        else
+          echo "$CHANGELOG is new, marking it intent-to-add so the release patch includes it"
           git add -N -- "$CHANGELOG"
         fi
     - name: ⚙️ Write release patch
@@ -110,3 +126,5 @@ runs:
       run: |
         set -euo pipefail
         git diff HEAD --binary >"$RUNNER_TEMP/release.patch"
+        echo "Release patch -> $RUNNER_TEMP/release.patch:"
+        git diff HEAD --stat

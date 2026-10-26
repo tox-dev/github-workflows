@@ -29,6 +29,7 @@ runs:
         app_user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
         git config user.name "${APP_SLUG}[bot]"
         git config user.email "${app_user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+        echo "Commit identity: ${APP_SLUG}[bot] (App user $app_user_id)"
     - name: 🏷️ Commit release patch
       shell: bash
       env:
@@ -42,8 +43,14 @@ runs:
         ANNOTATED: ${{ inputs.annotated }}
       run: |
         case "$ANNOTATED" in
-        true) git tag -a -m "$MESSAGE" -- "$VERSION" ;;
-        *) git tag -- "$VERSION" ;;
+        true)
+          echo "Tag $VERSION: annotated (annotated input is true)"
+          git tag -a -m "$MESSAGE" -- "$VERSION"
+          ;;
+        *)
+          echo "Tag $VERSION: lightweight (annotated input is $ANNOTATED)"
+          git tag -- "$VERSION"
+          ;;
         esac
     - name: ⬆️ Push release commit and tag
       shell: bash
@@ -52,4 +59,5 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
       run: |
         gh auth setup-git --hostname github.com --force
+        echo "Pushing the release commit to main and tag $VERSION in one atomic push"
         git push --atomic origin HEAD:refs/heads/main "refs/tags/$VERSION"

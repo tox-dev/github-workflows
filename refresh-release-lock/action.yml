@@ -57,6 +57,9 @@ runs:
           fi
           # A newer Nab rewrites nab-version, so checking with it would fail every committed lock.
           requirements=("nab==$version")
+          echo "Nab: nab==$version (check mode uses the version recorded in pylock.toml)"
+        else
+          echo "Nab: ${requirements[0]} (refresh mode takes the newest release under the cutoff)"
         fi
         "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-tools" "${requirements[@]}"
     - name: 🔒 Resolve all project groups and extras
@@ -67,8 +70,14 @@ runs:
         set -euo pipefail
         unset SSL_CERT_FILE SSL_CERT_DIR
         case "$MODE" in
-        refresh) refresh=(--upgrade) ;;
-        *) refresh=() ;;
+        refresh)
+          refresh=(--upgrade)
+          echo 'Locking all groups and extras into pylock.toml (refresh mode: upgrade every pin)'
+          ;;
+        *)
+          refresh=()
+          echo 'Locking all groups and extras into pylock.toml (check mode: keep the committed pins)'
+          ;;
         esac
         cp pylock.toml "$RUNNER_TEMP/lock-before.toml"
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --all-groups --all-extras --no-cache "${refresh[@]}"
@@ -109,12 +118,21 @@ runs:
           selected_groups+=("${words[@]}")
         done <<<"$ADDITIONAL_GROUPS"
         case "$ADDITIONAL_SELECTION" in
-        project) selection=() ;;
+        project)
+          selection=()
+          description='project dependencies (additional-lock-selection is project)'
+          ;;
         *)
           selection=(--build-requirements)
-          if ((${#selected_groups[@]})); then selection=(--groups "${selected_groups[@]}"); fi
+          description='build requirements (additional-lock-groups is empty)'
+          if ((${#selected_groups[@]})); then
+            selection=(--groups "${selected_groups[@]}")
+            description="groups ${selected_groups[*]} (from additional-lock-groups)"
+          fi
           ;;
         esac
+        echo "Secondary lock $ADDITIONAL_LOCK: $description for Python $MATRIX_PYTHON on ${platforms[*]}" \
+          "with ${implementations[*]}, ${MODE} mode"
         cp "$ADDITIONAL_LOCK" "$RUNNER_TEMP/additional-lock-before.toml"
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --no-cache pyproject.toml "${selection[@]}" \
           --project-matrix-python "$MATRIX_PYTHON" \
@@ -134,13 +152,21 @@ runs:
       run: |
         set -euo pipefail
         paths=(pylock.toml)
-        if [[ -n "$ADDITIONAL_LOCK" ]]; then paths+=("$ADDITIONAL_LOCK"); fi
+        if [[ -n "$ADDITIONAL_LOCK" ]]; then
+          paths+=("$ADDITIONAL_LOCK")
+        else
+          echo 'Secondary lock skipped: additional-lock input is empty'
+        fi
         if [[ "$MODE" == check ]]; then
           git diff --exit-code -- "${paths[@]}"
+          echo "Locks match the checkout: ${paths[*]}"
           echo 'changed=false' >>"$GITHUB_OUTPUT"
         elif git diff --quiet -- "${paths[@]}"; then
+          echo "Lock patch skipped: ${paths[*]} unchanged after the refresh"
           echo 'changed=false' >>"$GITHUB_OUTPUT"
         else
           echo 'changed=true' >>"$GITHUB_OUTPUT"
           git diff --binary -- "${paths[@]}" >"$RUNNER_TEMP/lock.patch"
+          echo "Lock patch -> $RUNNER_TEMP/lock.patch:"
+          git diff --stat -- "${paths[@]}"
         fi

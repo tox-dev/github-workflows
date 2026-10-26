@@ -55,6 +55,7 @@ runs:
         test "${#paths[@]}" -gt 0
         test "$(printf '%s\n' "${paths[@]}" | LC_ALL=C sort -u | wc -l)" -eq "${#paths[@]}"
         printf '%s\n' "${paths[@]}" | LC_ALL=C sort >"$RUNNER_TEMP/expected-paths"
+        echo "Prepared paths: ${#paths[@]} allowed by the writer: ${paths[*]}"
     - name: 🔍 Verify the prepared commit
       shell: bash
       env:
@@ -64,12 +65,14 @@ runs:
         PATHS_FILE: ${{ inputs.paths-file }}
       run: |
         set -euo pipefail
-        if [[ -n "$BUNDLE" ]]; then
+        if [[ -z "$BUNDLE" ]]; then
+          echo 'Prepared commit check skipped: no bundle, the change is already merged'
+        else
           BUNDLE=$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$BUNDLE")
-          git init --bare "$RUNNER_TEMP/post-release.git" >/dev/null
-          git -C "$RUNNER_TEMP/post-release.git" bundle verify "$BUNDLE" >/dev/null
+          git init --bare "$RUNNER_TEMP/post-release.git"
+          git -C "$RUNNER_TEMP/post-release.git" bundle verify "$BUNDLE"
           git -C "$RUNNER_TEMP/post-release.git" fetch "$BUNDLE" \
-            refs/heads/release-candidate:refs/heads/release-candidate >/dev/null
+            refs/heads/release-candidate:refs/heads/release-candidate
           test "$(git -C "$RUNNER_TEMP/post-release.git" rev-parse refs/heads/release-candidate)" = "$CANDIDATE_COMMIT"
           read -r commit parent extra < <(
             git -C "$RUNNER_TEMP/post-release.git" rev-list --parents -n 1 "$CANDIDATE_COMMIT"
@@ -88,6 +91,7 @@ runs:
             test "$object" = blob
             test "$actual" = "$blob"
           done <"$PATHS_FILE"
+          echo "Prepared commit $CANDIDATE_COMMIT: one parent $BASE_COMMIT, changes only the prepared paths with the expected blobs"
         fi
     - name: 🔀 Inspect the existing pull request
       shell: bash
@@ -111,12 +115,16 @@ runs:
             (.state == "open" or .merged_at != null)
           )] end
         ' "$RUNNER_TEMP/post-release-all-prs.json" >"$RUNNER_TEMP/post-release-prs.json"
+        jq -r --arg branch "$BRANCH" '"Pull requests from \($branch): \(length) open or merged with the expected title, body and base\(
+          if length > 0 then " (#" + (map(.number | tostring) | join(", #")) + ")" else "" end)"' \
+          "$RUNNER_TEMP/post-release-prs.json"
     - name: ⚙️ Record an already merged pull request
       shell: bash
       run: |
         set -euo pipefail
         if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") == true ]]; then
           jq -r '.[0].number' "$RUNNER_TEMP/post-release-prs.json" >"$RUNNER_TEMP/post-release-number"
+          echo "Pull request #$(<"$RUNNER_TEMP/post-release-number") is already merged, skipping the branch push and pull request creation"
         fi
     - name: ⬆️ Push a missing prepared branch
       shell: bash
@@ -124,12 +132,16 @@ runs:
         BRANCH: ${{ inputs.branch }}
       run: |
         set -euo pipefail
-        if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") != true ]] &&
-          ! gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" >/dev/null 2>"$RUNNER_TEMP/branch-error"; then
+        if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") == true ]]; then
+          echo 'Branch push skipped: the pull request is already merged'
+        elif gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" >/dev/null 2>"$RUNNER_TEMP/branch-error"; then
+          echo "Branch push skipped: $BRANCH already exists"
+        else
           if ! grep -Fq '(HTTP 404)' "$RUNNER_TEMP/branch-error"; then
             cat "$RUNNER_TEMP/branch-error" >&2
             exit 1
           fi
+          echo "Branch $BRANCH is missing, pushing the prepared commit"
           gh auth setup-git --hostname "${GH_HOST:-github.com}" --force
           git -C "$RUNNER_TEMP/post-release.git" remote add origin \
             "https://${GH_HOST:-github.com}/$GITHUB_REPOSITORY.git"
@@ -150,6 +162,9 @@ runs:
             gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" -f "head=$BRANCH" -f "base=$BASE" \
               -f "title=$TITLE" -F "body=@$BODY_FILE" >"$RUNNER_TEMP/post-release-created.json"
             pr_number=$(jq -r .number "$RUNNER_TEMP/post-release-created.json")
+            echo "Created pull request #$pr_number from $BRANCH to $BASE"
+          else
+            echo "Pull request creation skipped: #$pr_number is already open with the expected title, body and base"
           fi
           printf '%s\n' "$pr_number" >"$RUNNER_TEMP/post-release-number"
         fi
@@ -159,6 +174,10 @@ runs:
         set -euo pipefail
         pr_number=$(cat "$RUNNER_TEMP/post-release-number")
         labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr_number/labels" --jq '.[].name')
-        if ! grep -Fxq 'skip news' <<<"$labels"; then
-          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr_number/labels" -f 'labels[]=skip news' >/dev/null
+        if grep -Fxq 'skip news' <<<"$labels"; then
+          echo "Pull request #$pr_number already has the skip news label"
+        else
+          labels=$(gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr_number/labels" -f 'labels[]=skip news' \
+            --jq 'map(.name) | join(", ")')
+          echo "Added the skip news label to pull request #$pr_number, labels now: $labels"
         fi

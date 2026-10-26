@@ -86,6 +86,8 @@ jobs:
               index=$((index + 1))
             done <"$RUNNER_TEMP/run-blocks"
           done
+          scripts=("$script_dir"/*.sh)
+          echo "Checking ${#scripts[@]} run blocks from the workflows and Actions with shellcheck and shfmt"
           tools/cooled_prek.sh run shellcheck --files "$script_dir"/*.sh
           tools/cooled_prek.sh run shfmt --files "$script_dir"/*.sh
   test:
@@ -138,4 +140,6 @@ jobs:
       - name: 🚦 Require all needed jobs to pass
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: jq -e 'all(to_entries[]; .value.result == "success")' <<<"$NEEDS_JSON"
+        run: |
+          jq -r 'to_entries[] | "Job \(.key): \(.value.result)"' <<<"$NEEDS_JSON"
+          jq -e 'all(to_entries[]; .value.result == "success")' <<<"$NEEDS_JSON"

@@ -20,8 +20,10 @@ runs:
         set -euo pipefail
         config_dir=$(mktemp -d "$RUNNER_TEMP/towncrier-config.XXXXXX")
         if git cat-file -e HEAD:towncrier.toml 2>/dev/null; then
+          echo 'Towncrier configuration: towncrier.toml at HEAD'
           git show HEAD:towncrier.toml >"$config_dir/config.toml"
         else
+          echo 'Towncrier configuration: pyproject.toml at HEAD (no towncrier.toml)'
           git show HEAD:pyproject.toml >"$config_dir/config.toml"
         fi
         python3 - "$config_dir/config.toml" "$GITHUB_OUTPUT" <<'PY'
@@ -34,4 +36,5 @@ runs:
         format_name = "rst" if changelog.endswith(".rst") else "markdown"
         with Path(sys.argv[2]).open("a", encoding="utf-8") as output:
             output.write(f"changelog={changelog}\nfragments={config['directory']}\nformat={format_name}\n")
+        print(f"Changelog: {changelog} ({format_name}), fragments: {config['directory']}")
         PY

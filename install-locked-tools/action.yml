@@ -53,8 +53,11 @@ runs:
           groups+=("${selected[@]}")
         done <<<"$DEPENDENCY_GROUPS"
         if ((${#groups[@]})); then
+          echo "Selected lock groups: ${groups[*]} (from the groups input), installing into $VENV from pylock.toml"
           uv venv --allow-existing --python 3.15 "$VENV"
           printf '%s\n' "${groups[@]}" >"$RUNNER_TEMP/selected-lock-groups"
+        else
+          echo 'Selected lock groups: none (groups input is empty), exporting build constraints only'
         fi
         printf 'lock=pylock.toml\n' >>"$GITHUB_OUTPUT"
     - id: constraints
@@ -67,7 +70,12 @@ runs:
         TARGETS: ${{ inputs.targets }}
       run: |
         set -euo pipefail
-        if [[ -n "$CONSTRAINTS_LOCK" ]]; then BUILD_LOCK=$CONSTRAINTS_LOCK; fi
+        if [[ -n "$CONSTRAINTS_LOCK" ]]; then
+          BUILD_LOCK=$CONSTRAINTS_LOCK
+          echo "Build constraints lock: $BUILD_LOCK (from the constraints-lock input)"
+        else
+          echo "Build constraints lock: $BUILD_LOCK (constraints-lock input is empty)"
+        fi
         args=()
         if [[ -n "$TARGET_PLATFORM" || -n "$TARGETS" ]]; then
           args+=(--target-platform "$TARGET_PLATFORM" --targets "$TARGETS")
@@ -78,7 +86,9 @@ runs:
         )
         digest=$(sha256sum <<<"$digest")
         output="$RUNNER_TEMP/build-constraints-${digest%% *}.txt"
-        if [[ ! -f "$output" ]]; then
+        if [[ -f "$output" ]]; then
+          echo "Reusing build constraints from an earlier step (same lock and targets): $output"
+        else
           uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
             "$GITHUB_ACTION_PATH/../tools/build_constraints.py" "${args[@]}" "$output" "$BUILD_LOCK"
         fi

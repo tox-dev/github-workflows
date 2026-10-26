@@ -5,7 +5,7 @@ runs:
   steps:
     - name: ⚙️ Apply release patch
       shell: bash
-      run: git apply --index "$RUNNER_TEMP/release-patch/release.patch"
+      run: git apply --index --verbose "$RUNNER_TEMP/release-patch/release.patch"
     - name: ⚙️ Read Towncrier configuration
       id: config
       uses: $/read-towncrier-config
@@ -17,8 +17,10 @@ runs:
       run: |
         set -euo pipefail
         git diff --cached --name-status --no-renames -z >"$RUNNER_TEMP/release-paths"
+        removed=0
         while IFS= read -r -d '' status && IFS= read -r -d '' path; do
           if [[ "$path" == "$CHANGELOG" && ("$status" == A || "$status" == M) ]]; then
+            echo "Release patch path: $status $path (the changelog)"
             continue
           fi
           if [[ "$path" != "$FRAGMENTS/"* ]]; then
@@ -29,12 +31,15 @@ runs:
             echo "::error::unexpected release path status: $status $path" >&2
             exit 1
           fi
+          removed=$((removed + 1))
         done <"$RUNNER_TEMP/release-paths"
+        echo "Release patch paths: $removed fragments removed from $FRAGMENTS"
     - name: 🔍 Check release patch file modes
       shell: bash
       run: |
         set -euo pipefail
         git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/release-modes"
+        count=0
         while IFS= read -r -d '' metadata && IFS= read -r -d '' path; do
           read -ra fields <<<"$metadata"
           case "${fields[4]}" in
@@ -63,4 +68,6 @@ runs:
             echo "::error::unexpected release file mode in $path: ${fields[1]}" >&2
             exit 1
           fi
+          count=$((count + 1))
         done <"$RUNNER_TEMP/release-modes"
+        echo "Release patch file modes: $count paths, each a non-executable regular file or a deletion"
