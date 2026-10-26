@@ -25,13 +25,13 @@ jobs:
       - name: 📦 Install release tools
         env:
           EXCLUDE_NEWER: 7 days
-          # Temporary: release-creator 4.0.0 is younger than seven days. Delete after 2026-11-02.
-          EXCLUDE_NEWER_PACKAGE: release-creator=2026-10-26T16:21:40Z
+          # Temporary: release-creator 4.1.0 is younger than seven days. Delete after 2026-11-02.
+          EXCLUDE_NEWER_PACKAGE: release-creator=2026-10-26T18:24:46Z
         run: |
-          tools/install_live_tools.sh "$RUNNER_TEMP/release-tools" 'release-creator>=4' 'towncrier>=26.9'
+          tools/install_live_tools.sh "$RUNNER_TEMP/release-tools" 'release-creator>=4.1' 'towncrier>=26.9'
           uv run --no-project --python "$RUNNER_TEMP/release-tools" python tools/expose_locked_commands.py "$RUNNER_TEMP/release-tools"
       - name: 🔍 Validate news fragments
         uses: $/validate-news
         with:
-          # Temporary: release-creator 4.0.0 is younger than seven days. Delete after 2026-11-02.
-          exclude-newer-package: release-creator=2026-10-26T16:21:40Z
+          # Temporary: release-creator 4.1.0 is younger than seven days. Delete after 2026-11-02.
+          exclude-newer-package: release-creator=2026-10-26T18:24:46Z

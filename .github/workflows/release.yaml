@@ -30,10 +30,10 @@ jobs:
       - name: 📦 Install release tools
         env:
           EXCLUDE_NEWER: 7 days
-          # Temporary: release-creator 4.0.0 is younger than seven days. Delete after 2026-11-02.
-          EXCLUDE_NEWER_PACKAGE: release-creator=2026-10-26T16:21:40Z
+          # Temporary: release-creator 4.1.0 is younger than seven days. Delete after 2026-11-02.
+          EXCLUDE_NEWER_PACKAGE: release-creator=2026-10-26T18:24:46Z
         run: |
-          tools/install_live_tools.sh .venv 'release-creator>=4'
+          tools/install_live_tools.sh .venv 'release-creator>=4.1'
           uv run --no-project --python .venv python tools/expose_locked_commands.py .venv
       - name: 📝 Render release notes
         uses: $/render-release-notes
