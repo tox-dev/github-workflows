@@ -49,25 +49,19 @@ runs:
       env:
         GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
-        TITLE: ${{ inputs.title }}
-        NOTES_FILE: ${{ inputs.notes-file }}
-        PRERELEASE: ${{ inputs.prerelease }}
-        MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
         gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
           jq -s --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' >"$RUNNER_TEMP/release-existing.json"
-        if jq -e 'length == 1' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
+        if jq -e 'length > 0' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
           jq -er '.[0].id' "$RUNNER_TEMP/release-existing.json" >"$RUNNER_TEMP/release-id"
         fi
-        jq -e --arg phase existing --arg title "$TITLE" --rawfile body "$NOTES_FILE" \
-          --argjson prerelease "$PRERELEASE" --slurpfile assets "$RUNNER_TEMP/release-assets.json" \
-          -f "$GITHUB_ACTION_PATH/match.jq" "$RUNNER_TEMP/release-existing.json"
-        if [[ "$MODE" == publish ]]; then
-          jq -e 'length == 1' "$RUNNER_TEMP/release-existing.json" >/dev/null
+        immutable=$(jq -r '.[0] | .draft == false and .immutable == true' "$RUNNER_TEMP/release-existing.json")
+        if [[ "$immutable" == true ]]; then
+          jq '[.[0]]' "$RUNNER_TEMP/release-existing.json" | jq -e --arg phase complete \
+            --slurpfile assets "$RUNNER_TEMP/release-assets.json" -f "$GITHUB_ACTION_PATH/match.jq" >/dev/null
         fi
-        printf 'immutable=%s\n' "$(jq -r 'any(.[]; .draft == false and .immutable == true)' \
-          "$RUNNER_TEMP/release-existing.json")" >>"$GITHUB_OUTPUT"
+        printf 'immutable=%s\n' "$immutable" >>"$GITHUB_OUTPUT"
     - name: Create a missing draft
       shell: bash
       env:
@@ -77,10 +71,9 @@ runs:
         TITLE: ${{ inputs.title }}
         NOTES_FILE: ${{ inputs.notes-file }}
         PRERELEASE: ${{ inputs.prerelease }}
-        MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
-        if [[ "$MODE" != publish ]] && jq -e 'length == 0' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
+        if jq -e 'length == 0' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
           jq -n --arg tag "$TAG" --arg commit "$COMMIT" --arg title "$TITLE" \
             --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
             '{tag_name: $tag, target_commitish: $commit, name: $title, body: $body,
@@ -88,6 +81,13 @@ runs:
           gh api -X POST "repos/$GH_REPO/releases" --input "$RUNNER_TEMP/release-request.json" \
             >"$RUNNER_TEMP/release-created.json"
           jq -er '.id | select(type == "number")' "$RUNNER_TEMP/release-created.json" >"$RUNNER_TEMP/release-id"
+        elif jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+          '.[0].draft and (.[0].name != $title or .[0].body != $body or .[0].prerelease != $prerelease)' \
+          "$RUNNER_TEMP/release-existing.json" >/dev/null; then
+          jq -n --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+            '{name: $title, body: $body, prerelease: $prerelease}' >"$RUNNER_TEMP/release-update.json"
+          gh api -X PATCH "repos/$GH_REPO/releases/$(<"$RUNNER_TEMP/release-id")" \
+            --input "$RUNNER_TEMP/release-update.json" >/dev/null
         fi
     - name: Upload missing draft assets
       if: steps.inspect.outputs.immutable != 'true'
@@ -95,10 +95,7 @@ runs:
       env:
         GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
-        TITLE: ${{ inputs.title }}
-        NOTES_FILE: ${{ inputs.notes-file }}
         ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
-        PRERELEASE: ${{ inputs.prerelease }}
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
@@ -107,15 +104,14 @@ runs:
         if [[ "$MODE" != publish && -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob
           release_id=$(<"$RUNNER_TEMP/release-id")
-          if jq -e 'length == 1 and .[0].draft' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
+          if jq -e '.[0].draft' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
             while IFS= read -r asset_id; do
               gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id" >/dev/null
             done < <(jq -r '.[0].assets[] | select(.state != "uploaded") | .id' "$RUNNER_TEMP/release-existing.json")
           fi
           read_draft() {
             gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-current.json" &&
-              jq -e --arg phase draft --arg title "$TITLE" --rawfile body "$NOTES_FILE" \
-                --argjson prerelease "$PRERELEASE" --slurpfile assets "$RUNNER_TEMP/release-assets.json" \
+              jq -e --arg phase draft --slurpfile assets "$RUNNER_TEMP/release-assets.json" \
                 -f "$GITHUB_ACTION_PATH/match.jq" "$RUNNER_TEMP/release-current.json" >/dev/null
           }
           if ! retry read_draft; then
@@ -165,10 +161,6 @@ runs:
       shell: bash
       env:
         GH_REPO: ${{ github.repository }}
-        TAG: ${{ inputs.tag }}
-        TITLE: ${{ inputs.title }}
-        NOTES_FILE: ${{ inputs.notes-file }}
-        PRERELEASE: ${{ inputs.prerelease }}
       run: |
         set -euo pipefail
         # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
@@ -176,12 +168,11 @@ runs:
         release_id=$(<"$RUNNER_TEMP/release-id")
         read_complete() {
           gh api "repos/$GH_REPO/releases/$release_id" | jq -s . >"$RUNNER_TEMP/release-complete.json" &&
-            jq -e --arg phase complete --arg title "$TITLE" --rawfile body "$NOTES_FILE" \
-              --argjson prerelease "$PRERELEASE" --slurpfile assets "$RUNNER_TEMP/release-assets.json" \
+            jq -e --arg phase complete --slurpfile assets "$RUNNER_TEMP/release-assets.json" \
               -f "$GITHUB_ACTION_PATH/match.jq" "$RUNNER_TEMP/release-complete.json" >/dev/null
         }
         if ! retry read_complete; then
-          echo '::error::release metadata or assets did not match after publication' >&2
+          echo '::error::release assets did not match after publication' >&2
           exit 1
         fi
     - name: Publish the draft

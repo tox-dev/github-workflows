@@ -492,13 +492,14 @@ no credentials.
 ## Publish a GitHub Release
 
 `publish-github-release` writes a GitHub Release from the rendered notes. Pass the exact notes file and the tag's commit
-SHA. A retry resumes a matching draft, or succeeds without a write when the published Release already matches. Run it in
-a Contents-write job that downloads the notes and optional assets; it needs no checkout or tool installation. For a
-repository that must upload GitHub assets before PyPI, call it with `mode: stage`, verify PyPI's exact artifact set,
-then call it with `mode: publish` and the same `assets-directory`. The draft stays private until the second call
-succeeds. Enable immutable releases in the repository before using this Action. Drafts can still be edited, so the
-Action checks them again before upload and publication. A matching published release whose API record is immutable needs
-no write or second metadata fetch. Older mutable releases retain the recheck.
+SHA. A retry resumes the existing draft and updates its title, notes, and prerelease flag, or succeeds without a write
+when the Release is already published. Run it in a Contents-write job that downloads the notes and optional assets; it
+needs no checkout or tool installation. For a repository that must upload GitHub assets before PyPI, call it with
+`mode: stage`, verify PyPI's exact artifact set, then call it with `mode: publish` and the same `assets-directory`. The
+draft stays private until the second call succeeds. Enable immutable releases in the repository before using this
+Action. The Action checks a draft's assets again before upload and publication. A published release whose API record is
+immutable has its assets checked from the release listing, with no write or second fetch. Older mutable releases retain
+the asset recheck.
 
 ```yaml
   - uses: tox-dev/github-workflows/publish-github-release@SHA
@@ -512,21 +513,21 @@ no write or second metadata fetch. Older mutable releases retain the recheck.
 ```
 
 - `tag`, `commit`, `title`, and `notes-file` are required. The Action uses the caller repository; `commit` is the tag's
-  commit, used as the target when the Action creates the Release. `title` and the file bytes must match an existing
-  Release exactly.
+  commit, used as the target when the Action creates the Release.
 - `assets-directory`: Optional directory of the assets to attach. The Action compares each filename and SHA256 digest
   with GitHub's Release asset metadata, uploads missing draft assets, and rejects extra or changed assets. After
   publication it verifies GitHub's release attestation for each local asset.
-- `prerelease`: `true` or `false`; default `false`. It must match an existing Release.
+- `prerelease`: `true` or `false`; default `false`.
 - `mode`: `complete` (default) creates or resumes a draft and publishes it in one call. `stage` creates or resumes a
-  draft and uploads assets without publishing. `publish` requires an existing draft and publishes it after checking the
-  notes and complete asset set again.
+  draft and uploads assets without publishing. `publish` publishes the draft, creating it first if it is missing, after
+  checking its complete asset set again.
 
 **Output:** No named output. **Remote effect:** Depending on `mode`, the Action creates or resumes a draft, uploads
-missing assets, and publishes only after the complete asset set matches. A matching published Release causes no write. A
-different body, title, prerelease flag, or asset set fails without changing the existing Release. A failed upload leaves
-the draft for a later retry. The Action removes incomplete `starter` assets before retrying. It retries reading the
-release by ID for up to ten seconds after draft creation or asset upload; a mismatch still fails when that window ends.
+missing assets, and publishes only after the complete asset set matches. A published Release causes no write. A draft
+with a different title, body, or prerelease flag is updated; a Release with a different asset set fails. A failed upload
+leaves the draft for a later retry. The Action removes incomplete `starter` assets before retrying. It retries reading
+the release by ID for up to ten seconds after draft creation or asset upload; a mismatch still fails when that window
+ends.
 
 ## Reconcile a post-release pull request
 
