@@ -28,7 +28,49 @@ inputs:
 runs:
   using: composite
   steps:
+    - id: news-change
+      name: Check whether news inputs changed
+      shell: bash
+      env:
+        BASE_REF: ${{ github.base_ref }}
+      run: |
+        set -euo pipefail
+        base=$(git merge-base "origin/$BASE_REF" HEAD)
+        python3 - "$base" "$GITHUB_OUTPUT" <<'PY'
+        import subprocess
+        import sys
+        import tomllib
+        from pathlib import Path
+
+        base, output = sys.argv[1:]
+
+
+        def towncrier(ref: str, name: str) -> object:
+            shown = subprocess.run(["git", "show", f"{ref}:{name}"], capture_output=True, text=True, check=False)
+            if shown.returncode:
+                return None
+            try:
+                return tomllib.loads(shown.stdout).get("tool", {}).get("towncrier")
+            except tomllib.TOMLDecodeError:
+                return shown.stdout
+
+
+        names = ("towncrier.toml", "pyproject.toml")
+        config = any(towncrier(base, name) != towncrier("HEAD", name) for name in names)
+        current = next((table for name in names if isinstance(table := towncrier("HEAD", name), dict)), {})
+        fragments = "directory" in current and bool(
+            subprocess.run(
+                ["git", "diff", "--name-only", base, "HEAD", "--", current["directory"]],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        )
+        with Path(output).open("a", encoding="utf-8") as stream:
+            stream.write(f"fragments={str(fragments).lower()}\nconfig={str(config).lower()}\n")
+        PY
     - name: Count changed fragments
+      if: steps.news-change.outputs.fragments == 'true' || steps.news-change.outputs.config == 'true'
       shell: bash
       env:
         BASE_REF: ${{ github.base_ref }}
@@ -39,7 +81,8 @@ runs:
         SKIP_NEWS: ${{ contains(github.event.pull_request.labels.*.name, 'skip news') }}
         BOT_AUTHOR: ${{ github.event.pull_request.user.type == 'Bot' }}
       run: |
-        read -r fragments <"$RUNNER_TEMP/news-fragment-count"
+        fragments=0
+        if [[ -f "$RUNNER_TEMP/news-fragment-count" ]]; then read -r fragments <"$RUNNER_TEMP/news-fragment-count"; fi
         if ((! fragments)) && [[ "$SKIP_NEWS" != true && "$BOT_AUTHOR" != true ]]; then
           echo '::error::add a changelog fragment or apply the skip news label' >&2
           exit 1
@@ -51,9 +94,8 @@ runs:
         BASE_REF: ${{ github.base_ref }}
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
       run: |
-        paths=(':(glob)**/pyproject.toml' pylock.toml nab.toml ':(glob).github/workflows/**')
-        if [[ -n "$ADDITIONAL_LOCK" ]]; then paths+=("$ADDITIONAL_LOCK"); fi
-        changed=$(git diff --name-only "origin/$BASE_REF...HEAD" -- "${paths[@]}")
+        changed=$(git diff --name-only "origin/$BASE_REF...HEAD" -- \
+          ':(glob)**/pyproject.toml' pylock.toml ':(glob)pylock.*.toml' nab.toml)
         if [[ -z "$changed" ]]; then
           echo 'changed=false' >>"$GITHUB_OUTPUT"
           exit 0

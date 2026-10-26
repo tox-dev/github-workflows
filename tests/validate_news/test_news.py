@@ -3,9 +3,19 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from typing import Final
 
 import pytest
+import yaml
 from conftest import action, run
+
+_STEPS: Final = yaml.safe_load((Path(__file__).resolve().parents[2] / "validate-news/action.yml").read_text())["runs"][
+    "steps"
+]
+
+
+def _script(action_scripts: Path, step_id: str) -> Path:
+    return action_scripts / f"validate-news-{next(i for i, step in enumerate(_STEPS) if step.get('id') == step_id)}.sh"
 
 
 @pytest.mark.parametrize(
@@ -126,17 +136,17 @@ def test_validate_news_requires_pr_base(repository: Path, tmp_path: Path, action
         SKIP_NEWS="false",
     )
     assert result.returncode != 0
-    assert "news validation needs a PR base" in result.stderr
+    assert "origin/" in result.stderr
 
 
 @pytest.mark.parametrize(
     ("additional_lock", "changed_path", "changed"),
     [
         pytest.param("pylock.zipapp.toml", "pylock.zipapp.toml", "true", id="selected-secondary-lock"),
-        pytest.param("", "pylock.zipapp.toml", "false", id="unselected-secondary-lock"),
+        pytest.param("", "pylock.zipapp.toml", "true", id="unselected-secondary-lock"),
         pytest.param("", "pylock.toml", "true", id="primary-lock"),
         pytest.param("", "pyproject.toml", "true", id="root-project"),
-        pytest.param("", ".github/workflows/release.yaml", "true", id="workflow-repin"),
+        pytest.param("", ".github/workflows/release.yaml", "false", id="workflow-repin"),
         pytest.param("", "README.md", "false", id="unrelated"),
         pytest.param("", "nab.toml", "true", id="nab-policy"),
         pytest.param("", "meta/pyproject.toml", "true", id="workspace-member"),
@@ -176,7 +186,7 @@ def test_validate_news_detects_release_input_change(
     output = tmp_path / "lock-change-output"
 
     result = subprocess.run(
-        ["bash", str(action_scripts / "validate-news-2.sh")],
+        ["bash", str(_script(action_scripts, "lock-change"))],
         cwd=repository,
         env=os.environ
         | {
@@ -221,7 +231,7 @@ def test_validate_news_checks_removed_release_lock(
     run(repository, "git", "commit", "-m", "Remove release lock")
 
     result = subprocess.run(
-        ["bash", str(action_scripts / "validate-news-2.sh")],
+        ["bash", str(_script(action_scripts, "lock-change"))],
         cwd=repository,
         env=os.environ
         | {
@@ -282,3 +292,108 @@ def test_validate_news_checks_changed_release_inputs_against_the_lock(
 
     assert (result.returncode == 0) is accepted, result.stderr
     assert ("regenerated Nab lock differs from the committed lock" in result.stderr) is not accepted
+
+
+def test_validate_news_skips_lock_removal_guard_without_deletion(
+    repository: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    project = repository / "pyproject.toml"
+    project.write_text(project.read_text() + '\n[tool.nab]\nuploaded-prior-to = "P7D"\n')
+    run(repository, "git", "commit", "-am", "Configure Nab without a lock")
+    run(repository, "git", "push", "origin", "main")
+    run(repository, "git", "checkout", "-b", "change-project")
+    project.write_text(project.read_text() + "\n")
+    run(repository, "git", "commit", "-am", "Change the project")
+    output = tmp_path / "lock-change-output"
+
+    result = subprocess.run(
+        ["bash", str(_script(action_scripts, "lock-change"))],
+        cwd=repository,
+        env=os.environ | {"BASE_REF": "main", "ADDITIONAL_LOCK": "", "GITHUB_OUTPUT": str(output)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == "changed=false\n"
+
+
+@pytest.mark.parametrize(
+    ("path", "content", "fragments", "config"),
+    [
+        pytest.param("changelog.d/+other.feature.md", "Add more.\n", "true", "false", id="fragment"),
+        pytest.param("README.md", "Read me.\n", "false", "false", id="unrelated"),
+        pytest.param("pyproject.toml", None, "false", "false", id="project-without-towncrier-change"),
+        pytest.param("pyproject.toml", "", "false", "true", id="towncrier-table"),
+        pytest.param("towncrier.toml", "[tool.towncrier]\n", "false", "true", id="towncrier-file"),
+    ],
+)
+def test_validate_news_detects_news_input_change(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    path: str,
+    content: str | None,
+    fragments: str,
+    config: str,
+) -> None:
+    run(repository, "git", "checkout", "-b", "change-news-input")
+    target = repository / path
+    if content is None:
+        target.write_text(target.read_text() + "\n[project]\nname = 'fixture'\n")
+    elif path == "pyproject.toml":
+        target.write_text(target.read_text().replace('name = "fixture"', 'name = "renamed"'))
+    else:
+        target.write_text(content)
+    run(repository, "git", "add", path)
+    run(repository, "git", "commit", "-m", "Change a news input")
+    output = tmp_path / "news-change-output"
+
+    result = subprocess.run(
+        ["bash", str(_script(action_scripts, "news-change"))],
+        cwd=repository,
+        env=os.environ | {"BASE_REF": "main", "GITHUB_OUTPUT": str(output)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == f"fragments={fragments}\nconfig={config}\n"
+
+
+@pytest.mark.parametrize(
+    ("touched", "accepted"),
+    [
+        pytest.param("README.md", True, id="untouched-config-skipped"),
+        pytest.param("pyproject.toml", False, id="touched-config-checked"),
+    ],
+)
+def test_validate_news_checks_towncrier_config_only_when_touched(
+    repository: Path, tmp_path: Path, action_scripts: Path, touched: str, accepted: bool
+) -> None:
+    project = repository / "pyproject.toml"
+    project.write_text(project.read_text().replace('filename = "CHANGELOG.md"', 'filename = "CHANGELOG.txt"'))
+    run(repository, "git", "commit", "-am", "Use an unsupported changelog")
+    run(repository, "git", "push", "origin", "main")
+    run(repository, "git", "checkout", "-b", "change-news-input")
+    target = repository / touched
+    target.write_text(
+        target.read_text().replace('name = "fixture"', 'name = "renamed"') if touched == "pyproject.toml" else "Read.\n"
+    )
+    run(repository, "git", "add", touched)
+    run(repository, "git", "commit", "-m", "Touch a file")
+
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-news",
+        version="0.2.0",
+        BASE_REF="main",
+        SKIP_NEWS="true",
+    )
+
+    assert (result.returncode == 0) is accepted, result.stderr
+    assert ("Markdown or reStructuredText changelog" in result.stderr) is not accepted

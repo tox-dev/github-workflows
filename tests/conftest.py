@@ -398,6 +398,8 @@ def _condition(
     inputs: dict[str, str],
     step_outputs: dict[str, dict[str, str]],
 ) -> bool:
+    if " || " in expression:
+        return any(_condition(part, environment, inputs, step_outputs) for part in expression.split(" || "))
     if " && " in expression:
         return all(_condition(part, environment, inputs, step_outputs) for part in expression.split(" && "))
     for operator in (" == ", " != "):

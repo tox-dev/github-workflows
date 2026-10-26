@@ -65,6 +65,17 @@ configured directory against the configured categories, filename format, and non
 not. A bot's supplied fragment is checked and included in the normal release flow. The Action reads repository files and
 Git history; it does not add labels or write to GitHub.
 
+Each check runs only when the pull request touches what it validates, compared with the merge base:
+
+- Fragment validation runs when a file in the configured fragment directory changes.
+- The Towncrier configuration is checked when `towncrier.toml` or the `tool.towncrier` table of `pyproject.toml`
+  changes; such a change also validates the changed fragments.
+- The lock check runs `refresh-release-lock` in `check` mode when any `pyproject.toml`, `pylock.toml`, a root
+  `pylock.*.toml`, or `nab.toml` changes.
+- The lock-removal guard runs when the pull request deletes `pylock.toml`.
+
+The requirement for a fragment on human PRs is not tied to a file and runs on every pull request.
+
 Put the `changelog` job in a separate `news.yaml` workflow triggered by `opened`, `reopened`, `synchronize`, `labeled`,
 and `unlabeled`. Require its status in the main-branch ruleset alongside the test aggregate. A label change then runs
 only the news workflow. Install Towncrier from the caller's release lock before calling the Action:
