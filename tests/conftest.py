@@ -260,7 +260,6 @@ def action(
         "CHANGELOG": "CHANGELOG.md",
         "FRAGMENTS": "changelog.d",
         "FORMAT": action_config.get("inputs", {}).get("format", {}).get("default", "none"),
-        "CHECKS": "true",
         "BRANCH": "main",
         "ANNOTATED": "false",
         "ARTIFACT_URL": "",

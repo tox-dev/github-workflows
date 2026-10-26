@@ -17,8 +17,8 @@ The Action only checks that the selected groups exist in the lock; installs are 
 Nab: `refresh-release-lock` in `check` mode regenerates the lock and fails if it differs. It runs on pull requests
 through `validate-news`. The cutoff and any per-package exception live in the caller's `[tool.nab]` table.
 
-Select the groups each job needs. The shared workflows use `release-prepare` and `release-validate`. A full lock records
-each group and extra, but a new combination still needs an install check before a caller uses it.
+Select the groups each job needs. The shared prepare workflow uses `release-prepare`. A full lock records each group and
+extra, but a new combination still needs an install check before a caller uses it.
 
 - `venv`: directory for the virtual environment when `groups` is set.
 - `groups`: whitespace-separated release dependency groups. Leave empty to export build constraints without installing
@@ -169,37 +169,35 @@ refresh produces a patch. Neither mode pushes a branch or requests a write token
 
 Every shared `prek` command runs through `tools/cooled_prek.sh`, which the `cooled-prek` Action wraps for workflows, and
 passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek.toml` and also runs nested
-configurations, which no guard checks. `prepare-towncrier` and `validate-release-patch` therefore reject a `prek.toml`
-anywhere, a `.pre-commit-config.yml`, and a `.pre-commit-config.yaml` below the root before they run `prek`.
+configurations, which no guard checks. `prepare-towncrier` therefore rejects a `prek.toml` anywhere, a
+`.pre-commit-config.yml`, and a `.pre-commit-config.yaml` below the root before it runs `prek`.
 
 ## Start with a caller
 
 The [release preparation workflow](.github/workflows/prepare-release.yaml) in this repository calls the reusable
-Towncrier workflow. Its `assemble` job uploads a patch; a separate keyless `validate` job downloads and checks that
-artifact. The `push` job downloads the same artifact by ID and checks its paths and modes before minting a
-repository-scoped App token. Set the tag style in the caller and the changelog path and fragment directory in committed
-Towncrier configuration. Pin the reusable workflow to a release commit SHA; `SHA` in these examples means that commit.
+Towncrier workflow. Its `assemble` job uploads a patch. The `push` job downloads that artifact by ID and checks its
+paths and modes before minting a repository-scoped App token. Set the tag style in the caller and the changelog path and
+fragment directory in committed Towncrier configuration. Pin the reusable workflow to a release commit SHA; `SHA` in
+these examples means that commit.
 
 Assembly needs release history to select a tag. The writer can check out the source commit with `fetch-depth: 1`. All
 jobs use `persist-credentials: false`. Assembly installs the caller's locked release tools and needs `contents: read`
 and `pull-requests: read` to resolve PR authors. It starts `prek install-hooks` while building the changelog, then waits
-for the hooks before formatting and uploading the patch. The validation job runs `prek` on that uploaded patch. The
-writer uses the `release-auth` environment with `RELEASE_APP_PRIVATE_KEY` and `RELEASE_APP_CLIENT_ID`. Restrict that
-environment to `main`. Install the App on this repository only, with Contents write and Metadata read, and grant the
-necessary branch and tag ruleset bypass.
+for the hooks before formatting and uploading the patch. The writer uses the `release-auth` environment with
+`RELEASE_APP_PRIVATE_KEY` and `RELEASE_APP_CLIENT_ID`. Restrict that environment to `main`. Install the App on this
+repository only, with Contents write and Metadata read, and grant the necessary branch and tag ruleset bypass.
 
 ```text
 main + fragments
        │
        ▼
-prepare-towncrier ──► upload patch ──► validate artifact
-                            │                   │
-                            └─────────┬─────────┘
-                                      ▼
-                          verify paths and modes
-                                      │
-                                      ▼
-                           mint App token ──► commit-and-tag ──► main + tag
+prepare-towncrier ──► upload patch
+                            │
+                            ▼
+                verify paths and modes
+                            │
+                            ▼
+                 mint App token ──► commit-and-tag ──► main + tag
 ```
 
 The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-level workflow, in a separate job with
@@ -310,9 +308,8 @@ build package versions; otherwise the Action fails instead of writing an ambiguo
 
 ## Prepare and tag with one reusable workflow
 
-`prepare-towncrier-release.yaml` runs three jobs. `assemble` selects a tag and uploads a Towncrier patch without the App
-key. `validate` calculates the next tag again from the checked-out source, then applies the uploaded artifact and runs
-`prek`. `push` downloads that artifact by ID, checks its paths and file modes, reads the caller's `release-auth`
+`prepare-towncrier-release.yaml` runs two jobs. `assemble` selects a tag and uploads a Towncrier patch without the App
+key. `push` downloads that artifact by ID, checks its paths and file modes, reads the caller's `release-auth`
 environment, and uses a repository-scoped App token to push the release commit and tag together.
 
 ```yaml
@@ -402,32 +399,24 @@ those changes.
 
 ## Validate release patch
 
-`validate-release-patch` runs in the caller's fresh checkout of the original branch commit. It rejects a `main` branch
-that moved, applies the uploaded patch, checks its changed paths and file modes, then asks `release-creator` to verify
-that every deleted file is a configured Towncrier fragment. It renders the requested version and runs `prek`. It leaves
-the patch staged for the commit Action. Download the patch artifact to `${{ runner.temp }}/release-patch` first. Run it
-in a keyless validation job. The App-key job repeats the branch, path, and mode checks with `checks: "false"`, without
-installing release tools.
+`validate-release-patch` applies the uploaded patch in the writer's checkout, checks its changed paths and file modes,
+and leaves it staged for the commit Action. Download the patch artifact to `${{ runner.temp }}/release-patch` first. It
+needs no release tools.
 
 ```yaml
   - uses: tox-dev/github-workflows/validate-release-patch@SHA
-    with:
-      version: ${{ needs.assemble.outputs.version }}
 ```
 
-- `version` **(required)**: Exact tag chosen by preparation. `release-creator notes` must find one valid section for it.
-- `checks`: `true` (default) runs `release-creator` and `prek`; `false` only applies and checks the validated patch.
-
-**Output:** No named output. **Working-tree effect:** Applies and stages the patch. The Action reads the changelog path,
-fragment directory, and categories from committed Towncrier configuration. Only the changelog and direct fragment
-deletions may appear in the patch. A failed `prek` run or an unexpected path or mode fails the keyless job.
+**Output:** No named output. **Working-tree effect:** Applies and stages the patch. The Action reads the changelog path
+and fragment directory from committed Towncrier configuration. Only the changelog and direct fragment deletions may
+appear in the patch, as regular files. An unexpected path or mode fails the job.
 
 ## Commit and tag release
 
-`commit-and-tag` accepts only a staged release patch in a clean working tree. It commits with the GitHub App bot
-identity, creates the tag, and atomically pushes the branch and tag to `origin`. A rejected push leaves neither remote
-ref updated. Mint the token after validation with `actions/create-github-app-token`, narrowed to this repository and
-Contents write. Put `commit-and-tag` last in the writer job: its Git credential helper remains available to later steps.
+`commit-and-tag` commits the staged release patch with the GitHub App bot identity, creates the tag, and atomically
+pushes the branch and tag to `origin`. A rejected push leaves neither remote ref updated. Mint the token after
+validation with `actions/create-github-app-token`, narrowed to this repository and Contents write. Put `commit-and-tag`
+last in the writer job: its Git credential helper remains available to later steps.
 
 ```yaml
   - id: token

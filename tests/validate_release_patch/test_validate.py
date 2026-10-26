@@ -66,80 +66,6 @@ def test_validate_rst_heading(repository: Path, tmp_path: Path, action_scripts: 
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize(
-    "marker",
-    [
-        pytest.param("<<<<<<< HEAD", id="ours"),
-        pytest.param("||||||| base", id="base"),
-        pytest.param(">>>>>>> branch", id="theirs"),
-    ],
-)
-def test_validate_rejects_rst_conflict_marker(
-    repository: Path, tmp_path: Path, action_scripts: Path, marker: str
-) -> None:
-    changelog = repository / "CHANGELOG.rst"
-    track_rst_changelog(repository)
-    changelog.write_text(f"Changelog\n=========\n\n0.2.0\n=====\n\n{marker}\n")
-    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
-    run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
-    assert result.returncode != 0
-    assert "release changelog contains conflict markers" in result.stderr
-
-
-@pytest.mark.parametrize("tracked", [pytest.param(True, id="tracked"), pytest.param(False, id="first-release")])
-def test_validate_rejects_staged_rst_conflict_marker(
-    repository: Path, tmp_path: Path, action_scripts: Path, tracked: bool
-) -> None:
-    track_rst_changelog(repository)
-    changelog = repository / "CHANGELOG.rst"
-    if not tracked:
-        run(repository, "git", "rm", "CHANGELOG.rst")
-        run(repository, "git", "commit", "-m", "Remove RST changelog")
-        run(repository, "git", "push", "origin", "main")
-    changelog.write_text("Changelog\n=========\n\n<<<<<<< HEAD\n")
-    if not tracked:
-        run(repository, "git", "add", "-N", "CHANGELOG.rst")
-    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
-    run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
-    assert result.returncode != 0
-    assert "conflict markers" in result.stderr
-
-
-def test_validate_rejects_unchanged_changelog(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    fragment = repository / "changelog.d/+feature.feature.md"
-    fragment.unlink()
-    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
-    run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
-    assert result.returncode != 0
-    assert "release patch does not change CHANGELOG.md" in result.stderr
-
-
-def test_validate_rejects_stale_branch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
-    run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "validate-release-patch",
-        version="0.2.0",
-        GITHUB_SHA="0000000000000000000000000000000000000000",
-    )
-    assert result.returncode != 0
-    assert "changed during release preparation" in result.stderr
-
-
-def test_validate_rejects_unknown_check_mode(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
-    run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0", CHECKS="sometimes")
-    assert result.returncode != 0
-    assert "checks must be true or false" in result.stderr
-
-
 def test_validate_key_job_uses_only_checked_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
     run(repository, "git", "reset", "--hard", "HEAD")
@@ -149,7 +75,6 @@ def test_validate_key_job_uses_only_checked_patch(repository: Path, tmp_path: Pa
         action_scripts,
         "validate-release-patch",
         version="0.2.0",
-        CHECKS="false",
         PATH="/usr/bin:/bin",
     )
     assert result.returncode == 0, result.stderr
@@ -168,11 +93,7 @@ def test_validate_rejects_unexpected_path(repository: Path, tmp_path: Path, acti
 @pytest.mark.parametrize(
     "fragment",
     [
-        pytest.param("evil.py", id="wrong-extension"),
         pytest.param("nested/7.feature.md", id="nested"),
-        pytest.param("evil.feature.md", id="unsupported-stem"),
-        pytest.param("7.bugfix.md", id="unconfigured-category"),
-        pytest.param("7.feature.rst", id="wrong-format"),
         pytest.param("7.feature.md", id="added-valid-fragment"),
     ],
 )
@@ -193,7 +114,6 @@ def test_validate_rejects_unsupported_fragment_path(
         action_scripts,
         "validate-release-patch",
         version="0.2.0",
-        CHECKS="false",
     )
     assert result.returncode != 0
     assert "unexpected release path status" in result.stderr
@@ -215,7 +135,6 @@ def test_validate_rejects_renamed_fragment_source(repository: Path, tmp_path: Pa
         action_scripts,
         "validate-release-patch",
         version="0.2.0",
-        CHECKS="false",
     )
     assert result.returncode != 0
     assert "unexpected release path status" in result.stderr
@@ -252,7 +171,6 @@ def test_validate_requires_explicit_towncrier_config(
         action_scripts,
         "validate-release-patch",
         version="0.2.0",
-        CHECKS="false",
     )
     assert result.returncode != 0
     assert error in result.stderr
@@ -295,7 +213,6 @@ def test_validate_rejects_nonregular_deleted_fragment(repository: Path, tmp_path
         action_scripts,
         "validate-release-patch",
         version="0.2.0",
-        CHECKS="false",
     )
     assert result.returncode != 0
     assert "unexpected previous release file mode" in result.stderr
@@ -308,70 +225,3 @@ def test_validate_rejects_removed_changelog(repository: Path, tmp_path: Path, ac
     result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "unexpected release path" in result.stderr
-
-
-def test_validate_rejects_missing_heading(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / "CHANGELOG.md").write_text("# Changelog\n\nOther notes.\n")
-    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
-    run(repository, "git", "restore", ".")
-    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
-    assert result.returncode != 0
-    assert "expected one changelog section for 0.2.0, found 0" in result.stderr
-
-
-def test_validate_rejects_embedded_heading(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / "CHANGELOG.md").write_text("# Changelog\n\n- Link to ## 0.2.0 (2026-10-19)\n")
-    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "--binary").stdout)
-    run(repository, "git", "restore", ".")
-    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
-    assert result.returncode != 0
-    assert "expected one changelog section for 0.2.0, found 0" in result.stderr
-
-
-def test_validate_rejects_prek_changes(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    config = repository / ".pre-commit-config.yaml"
-    config.write_text(
-        config.read_text().replace(
-            "entry: bash -c true",
-            "entry: bash -c 'if [[ $VALIDATE_REHEARSAL == 1 ]]; then printf changed >> CHANGELOG.md; fi'",
-        ),
-    )
-    run(repository, "git", "add", ".")
-    run(repository, "git", "commit", "-m", "Check release tree")
-    run(repository, "git", "push", "origin", "main")
-    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
-    run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "validate-release-patch",
-        version="0.2.0",
-        VALIDATE_REHEARSAL="1",
-    )
-    assert result.returncode != 0
-    assert "prek failed" in result.stderr
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        pytest.param("prek.toml", id="root-prek-toml"),
-        pytest.param("sub/.pre-commit-config.yaml", id="nested-yaml"),
-    ],
-)
-def test_validate_rejects_other_hook_configuration(
-    repository: Path, tmp_path: Path, action_scripts: Path, path: str
-) -> None:
-    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
-    run(repository, "git", "reset", "--hard", "HEAD")
-    (repository / path).parent.mkdir(parents=True, exist_ok=True)
-    (repository / path).write_text("repos: []\n")
-    run(repository, "git", "add", path)
-    run(repository, "git", "commit", "-m", "Add another hook configuration")
-    run(repository, "git", "push", "origin", "main")
-
-    result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
-
-    assert result.returncode != 0
-    assert f"only in the root .pre-commit-config.yaml: {path}" in result.stderr

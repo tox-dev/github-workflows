@@ -3,77 +3,9 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
-import pytest
 import yaml
-
-
-@pytest.mark.parametrize(
-    ("version", "prefix", "accepted"),
-    [
-        pytest.param("1.2.3", "", True, id="calculated-version"),
-        pytest.param("v1.2.3", "v", True, id="prefixed-version"),
-        pytest.param("9.9.9", "", False, id="forged-version"),
-    ],
-)
-def test_prepare_validation_calculates_version_independently(
-    tmp_path: Path, version: str, prefix: str, accepted: bool
-) -> None:
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text()
-    )
-    steps = workflow["jobs"]["validate"]["steps"]
-    verify = next(step for step in steps if step.get("name") == "Verify selected release version")
-    command = tmp_path / "bin/release-creator"
-    command.parent.mkdir()
-    expected_arguments = ["tags", "--next", "auto", "--directory", "changelog.d"]
-    if prefix:
-        expected_arguments.extend(["--prefix", prefix])
-    command.write_text(
-        f"#!{sys.executable}\nimport sys\nassert sys.argv[1:] == {expected_arguments!r}\n"
-        f"assert sys.stdin.read() == {f'{prefix}1.2.2' + chr(10)!r}\nprint({f'{prefix}1.2.3'!r})\n"
-    )
-    command.chmod(0o755)
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.org",
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            "x",
-        ],
-        cwd=tmp_path,
-        check=True,
-    )
-    subprocess.run(["git", "tag", f"{prefix}1.2.2"], cwd=tmp_path, check=True)
-
-    result = subprocess.run(
-        ["bash", "-e", "-o", "pipefail", "-c", verify["run"]],
-        cwd=tmp_path,
-        env={
-            **os.environ,
-            "PATH": f"{command.parent}{os.pathsep}{os.environ['PATH']}",
-            "BUMP": "auto",
-            "TAG_PREFIX": prefix,
-            "FRAGMENTS": "changelog.d",
-            "VERSION": version,
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert (result.returncode == 0) is accepted
-    if not accepted:
-        assert "assembled release version differs from 1.2.3" in result.stderr
 
 
 def test_release_writer_has_only_notes_and_reconciler() -> None:

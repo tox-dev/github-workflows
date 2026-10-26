@@ -14,7 +14,6 @@ lock-reader = [ "certifi>=2026.7.22", "packaging>=26.3" ]
 release-notes = [ "release-creator>=2.0.0" ]
 release-news = [ "release-creator>=2.0.0", "towncrier>=26.9" ]
 release-prepare = [ "release-creator>=2.0.0", "towncrier>=26.9", "prek>=0.2" ]
-release-validate = [ "release-creator>=2.0.0", "prek>=0.2" ]
 release-check = [ "prek>=0.2" ]
 release-shell = [ "prek>=0.2", "yq>=4.4.5" ]
 test = [

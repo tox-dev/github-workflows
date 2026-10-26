@@ -74,30 +74,6 @@ def test_commit_and_tag_rejects_invalid_tag(repository: Path, tmp_path: Path, ac
     assert run(repository, "git", "ls-remote", "origin", "refs/heads/main").stdout == original_remote
 
 
-def test_commit_and_tag_rejects_empty_patch(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    result = action(repository, tmp_path, action_scripts, "commit-and-tag", version="0.2.0")
-    assert result.returncode != 0
-    assert "expected only a staged release patch" in result.stderr
-
-
-def test_commit_and_tag_rejects_unstaged_changes(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / "CHANGELOG.md").write_text("Staged release.\n")
-    run(repository, "git", "add", "CHANGELOG.md")
-    (repository / "CHANGELOG.md").write_text("Unstaged changes.\n")
-    result = action(repository, tmp_path, action_scripts, "commit-and-tag", version="0.2.0")
-    assert result.returncode != 0
-    assert "expected only a staged release patch" in result.stderr
-
-
-def test_commit_and_tag_rejects_untracked_file(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / "CHANGELOG.md").write_text("Staged release.\n")
-    run(repository, "git", "add", "CHANGELOG.md")
-    (repository / "untracked").write_text("unexpected\n")
-    result = action(repository, tmp_path, action_scripts, "commit-and-tag", version="0.2.0")
-    assert result.returncode != 0
-    assert "expected only a staged release patch" in result.stderr
-
-
 def test_commit_and_tag_rejects_invalid_annotated(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / "CHANGELOG.md").write_text("Staged release.\n")
     run(repository, "git", "add", "CHANGELOG.md")
