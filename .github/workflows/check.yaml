@@ -87,9 +87,7 @@ jobs:
             done <"$RUNNER_TEMP/run-blocks"
           done
           scripts=("$script_dir"/*.sh)
-          # shellcheck source=tools/plural.sh
-          source tools/plural.sh
-          echo "Checking $(plural "${#scripts[@]}" "run block") from the workflows and Actions with shellcheck and shfmt"
+          echo "Checking ${#scripts[@]} run blocks from the workflows and Actions with shellcheck and shfmt"
           tools/cooled_prek.sh run shellcheck --files "$script_dir"/*.sh
           tools/cooled_prek.sh run shfmt --files "$script_dir"/*.sh
   test:
