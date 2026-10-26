@@ -15,8 +15,7 @@ group exports an empty constraints file.
 
 The Action only checks that the selected groups exist in the lock; installs are hash-checked. Lock integrity comes from
 Nab: `refresh-release-lock` in `check` mode regenerates the lock and fails if it differs. It runs on pull requests
-through `validate-news`, on tags in the parallel lock job, and in a keyless job of the prepare workflow before the
-release patch is assembled. The cutoff and any per-package exception live in the caller's `[tool.nab]` table.
+through `validate-news`. The cutoff and any per-package exception live in the caller's `[tool.nab]` table.
 
 Select the groups each job needs. The shared workflows use `release-prepare` and `release-validate`. A full lock records
 each group and extra, but a new combination still needs an install check before a caller uses it.
@@ -181,26 +180,10 @@ passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek
 configurations, which no guard checks. `prepare-towncrier` and `validate-release-patch` therefore reject a `prek.toml`
 anywhere, a `.pre-commit-config.yml`, and a `.pre-commit-config.yaml` below the root before they run `prek`.
 
-The shared prepare and tagged validator run `refresh-release-lock` in `check` mode before release checks or publishing.
 `check-tagged-source` bundles the tagged checks for a custom tag publisher: on a tag ref it requires the tag to name
-both `GITHUB_SHA` and the checkout, on `main`, and checks the locks. Any other event, such as a `workflow_dispatch` from
-`main`, must check out the commit that the `tag` input of the `workflow_dispatch` event (`github.event.inputs.tag`)
-names, on `main`. It runs no hooks. It takes the secondary lock inputs below and needs a full-history checkout. For a
-secondary Nab lock, pass its path, selected groups, selection type, and matrix inputs to both workflows. A stale primary
-or secondary lock stops the release before artifacts are built.
-
-For example, a tagged source job that also publishes from a PGO lock checks both files before installing build tools:
-
-```yaml
-  - uses: tox-dev/github-workflows/refresh-release-lock@SHA
-    with:
-      mode: check
-      additional-lock: pylock.pgo.toml
-      additional-lock-groups: pgo
-      additional-matrix-python: '>=3.11,<3.16'
-      additional-matrix-platforms: linux_x86_64 linux_aarch64
-      additional-matrix-implementations: cpython pypy
-```
+both `GITHUB_SHA` and the checkout, on `main`. Any other event, such as a `workflow_dispatch` from `main`, must check
+out the commit that the `tag` input of the `workflow_dispatch` event (`github.event.inputs.tag`) names, on `main`. It
+runs no hooks and needs a full-history checkout.
 
 ## Start with a caller
 
@@ -237,17 +220,15 @@ The tag starts the caller's publisher. Keep PyPI trusted publishing in that top-
 [PyPI disallows reusable workflows](https://docs.pypi.org/trusted-publishers/troubleshooting/). Repositories with the
 standard `uv` wheel and sdist build can call `validate-python-release.yaml` in the tag publisher. The
 [self-release workflow](.github/workflows/release.yaml) shows the GitHub Release path; callers keep their ecosystem
-uploads. The read-only build workflow checks the tag and the lock. The tag caller renders the Release body and has the
-only Contents write job that creates the GitHub Release.
+uploads. The tag caller renders the Release body and has the only Contents write job that creates the GitHub Release.
 
 ## Validate a Python release
 
-`validate-python-release.yaml` runs two jobs in parallel. The keyless `lock` job runs `refresh-release-lock` in `check`
-mode. The `build` job checks the tag inline: `GITHUB_REF` is `refs/tags/<tag>`, `git check-ref-format` accepts the tag,
-the tag resolves to `GITHUB_SHA`, which is the checked-out commit, and that commit is an ancestor of `origin/main`. The
-same job then exports hashed build constraints from the caller lock, builds the wheel and sdist, requires exactly one of
-each at the tag's version, and uploads them. The workflow does not inspect the built files further; check package
-metadata and wheel contents in the package's own `tox -e pkg_meta` run.
+`validate-python-release.yaml` runs one `build` job. It checks the tag inline: `GITHUB_REF` is `refs/tags/<tag>`,
+`git check-ref-format` accepts the tag, the tag resolves to `GITHUB_SHA`, which is the checked-out commit, and that
+commit is an ancestor of `origin/main`. The same job then exports hashed build constraints from the caller lock, builds
+the wheel and sdist, requires exactly one of each at the tag's version, and uploads them. The workflow does not inspect
+the built files further; check package metadata and wheel contents in the package's own `tox -e pkg_meta` run.
 
 ```yaml
 build:
@@ -259,11 +240,10 @@ build:
 
 The caller needs a `build` group for backend constraints. `source` defaults to `.`. Use `artifact-prefix` when one tag
 produces more than one distribution path; each call then writes a distinct `python-package-distributions` artifact. A
-caller pinned to a workflow commit runs that commit's local Actions. Pass the secondary lock inputs and the cutoff
-inputs as for `refresh-release-lock`.
+caller pinned to a workflow commit runs that commit's local Actions. Pass the cutoff inputs as for
+`refresh-release-lock`.
 
-Publish only after the reusable workflow succeeds, so the lock check gates publishing too. Download the distribution
-with pinned `download-artifact`
+Publish only after the reusable workflow succeeds. Download the distribution with pinned `download-artifact`
 [v8.0.2](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml#L37-L45),
 using `artifact-ids: ${{ needs.build.outputs.distributions-artifact-id }}`. The download checks the artifact digest and
 selects the wheel and sdist from that build run. This reusable workflow does not render notes. Render them in a
@@ -351,16 +331,14 @@ build package versions; otherwise the Action fails instead of writing an ambiguo
 
 ## Prepare and tag with one reusable workflow
 
-`prepare-towncrier-release.yaml` runs four jobs. The keyless `lock` job runs `refresh-release-lock` in `check` mode.
-`assemble` then selects a tag and uploads a Towncrier patch without the App key. `validate` calculates the next tag
-again from the checked-out source, then applies the uploaded artifact and runs `prek`. `push` downloads that artifact by
-ID, checks its paths and file modes, reads the caller's `release-auth` environment, and uses a repository-scoped App
-token to push the release commit and tag together. Only a dispatch from `main` can reach the writer.
+`prepare-towncrier-release.yaml` runs three jobs. `assemble` selects a tag and uploads a Towncrier patch without the App
+key. `validate` calculates the next tag again from the checked-out source, then applies the uploaded artifact and runs
+`prek`. `push` downloads that artifact by ID, checks its paths and file modes, reads the caller's `release-auth`
+environment, and uses a repository-scoped App token to push the release commit and tag together.
 
 ```yaml
 jobs:
   prepare:
-    if: github.ref == 'refs/heads/main'
     uses: >-
       tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
     permissions:

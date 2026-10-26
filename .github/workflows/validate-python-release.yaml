@@ -14,34 +14,6 @@ on:
         description: Prefix for distribution artifacts in a multi-package release
         default: ""
         type: string
-      additional-lock:
-        description: Secondary Nab lock to check against the tagged project
-        default: ""
-        type: string
-      additional-lock-groups:
-        description: Groups selected by the secondary lock
-        default: ""
-        type: string
-      additional-lock-selection:
-        description: Project or build-or-groups selection for the secondary lock
-        default: build-or-groups
-        type: string
-      additional-matrix-python:
-        description: Python range for the secondary lock
-        default: ""
-        type: string
-      additional-matrix-platforms:
-        description: Space-separated Nab platform IDs for the secondary lock
-        default: ""
-        type: string
-      additional-matrix-implementations:
-        description: Space-separated implementations for the secondary lock
-        default: ""
-        type: string
-      nab-git-commit:
-        description: Temporary full commit SHA of notatallshaw/nab to install instead of the Nab release
-        default: ""
-        type: string
       exclude-newer:
         description: Upload cutoff for the tools the shared Actions install from PyPI
         default: 7 days
@@ -53,32 +25,6 @@ on:
 permissions:
   contents: read
 jobs:
-  lock:
-    runs-on: ubuntu-26.04
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: latest-known
-          python-version: "3.15"
-          enable-cache: false
-      - uses: $/refresh-release-lock
-        with:
-          mode: check
-          additional-lock: ${{ inputs.additional-lock }}
-          additional-lock-groups: ${{ inputs.additional-lock-groups }}
-          additional-lock-selection: ${{ inputs.additional-lock-selection }}
-          additional-matrix-python: ${{ inputs.additional-matrix-python }}
-          additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
-          additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
-          nab-git-commit: ${{ inputs.nab-git-commit }}
-          exclude-newer: ${{ inputs.exclude-newer }}
-          exclude-newer-package: ${{ inputs.exclude-newer-package }}
   build:
     runs-on: ubuntu-26.04
     outputs:

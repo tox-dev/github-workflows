@@ -47,17 +47,8 @@ def build_constraints(build_repository: Path, tmp_path: Path) -> Path:
     return path
 
 
-def test_lock_check_runs_keyless_beside_the_build(release_workflow: dict[str, Any]) -> None:
-    lock = release_workflow["jobs"]["lock"]
-    check = next(step for step in lock["steps"] if step.get("uses") == "$/refresh-release-lock")
-
-    assert lock["permissions"] == {"contents": "read"}
-    assert check["with"]["mode"] == "check"
-    assert "needs" not in release_workflow["jobs"]["build"]
-
-
 def test_release_workflow_leaves_distribution_checks_to_the_package(release_workflow: dict[str, Any]) -> None:
-    assert set(release_workflow["jobs"]) == {"lock", "build"}
+    assert set(release_workflow["jobs"]) == {"build"}
 
 
 def test_build_exports_constraints_after_checking_the_tag(release_workflow: dict[str, Any]) -> None:

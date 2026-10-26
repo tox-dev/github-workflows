@@ -1,33 +1,5 @@
 name: Check tagged source
-description: Check the tag and the project lock of a tagged checkout
-inputs:
-  additional-lock:
-    description: Secondary Nab lock to check against the tagged project
-    default: ""
-  additional-lock-groups:
-    description: Groups selected by the secondary lock
-    default: ""
-  additional-lock-selection:
-    description: Project or build-or-groups selection for the secondary lock
-    default: build-or-groups
-  additional-matrix-python:
-    description: Python range for the secondary lock
-    default: ""
-  additional-matrix-platforms:
-    description: Space-separated Nab platform IDs for the secondary lock
-    default: ""
-  additional-matrix-implementations:
-    description: Space-separated implementations for the secondary lock
-    default: ""
-  nab-git-commit:
-    description: Temporary full commit SHA of notatallshaw/nab to install instead of the Nab release
-    default: ""
-  exclude-newer:
-    description: Upload cutoff for the tools this Action installs from PyPI
-    default: 7 days
-  exclude-newer-package:
-    description: Newline-separated name=date cutoffs that override exclude-newer for single packages
-    default: ""
+description: Check the tag of a tagged checkout
 runs:
   using: composite
   steps:
@@ -47,15 +19,3 @@ runs:
           test "$commit" = "$(git rev-parse HEAD)"
         fi
         git merge-base --is-ancestor HEAD origin/main
-    - uses: $/refresh-release-lock
-      with:
-        mode: check
-        additional-lock: ${{ inputs.additional-lock }}
-        additional-lock-groups: ${{ inputs.additional-lock-groups }}
-        additional-lock-selection: ${{ inputs.additional-lock-selection }}
-        additional-matrix-python: ${{ inputs.additional-matrix-python }}
-        additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
-        additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
-        nab-git-commit: ${{ inputs.nab-git-commit }}
-        exclude-newer: ${{ inputs.exclude-newer }}
-        exclude-newer-package: ${{ inputs.exclude-newer-package }}
