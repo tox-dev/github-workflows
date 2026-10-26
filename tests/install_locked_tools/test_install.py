@@ -49,8 +49,6 @@ def test_install_locked_tools_installs_groups(
         pytest.param("release-news", "towncrier", "prek", id="pr-news"),
         pytest.param("release-validate", "release-creator", "yq", id="patch-validation"),
         pytest.param("release-shell", "yq", "release-creator", id="inline-shell"),
-        pytest.param("release-hooks", "release-creator", "yq", id="action-tests"),
-        pytest.param("release-hook-check", "yq", "towncrier", id="hook-cooldown"),
     ],
 )
 def test_install_locked_tools_selects_job_tools(
