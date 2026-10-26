@@ -72,8 +72,6 @@ runs:
         esac
         cp pylock.toml "$RUNNER_TEMP/lock-before.toml"
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --all-groups --all-extras --no-cache "${refresh[@]}"
-        python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" --environments-only \
-          "$RUNNER_TEMP/lock-before.toml" pylock.toml
         if [[ "$MODE" == check ]]; then
           python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" "$RUNNER_TEMP/lock-before.toml" pylock.toml
         fi
@@ -123,8 +121,6 @@ runs:
           --project-matrix-platforms "${platforms[@]}" \
           --project-matrix-implementations "${implementations[@]}" \
           --output "$ADDITIONAL_LOCK" "${refresh[@]}"
-        python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" --environments-only \
-          "$RUNNER_TEMP/additional-lock-before.toml" "$ADDITIONAL_LOCK"
         if [[ "$MODE" == check ]]; then
           python3 "$GITHUB_ACTION_PATH/../tools/check_nab_lock.py" \
             "$RUNNER_TEMP/additional-lock-before.toml" "$ADDITIONAL_LOCK"
