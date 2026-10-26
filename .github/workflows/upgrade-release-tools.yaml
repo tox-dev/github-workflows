@@ -39,10 +39,6 @@ on:
         type: string
         default: |-
           Refresh the project lock.
-      nab-git-commit:
-        description: Temporary full commit SHA of notatallshaw/nab to install instead of the Nab release
-        type: string
-        default: ""
       exclude-newer:
         description: Upload cutoff for the tools the shared Actions install from PyPI
         type: string
@@ -83,7 +79,6 @@ jobs:
           additional-matrix-python: ${{ inputs.additional-matrix-python }}
           additional-matrix-platforms: ${{ inputs.additional-matrix-platforms }}
           additional-matrix-implementations: ${{ inputs.additional-matrix-implementations }}
-          nab-git-commit: ${{ inputs.nab-git-commit }}
           exclude-newer: ${{ inputs.exclude-newer }}
           exclude-newer-package: ${{ inputs.exclude-newer-package }}
       - id: upload
