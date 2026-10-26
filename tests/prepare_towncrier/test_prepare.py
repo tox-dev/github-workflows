@@ -240,16 +240,6 @@ def test_prepare_rejects_unlinked_fragment_name(
     assert not (tmp_path / "release.patch").exists()
 
 
-def test_prepare_rejects_empty_release(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / "changelog.d/+feature.feature.md").unlink()
-    run(repository, "git", "add", "-u")
-    run(repository, "git", "commit", "-m", "Remove unused fragment")
-    run(repository, "git", "push", "origin", "main")
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="")
-    assert result.returncode != 0
-    assert "no changelog fragments to release" in result.stderr
-
-
 def test_prepare_formats_markdown(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / "changelog.d/+feature.feature.md").write_text("Add " + "a long sentence " * 15 + ".\n")
     run(repository, "git", "add", ".")

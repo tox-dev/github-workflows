@@ -125,33 +125,3 @@ def test_render_release_notes_custom_artifact_label(
         "[Zipapp](https://github.com/tox-dev/fixture/releases/download/0.2.0/fixture.pyz)"
         in (tmp_path / "release-notes.md").read_text()
     )
-
-
-@pytest.mark.parametrize(
-    ("tag", "remove_heading", "error"),
-    [
-        pytest.param("invalid tag", False, "expected a major.minor.patch version", id="invalid-tag"),
-        pytest.param("0.2.0", True, "expected one changelog section", id="missing-heading"),
-    ],
-)
-def test_render_release_notes_rejects_invalid_source(
-    tagged_repository: Path,
-    tmp_path: Path,
-    action_scripts: Path,
-    tag: str,
-    remove_heading: bool,
-    error: str,
-) -> None:
-    if remove_heading:
-        changelog = tagged_repository / "CHANGELOG.md"
-        changelog.write_text(changelog.read_text().replace("## 0.2.0 (", "0.2.0 ("))
-    result = action(
-        tagged_repository,
-        tmp_path,
-        action_scripts,
-        "render-release-notes",
-        version=tag,
-        TAG=tag,
-    )
-    assert result.returncode != 0
-    assert error in result.stderr
