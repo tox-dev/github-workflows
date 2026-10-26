@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
+from pytest_httpserver import HTTPServer
 
 _SCRIPT: Final = Path(__file__).resolve().parents[2] / "tools/install_live_tools.sh"
 
@@ -95,3 +96,63 @@ def test_install_live_tools_requires_a_cutoff(tmp_path: Path, fake_uv: Path) -> 
 
     assert result.returncode != 0
     assert "EXCLUDE_NEWER: unbound variable" in result.stderr
+
+
+def test_install_live_tools_ignores_inherited_uv_settings(tmp_path: Path, fake_uv: Path) -> None:
+    leaked = dict.fromkeys(
+        (
+            "UV_CONFIG_FILE",
+            "UV_INDEX",
+            "UV_INDEX_URL",
+            "UV_DEFAULT_INDEX",
+            "UV_EXTRA_INDEX_URL",
+            "UV_FIND_LINKS",
+            "UV_INSECURE_HOST",
+            "UV_SYSTEM_CERTS",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+        ),
+        "leak",
+    )
+
+    venv, install = _install(tmp_path, fake_uv, EXCLUDE_NEWER="7 days", **leaked)
+
+    assert [venv["env"].get("UV_NO_CONFIG"), install["env"].get("UV_NO_CONFIG")] == ["1", "1"]
+    assert not leaked.keys() & (venv["env"].keys() | install["env"].keys())
+
+
+@pytest.mark.parametrize(
+    ("files", "variables"),
+    [
+        pytest.param({"pyproject.toml": '[tool.uv]\nindex-url = "{index}"\n'}, {}, id="pyproject"),
+        pytest.param({"uv.toml": 'index-url = "{index}"\n'}, {}, id="uv-toml"),
+        pytest.param({}, {"UV_INDEX_URL": "{index}"}, id="environment"),
+    ],
+)
+def test_install_live_tools_ignores_caller_index(
+    tmp_path: Path, httpserver: HTTPServer, files: dict[str, str], variables: dict[str, str]
+) -> None:
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    index = httpserver.url_for("/simple")
+    for name, template in files.items():
+        (caller / name).write_text(template.format(index=index))
+
+    subprocess.run(
+        [str(_SCRIPT), str(tmp_path / "tools"), "nab>=0.0.22"],
+        cwd=caller,
+        env=os.environ
+        | {
+            "EXCLUDE_NEWER": "7 days",
+            # PyPI is unreachable through this proxy, so the install fails fast unless it uses the caller's index.
+            "HTTPS_PROXY": "http://127.0.0.1:9",
+            "NO_PROXY": "localhost,127.0.0.1",
+            "UV_CACHE_DIR": str(tmp_path / "cache"),
+            "UV_HTTP_RETRIES": "0",
+        }
+        | {name: template.format(index=index) for name, template in variables.items()},
+        capture_output=True,
+        check=False,
+    )
+
+    assert httpserver.log == []
