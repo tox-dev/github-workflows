@@ -374,8 +374,8 @@ def test_validate_news_checks_towncrier_config_only_when_touched(
     repository: Path, tmp_path: Path, action_scripts: Path, touched: str, accepted: bool
 ) -> None:
     project = repository / "pyproject.toml"
-    project.write_text(project.read_text().replace('filename = "CHANGELOG.md"', 'filename = "CHANGELOG.txt"'))
-    run(repository, "git", "commit", "-am", "Use an unsupported changelog")
+    project.write_text(project.read_text().replace('directory = "changelog.d"\n', 'package = "fixture"\n'))
+    run(repository, "git", "commit", "-am", "Drop the fragment directory")
     run(repository, "git", "push", "origin", "main")
     run(repository, "git", "checkout", "-b", "change-news-input")
     target = repository / touched
@@ -396,4 +396,4 @@ def test_validate_news_checks_towncrier_config_only_when_touched(
     )
 
     assert (result.returncode == 0) is accepted, result.stderr
-    assert ("Markdown or reStructuredText changelog" in result.stderr) is not accepted
+    assert ("set an explicit Towncrier fragment directory" in result.stderr) is not accepted

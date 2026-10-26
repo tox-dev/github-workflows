@@ -227,19 +227,6 @@ def test_prepare_resolves_numeric_fragment_from_commit(
     assert "[#3](https://github.com/tox-dev/github-workflows/pull/3)" in (repository / "CHANGELOG.md").read_text()
 
 
-@pytest.mark.parametrize("version", [pytest.param("", id="automatic"), pytest.param("0.2.0", id="explicit")])
-def test_prepare_rejects_unlinked_fragment_name(
-    repository: Path, tmp_path: Path, action_scripts: Path, version: str
-) -> None:
-    run(repository, "git", "mv", "changelog.d/+feature.feature.md", "changelog.d/feature.feature.md")
-    run(repository, "git", "commit", "-m", "Use a bare fragment name")
-    run(repository, "git", "push", "origin", "main")
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version=version)
-    assert result.returncode != 0
-    assert "unsupported changelog fragment name" in result.stderr
-    assert not (tmp_path / "release.patch").exists()
-
-
 def test_prepare_formats_markdown(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     (repository / "changelog.d/+feature.feature.md").write_text("Add " + "a long sentence " * 15 + ".\n")
     run(repository, "git", "add", ".")
