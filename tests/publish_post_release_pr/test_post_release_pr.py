@@ -294,12 +294,20 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
 
 
 @pytest.mark.parametrize(
-    "changed_input",
+    ("changed_input", "error"),
     [
-        pytest.param("commit", id="stale-bundle"),
-        pytest.param("blob", id="changed-path-manifest"),
-        pytest.param("extra", id="extra-path"),
-        pytest.param("unauthorized", id="unauthorized-path"),
+        pytest.param("commit", f"expected candidate commit {'d' * 40}", id="stale-bundle"),
+        pytest.param("blob", f"the manifest expects {'c' * 40}", id="changed-path-manifest"),
+        pytest.param(
+            "extra",
+            "candidate commit changes gradle.properties other.txt, the manifest lists gradle.properties",
+            id="extra-path",
+        ),
+        pytest.param(
+            "unauthorized",
+            "prepared path other.txt is not in the writer's allowed-paths: gradle.properties",
+            id="unauthorized-path",
+        ),
     ],
 )
 def test_prepared_candidate_identity_is_checked_before_api_write(
@@ -307,6 +315,7 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
     action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     changed_input: str,
+    error: str,
 ) -> None:
     server, environment = github_api
     bundle, base, commit, blob = candidate(tmp_path, extra_path=changed_input in {"extra", "unauthorized"})
@@ -337,5 +346,39 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
             "RUNNER_TEMP": str(tmp_path),
         },
     )
-    assert result.returncode != 0
-    assert not server.log
+    assert (result.returncode, not server.log, error in result.stderr) == (1, True, True), result.stderr
+
+
+@pytest.mark.parametrize(
+    ("manifest", "error"),
+    [
+        pytest.param(f"../gradle.properties\t{'b' * 40}\n", "is not a plain relative path", id="parent-path"),
+        pytest.param("gradle.properties\tB0\n", "is 'B0', not a lowercase hex SHA", id="uppercase-blob"),
+        pytest.param("gradle.properties\tb0\n", "is 2 characters long instead of 40", id="short-blob"),
+        pytest.param("", "lists no paths", id="empty"),
+        pytest.param(
+            f"gradle.properties\t{'b' * 40}\ngradle.properties\t{'b' * 40}\n",
+            "lists paths more than once: gradle.properties",
+            id="duplicate",
+        ),
+    ],
+)
+def test_path_manifest_failure_names_the_check(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]], manifest: str, error: str
+) -> None:
+    server, environment = github_api
+    paths = tmp_path / "paths.tsv"
+    paths.write_text(manifest)
+    result = run_publish(
+        action_scripts,
+        cwd=tmp_path,
+        env=os.environ
+        | environment
+        | {
+            "GITHUB_REPOSITORY": "tox-dev/fixture",
+            "PATHS_FILE": str(paths),
+            "ALLOWED_PATHS": "gradle.properties",
+            "RUNNER_TEMP": str(tmp_path),
+        },
+    )
+    assert (result.returncode, not server.log, error in result.stderr) == (1, True, True), result.stderr

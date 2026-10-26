@@ -75,7 +75,7 @@ runs:
         if config:
             print(f"Fragment check runs: the Towncrier configuration changed since {base[:12]}")
         elif fragments:
-            print(f"Fragment check runs: {len(changed)} files changed in {directory}")
+            print(f"Fragment check runs: {len(changed)} file{'' if len(changed) == 1 else 's'} changed in {directory}")
         else:
             print(f"Fragment check skipped: nothing changed in {directory} and the Towncrier configuration is unchanged")
         PY
@@ -85,18 +85,22 @@ runs:
       env:
         BASE_REF: ${{ github.base_ref }}
       run: |
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
+        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         release-creator validate-news --base "$BASE_REF" >"$RUNNER_TEMP/news-fragment-count"
-        echo "Changed fragments: $(<"$RUNNER_TEMP/news-fragment-count") valid against origin/$BASE_REF"
+        echo "Changed fragments: $(plural "$(<"$RUNNER_TEMP/news-fragment-count")" fragment) valid against origin/$BASE_REF"
     - name: 🔍 Require news for human changes
       shell: bash
       env:
         SKIP_NEWS: ${{ contains(github.event.pull_request.labels.*.name, 'skip news') }}
         BOT_AUTHOR: ${{ github.event.pull_request.user.type == 'Bot' }}
       run: |
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
+        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         fragments=0
         if [[ -f "$RUNNER_TEMP/news-fragment-count" ]]; then read -r fragments <"$RUNNER_TEMP/news-fragment-count"; fi
         if ((fragments)); then
-          echo "News requirement: met by $fragments fragments"
+          echo "News requirement: met by $(plural "$fragments" fragment)"
         elif [[ "$SKIP_NEWS" == true ]]; then
           echo 'News requirement: waived by the skip news label'
         elif [[ "$BOT_AUTHOR" == true ]]; then

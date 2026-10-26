@@ -28,7 +28,7 @@ def main() -> None:
     with Path(os.environ["GITHUB_PATH"]).open("a", encoding="utf-8") as stream:
         print(overlay, file=stream)
     print(
-        f"Exposed {len(exposed)} commands from {sys.argv[1]} on PATH: {', '.join(sorted(exposed)) or 'none'}",
+        f"Exposed {len(exposed)} command{'' if len(exposed) == 1 else 's'} from {sys.argv[1]} on PATH: {', '.join(sorted(exposed)) or 'none'}",
         file=sys.stderr,
     )
 

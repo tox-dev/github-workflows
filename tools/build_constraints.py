@@ -39,7 +39,7 @@ def main() -> None:
         )
         target = f"{args.targets} on {args.target_platform}" if args.targets else "this runner"
         print(
-            f"Build constraints: {len(selected)} packages from {args.lock} {source} for {target} -> {args.output}",
+            f"Build constraints: {len(selected)} package{'' if len(selected) == 1 else 's'} from {args.lock} {source} for {target} -> {args.output}",
             file=sys.stderr,
         )
     except (
@@ -85,10 +85,11 @@ def _target_environments(platform: str, values: str) -> list[Environment]:
 
 
 def _build_groups(lock: Pylock) -> tuple[set[str] | None, str]:
-    if "build" in (lock.dependency_groups or ()):
+    declared = lock.dependency_groups or ()
+    if "build" in declared:
         return {"build"}, "group build"
-    if lock.dependency_groups:
-        return None, f"(no build group among {', '.join(lock.dependency_groups)})"
+    if declared:
+        return None, f"(no build group among {', '.join(declared)})"
     return set(), "(no dependency groups, every locked package)"
 
 

@@ -42,7 +42,7 @@ runs:
           done
           jq -R -s '[split("\n")[] | select(length > 0) | split("\t") | {name: .[0], digest: .[1]}]' \
             "$RUNNER_TEMP/release-assets.tsv" >"$RUNNER_TEMP/release-assets.json"
-          jq -r --arg directory "$ASSETS_DIRECTORY" '"Release assets: \(length) files from \($directory)\(
+          jq -r --arg directory "$ASSETS_DIRECTORY" '"Release assets: \(length) file\(if length == 1 then "" else "s" end) from \($directory)\(
             if length > 0 then ": " + ([.[].name] | join(", ")) else "" end)"' "$RUNNER_TEMP/release-assets.json"
         else
           echo 'Release assets: none (assets-directory input is empty)'
@@ -118,6 +118,8 @@ runs:
         set -euo pipefail
         # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
         source "$GITHUB_ACTION_PATH/retry.sh"
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
+        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         if [[ "$MODE" == publish ]]; then
           echo 'Asset upload skipped: mode publish only publishes the staged draft'
         elif [[ -z "$ASSETS_DIRECTORY" ]]; then
@@ -187,7 +189,7 @@ runs:
                 uploaded=$((uploaded + 1))
               fi
             done
-            echo "GitHub Release $TAG: uploaded $uploaded assets, $present already present"
+            echo "GitHub Release $TAG: uploaded $(plural "$uploaded" asset), $present already present"
           fi
         fi
     - name: 🔍 Verify the complete asset set
@@ -209,7 +211,7 @@ runs:
           echo '::error::release assets did not match after publication' >&2
           exit 1
         fi
-        jq -r '.[0] | "GitHub Release \(.tag_name): \(.assets | length) uploaded assets match the expected set"' \
+        jq -r '.[0] | "GitHub Release \(.tag_name): \(.assets | length) uploaded asset\(if (.assets | length) == 1 then "" else "s" end) match the expected set"' \
           "$RUNNER_TEMP/release-complete.json"
     - name: 🚀 Publish the draft
       if: steps.inspect.outputs.immutable != 'true'

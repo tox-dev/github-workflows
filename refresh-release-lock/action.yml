@@ -158,7 +158,10 @@ runs:
           echo 'Secondary lock skipped: additional-lock input is empty'
         fi
         if [[ "$MODE" == check ]]; then
-          git diff --exit-code -- "${paths[@]}"
+          if ! git diff --exit-code -- "${paths[@]}"; then
+            echo "::error::regenerated locks differ from the checkout: ${paths[*]}" >&2
+            exit 1
+          fi
           echo "Locks match the checkout: ${paths[*]}"
           echo 'changed=false' >>"$GITHUB_OUTPUT"
         elif git diff --quiet -- "${paths[@]}"; then

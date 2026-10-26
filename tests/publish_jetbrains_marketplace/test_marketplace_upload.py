@@ -15,10 +15,10 @@ from pytest_httpserver import HTTPServer
 
 
 @pytest.mark.parametrize(
-    "changed",
+    ("changed", "error"),
     [
-        pytest.param("digest", id="digest"),
-        pytest.param("duplicate", id="duplicate"),
+        pytest.param("digest", f"the signing job recorded {'0' * 64}", id="digest"),
+        pytest.param("duplicate", "has duplicate entries: Fish Shell/lib/plugin.jar", id="duplicate"),
     ],
 )
 def test_invalid_archive_or_input_fails_before_upload(
@@ -28,6 +28,7 @@ def test_invalid_archive_or_input_fails_before_upload(
     github_api: tuple[HTTPServer, dict[str, str]],
     httpserver: HTTPServer,
     changed: str,
+    error: str,
 ) -> None:
     settings = {
         "ARCHIVE": str(signed_archive),
@@ -51,8 +52,7 @@ def test_invalid_archive_or_input_fails_before_upload(
         PLUGIN_ID=settings["PLUGIN_ID"],
         CHANNEL=settings["CHANNEL"],
     )
-    assert result.returncode != 0
-    assert not httpserver.log
+    assert (result.returncode, not httpserver.log, error in result.stderr) == (1, True, True), result.stderr
 
 
 @pytest.mark.parametrize(
@@ -203,16 +203,17 @@ def test_prior_acceptance_with_matching_artifacts_skips_upload(
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("field", "value", "error"),
     [
-        pytest.param("tag", "v0.1.12", id="tag"),
-        pytest.param("commit", "1" * 40, id="commit"),
-        pytest.param("pluginId", 20536, id="plugin"),
-        pytest.param("channel", "alpha", id="channel"),
-        pytest.param("sha256", "0" * 64, id="signed-digest"),
-        pytest.param("signedArtifactId", 70, id="signed-artifact"),
-        pytest.param("notesArtifactId", 71, id="notes-artifact"),
-        pytest.param("notesSha256", "0" * 64, id="notes-digest"),
+        pytest.param("tag", "v0.1.12", 'tag "v0.1.12" instead of', id="tag"),
+        pytest.param("commit", "1" * 40, f'commit "{"1" * 40}" instead of', id="commit"),
+        pytest.param("pluginId", 20536, "pluginId 20536 instead of 29973", id="plugin"),
+        pytest.param("channel", "alpha", 'channel "alpha" instead of "beta"', id="channel"),
+        pytest.param("sha256", "0" * 64, f'sha256 "{"0" * 64}" instead of', id="signed-digest"),
+        pytest.param("signedArtifactId", 70, "the receipt records 70", id="signed-artifact"),
+        pytest.param("notesArtifactId", 71, "the receipt records 71", id="notes-artifact"),
+        pytest.param("notesSha256", "0" * 64, f'notesSha256 "{"0" * 64}" instead of', id="notes-digest"),
+        pytest.param("sourceRunId", "41", 'sourceRunId "41" is not a number', id="source-run-type"),
     ],
 )
 def test_changed_prior_receipt_blocks_retry(
@@ -223,6 +224,7 @@ def test_changed_prior_receipt_blocks_retry(
     httpserver: HTTPServer,
     field: str,
     value: str | int,
+    error: str,
 ) -> None:
     result = publish_action(
         tmp_path,
@@ -237,11 +239,16 @@ def test_changed_prior_receipt_blocks_retry(
         CHANNEL="beta",
         PUBLISH_TOKEN="fixture-token",
     )
-    assert result.returncode != 0
-    assert not httpserver.log
+    assert (result.returncode, not httpserver.log, error in result.stderr) == (1, True, True), result.stderr
 
 
-@pytest.mark.parametrize("changed", [pytest.param("signed", id="signed-zip"), pytest.param("notes", id="notes")])
+@pytest.mark.parametrize(
+    ("changed", "error"),
+    [
+        pytest.param("signed", "with SHA256", id="signed-zip"),
+        pytest.param("notes", "uploaded different release notes", id="notes"),
+    ],
+)
 def test_changed_prior_artifact_blocks_retry(
     signed_archive: Path,
     tmp_path: Path,
@@ -249,6 +256,7 @@ def test_changed_prior_artifact_blocks_retry(
     github_api: tuple[HTTPServer, dict[str, str]],
     httpserver: HTTPServer,
     changed: str,
+    error: str,
 ) -> None:
     result = publish_action(
         tmp_path,
@@ -264,8 +272,7 @@ def test_changed_prior_artifact_blocks_retry(
         CHANNEL="beta",
         PUBLISH_TOKEN="fixture-token",
     )
-    assert result.returncode != 0
-    assert not httpserver.log
+    assert (result.returncode, not httpserver.log, error in result.stderr) == (1, True, True), result.stderr
 
 
 def test_reconciled_attempt_allows_another_retry(
@@ -313,8 +320,8 @@ def test_receipt_from_unlisted_run_blocks_retry(
         CHANNEL="beta",
         PUBLISH_TOKEN="fixture-token",
     )
-    assert result.returncode != 0
-    assert not httpserver.log
+    expected = "earlier Marketplace receipt names run 30, which has no started upload for v0.1.11"
+    assert (result.returncode, not httpserver.log, expected in result.stderr) == (1, True, True), result.stderr
 
 
 def test_fork_run_on_tag_named_branch_allows_upload(

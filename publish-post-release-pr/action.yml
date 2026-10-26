@@ -35,6 +35,8 @@ runs:
         ALLOWED_PATHS: ${{ inputs.allowed-paths }}
       run: |
         set -euo pipefail
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
+        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         trusted_paths=()
         while IFS= read -r path || [[ -n "$path" ]]; do
           trusted_paths+=("$path")
@@ -43,19 +45,38 @@ runs:
         paths=()
         while IFS=$'\t' read -r path blob; do
           case "$path" in
-          '' | /* | *[!A-Za-z0-9._/-]* | . | .. | ./* | ../* | */. | */.. | */./* | */../*) exit 1 ;;
+          '' | /* | *[!A-Za-z0-9._/-]* | . | .. | ./* | ../* | */. | */.. | */./* | */../*)
+            echo "::error::prepared path '$path' is not a plain relative path" >&2
+            exit 1
+            ;;
           esac
-          grep -Fqx -- "$path" "$RUNNER_TEMP/allowed-paths"
-          test "${#blob}" -eq 40
+          if ! grep -Fqx -- "$path" "$RUNNER_TEMP/allowed-paths"; then
+            echo "::error::prepared path $path is not in the writer's allowed-paths: ${trusted_paths[*]}" >&2
+            exit 1
+          fi
           case "$blob" in
-          *[!0-9a-f]*) exit 1 ;;
+          *[!0-9a-f]* | '')
+            echo "::error::prepared blob for $path is '$blob', not a lowercase hex SHA" >&2
+            exit 1
+            ;;
           esac
+          if ((${#blob} != 40)); then
+            echo "::error::prepared blob for $path is ${#blob} characters long instead of 40" >&2
+            exit 1
+          fi
           paths+=("$path")
         done <"$PATHS_FILE"
-        test "${#paths[@]}" -gt 0
-        test "$(printf '%s\n' "${paths[@]}" | LC_ALL=C sort -u | wc -l)" -eq "${#paths[@]}"
+        if ((${#paths[@]} == 0)); then
+          echo "::error::prepared path manifest ${PATHS_FILE##*/} lists no paths" >&2
+          exit 1
+        fi
+        duplicates=$(printf '%s\n' "${paths[@]}" | LC_ALL=C sort | uniq -d)
+        if [[ -n "$duplicates" ]]; then
+          echo "::error::prepared path manifest lists paths more than once: ${duplicates//$'\n'/, }" >&2
+          exit 1
+        fi
         printf '%s\n' "${paths[@]}" | LC_ALL=C sort >"$RUNNER_TEMP/expected-paths"
-        echo "Prepared paths: ${#paths[@]} allowed by the writer: ${paths[*]}"
+        echo "Prepared paths: $(plural "${#paths[@]}" path) allowed by the writer: ${paths[*]}"
     - name: 🔍 Verify the prepared commit
       shell: bash
       env:
@@ -73,23 +94,45 @@ runs:
           git -C "$RUNNER_TEMP/post-release.git" bundle verify "$BUNDLE"
           git -C "$RUNNER_TEMP/post-release.git" fetch "$BUNDLE" \
             refs/heads/release-candidate:refs/heads/release-candidate
-          test "$(git -C "$RUNNER_TEMP/post-release.git" rev-parse refs/heads/release-candidate)" = "$CANDIDATE_COMMIT"
+          bundled=$(git -C "$RUNNER_TEMP/post-release.git" rev-parse refs/heads/release-candidate)
+          if [[ "$bundled" != "$CANDIDATE_COMMIT" ]]; then
+            echo "::error::bundle release-candidate is $bundled, expected candidate commit $CANDIDATE_COMMIT" >&2
+            exit 1
+          fi
           read -r commit parent extra < <(
             git -C "$RUNNER_TEMP/post-release.git" rev-list --parents -n 1 "$CANDIDATE_COMMIT"
           )
-          test "$commit" = "$CANDIDATE_COMMIT"
-          test "$parent" = "$BASE_COMMIT"
-          test -z "${extra:-}"
+          if [[ "$commit" != "$CANDIDATE_COMMIT" ]]; then
+            echo "::error::bundle resolves $CANDIDATE_COMMIT to $commit" >&2
+            exit 1
+          fi
+          if [[ "${parent:-}" != "$BASE_COMMIT" || -n "${extra:-}" ]]; then
+            echo "::error::candidate commit $CANDIDATE_COMMIT has parents '${parent:-} ${extra:-}'," \
+              "expected only base commit $BASE_COMMIT" >&2
+            exit 1
+          fi
           git -C "$RUNNER_TEMP/post-release.git" diff --name-only --no-renames "$BASE_COMMIT" "$CANDIDATE_COMMIT" |
             LC_ALL=C sort >"$RUNNER_TEMP/candidate-paths"
-          cmp -s "$RUNNER_TEMP/expected-paths" "$RUNNER_TEMP/candidate-paths"
+          if ! cmp -s "$RUNNER_TEMP/expected-paths" "$RUNNER_TEMP/candidate-paths"; then
+            echo "::error::candidate commit changes $(paste -sd ' ' "$RUNNER_TEMP/candidate-paths")," \
+              "the manifest lists $(paste -sd ' ' "$RUNNER_TEMP/expected-paths")" >&2
+            exit 1
+          fi
           while IFS=$'\t' read -r path blob; do
-            read -r mode object actual _ < <(
+            if ! read -r mode object actual _ < <(
               git -C "$RUNNER_TEMP/post-release.git" ls-tree "$CANDIDATE_COMMIT" -- "$path"
-            )
-            test "$mode" = 100644
-            test "$object" = blob
-            test "$actual" = "$blob"
+            ); then
+              echo "::error::candidate commit $CANDIDATE_COMMIT deletes $path, the manifest expects blob $blob" >&2
+              exit 1
+            fi
+            if [[ "$mode" != 100644 || "$object" != blob ]]; then
+              echo "::error::candidate $path is a $object with mode $mode, expected a 100644 blob" >&2
+              exit 1
+            fi
+            if [[ "$actual" != "$blob" ]]; then
+              echo "::error::candidate $path has blob $actual, the manifest expects $blob" >&2
+              exit 1
+            fi
           done <"$PATHS_FILE"
           echo "Prepared commit $CANDIDATE_COMMIT: one parent $BASE_COMMIT, changes only the prepared paths with the expected blobs"
         fi
@@ -115,7 +158,7 @@ runs:
             (.state == "open" or .merged_at != null)
           )] end
         ' "$RUNNER_TEMP/post-release-all-prs.json" >"$RUNNER_TEMP/post-release-prs.json"
-        jq -r --arg branch "$BRANCH" '"Pull requests from \($branch): \(length) open or merged with the expected title, body and base\(
+        jq -r --arg branch "$BRANCH" '"Branch \($branch): \(length) pull request\(if length == 1 then "" else "s" end) open or merged with the expected title, body and base\(
           if length > 0 then " (#" + (map(.number | tostring) | join(", #")) + ")" else "" end)"' \
           "$RUNNER_TEMP/post-release-prs.json"
     - name: ⚙️ Record an already merged pull request
@@ -138,6 +181,7 @@ runs:
           echo "Branch push skipped: $BRANCH already exists"
         else
           if ! grep -Fq '(HTTP 404)' "$RUNNER_TEMP/branch-error"; then
+            echo "::error::could not check whether branch $BRANCH exists; GitHub replied:" >&2
             cat "$RUNNER_TEMP/branch-error" >&2
             exit 1
           fi

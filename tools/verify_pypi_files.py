@@ -99,19 +99,24 @@ def verify_files(project: str, version: str, dist: Path) -> list[Path]:
             raise ValueError(f"PyPI has different SHA256 digests: {', '.join(sorted(changed))}")
         if not (missing := local.keys() - remote.keys()):
             print(
-                f"PyPI: {len(local)} files match the local SHA256 digests: {', '.join(sorted(local))}", file=sys.stderr
+                f"PyPI: {_files(len(local))} match the local SHA256 digests: {', '.join(sorted(local))}",
+                file=sys.stderr,
             )
             return [dist / filename for filename in sorted(local)]
         if (remaining := deadline - time.monotonic()) <= 0:
             raise ValueError(f"PyPI is missing files: {', '.join(sorted(missing))}")
         wait = min(delay, remaining)
         print(
-            f"PyPI: {len(missing)} of {len(local)} files not listed yet ({', '.join(sorted(missing))}), "
+            f"PyPI: {len(missing)} of {_files(len(local))} not listed yet ({', '.join(sorted(missing))}), "
             f"checking again in {wait:g}s",
             file=sys.stderr,
         )
         time.sleep(wait)
         delay = min(delay * 2, 30)
+
+
+def _files(count: int) -> str:
+    return f"{count} file{'' if count == 1 else 's'}"
 
 
 def _identity(filename: str) -> tuple[str, Version] | None:

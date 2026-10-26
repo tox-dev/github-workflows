@@ -49,6 +49,8 @@ runs:
         PREVIOUS: ${{ steps.previous.outputs.previous }}
       run: |
         set -euo pipefail
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
+        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         args=(--changelog "$CHANGELOG" --tag "$TAG" --repository "$GITHUB_REPOSITORY")
         if [[ -n "$PREVIOUS" ]]; then
           args+=(--previous "$PREVIOUS")
@@ -62,4 +64,4 @@ runs:
         release-creator notes "${args[@]}" >"$RUNNER_TEMP/release-notes.md"
         entries=$(grep -c '^- ' "$RUNNER_TEMP/release-notes.md" || true)
         categories=$(grep -c '^### ' "$RUNNER_TEMP/release-notes.md" || true)
-        echo "Release notes for $TAG: $entries entries in $categories categories from $CHANGELOG -> $RUNNER_TEMP/release-notes.md"
+        echo "Release notes for $TAG: $(plural "$entries" entry entries) in $(plural "$categories" category categories) from $CHANGELOG -> $RUNNER_TEMP/release-notes.md"

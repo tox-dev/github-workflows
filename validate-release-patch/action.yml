@@ -16,6 +16,8 @@ runs:
         FRAGMENTS: ${{ steps.config.outputs.fragments }}
       run: |
         set -euo pipefail
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
+        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         git diff --cached --name-status --no-renames -z >"$RUNNER_TEMP/release-paths"
         removed=0
         while IFS= read -r -d '' status && IFS= read -r -d '' path; do
@@ -33,11 +35,13 @@ runs:
           fi
           removed=$((removed + 1))
         done <"$RUNNER_TEMP/release-paths"
-        echo "Release patch paths: $removed fragments removed from $FRAGMENTS"
+        echo "Release patch paths: $(plural "$removed" fragment) removed from $FRAGMENTS"
     - name: 🔍 Check release patch file modes
       shell: bash
       run: |
         set -euo pipefail
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
+        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/release-modes"
         count=0
         while IFS= read -r -d '' metadata && IFS= read -r -d '' path; do
@@ -70,4 +74,4 @@ runs:
           fi
           count=$((count + 1))
         done <"$RUNNER_TEMP/release-modes"
-        echo "Release patch file modes: $count paths, each a non-executable regular file or a deletion"
+        echo "Release patch file modes: $(plural "$count" path), each a non-executable regular file or a deletion"

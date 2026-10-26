@@ -34,8 +34,16 @@ runs:
         EXPECTED_SHA: ${{ inputs.sha256 }}
       run: |
         set -euo pipefail
-        test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
-        test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
+        read -r actual _ < <(sha256sum "$ARCHIVE")
+        if [[ "$actual" != "$EXPECTED_SHA" ]]; then
+          echo "::error::unsigned ZIP ${ARCHIVE##*/} has SHA256 $actual, the build recorded $EXPECTED_SHA" >&2
+          exit 1
+        fi
+        duplicates=$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)
+        if [[ -n "$duplicates" ]]; then
+          echo "::error::unsigned ZIP ${ARCHIVE##*/} has duplicate entries: ${duplicates//$'\n'/, }" >&2
+          exit 1
+        fi
         echo "Unsigned ZIP ${ARCHIVE##*/}: SHA256 matches the build, no duplicate entries"
         echo "archive=${ARCHIVE%.zip}-signed.zip" >>"$GITHUB_OUTPUT"
     - name: 📦 Download pinned Marketplace signer
@@ -44,14 +52,18 @@ runs:
         SIGNER_BASE_URL: https://repo.maven.apache.org/maven2/org/jetbrains/marketplace-zip-signer/0.1.43
       run: |
         echo "Downloading marketplace-zip-signer 0.1.43 from $SIGNER_BASE_URL"
-        curl --fail --location --proto '=https' --tlsv1.2 \
+        curl --fail --no-progress-meter --location --proto '=https' --tlsv1.2 \
           --output "$RUNNER_TEMP/marketplace-signer-cli.jar" \
           "$SIGNER_BASE_URL/marketplace-zip-signer-0.1.43-cli.jar"
     - name: 🔍 Verify Marketplace signer digest
       shell: bash
       env:
         SIGNER_SHA256: 2958a0f42221d6062b50f22754e413ae5cc42f60c441467202c6700df2e22f44
-      run: echo "$SIGNER_SHA256  $RUNNER_TEMP/marketplace-signer-cli.jar" | sha256sum --check
+      run: |
+        if ! echo "$SIGNER_SHA256  $RUNNER_TEMP/marketplace-signer-cli.jar" | sha256sum --check; then
+          echo "::error::downloaded Marketplace signer does not have the pinned SHA256 $SIGNER_SHA256" >&2
+          exit 1
+        fi
     - name: ✍️ Sign plugin ZIP
       shell: bash
       env:
