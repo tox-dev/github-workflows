@@ -111,11 +111,6 @@ jobs:
           ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
         run: |
           set -euo pipefail
-          if [[ -n "$ADDITIONAL_LOCK" &&
-            ("$ADDITIONAL_LOCK" != pylock.*.toml || "$ADDITIONAL_LOCK" == */*) ]]; then
-            echo "::error::invalid additional lock: $ADDITIONAL_LOCK" >&2
-            exit 1
-          fi
           GIT_INDEX_FILE="$RUNNER_TEMP/lock.index" git read-tree HEAD
           GIT_INDEX_FILE="$RUNNER_TEMP/lock.index" git apply --cached "$RUNNER_TEMP/release-tools-lock/lock.patch"
           GIT_INDEX_FILE="$RUNNER_TEMP/lock.index" \

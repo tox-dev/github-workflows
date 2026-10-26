@@ -10,12 +10,6 @@ inputs:
   constraints-lock:
     description: Lock used to export build constraints; defaults to the selected install lock
     default: ""
-  verify-lock:
-    description: Another lock whose selected packages will be included in a release artifact
-    default: ""
-  verify-groups:
-    description: Whitespace-separated groups to verify in verify-lock
-    default: ""
   target-platform:
     description: Nab platform ID for the exported build constraints
     default: ""
@@ -51,7 +45,6 @@ runs:
       env:
         DEPENDENCY_GROUPS: ${{ inputs.groups }}
         VENV: ${{ inputs.venv }}
-        CONSTRAINTS_LOCK: ${{ inputs.constraints-lock }}
       run: |
         set -euo pipefail
         groups=()
@@ -60,61 +53,20 @@ runs:
           groups+=("${selected[@]}")
         done <<<"$DEPENDENCY_GROUPS"
         if ((${#groups[@]})); then
-          [[ -n "$VENV" ]] || {
-            echo '::error::venv is required when installing groups' >&2
-            exit 1
-          }
           uv venv --allow-existing --python 3.15 "$VENV"
-          selection=("${groups[@]}")
           printf '%s\n' "${groups[@]}" >"$RUNNER_TEMP/selected-lock-groups"
-        else
-          selection=(--build-constraints)
         fi
-        # An export from a named constraints lock checks that lock instead of the primary one.
-        checked=false
-        if ((${#groups[@]})) || [[ -z "$CONSTRAINTS_LOCK" ]]; then
-          uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
-            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" pylock.toml "${selection[@]}"
-          checked=true
-        fi
-        printf 'lock=pylock.toml\nchecked=%s\n' "$checked" >>"$GITHUB_OUTPUT"
-    - name: Verify additional release lock
-      if: inputs.verify-lock != '' || inputs.verify-groups != ''
-      shell: bash
-      env:
-        VERIFY_LOCK: ${{ inputs.verify-lock }}
-        VERIFY_GROUPS: ${{ inputs.verify-groups }}
-      run: |
-        set -euo pipefail
-        groups=()
-        while IFS= read -r line; do
-          read -ra selected <<<"$line"
-          groups+=("${selected[@]}")
-        done <<<"$VERIFY_GROUPS"
-        if [[ -z "$VERIFY_LOCK" || ${#groups[@]} -eq 0 ]]; then
-          echo '::error::verify-lock and verify-groups must be set together' >&2
-          exit 1
-        fi
-        uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
-          "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$VERIFY_LOCK" "${groups[@]}"
+        printf 'lock=pylock.toml\n' >>"$GITHUB_OUTPUT"
     - id: constraints
       name: Export locked build requirements
       shell: bash
       env:
         BUILD_LOCK: ${{ steps.selection.outputs.lock }}
-        CHECKED: ${{ steps.selection.outputs.checked }}
         CONSTRAINTS_LOCK: ${{ inputs.constraints-lock }}
-        VERIFY_LOCK: ${{ inputs.verify-lock }}
         TARGET_PLATFORM: ${{ inputs.target-platform }}
         TARGETS: ${{ inputs.targets }}
       run: |
         set -euo pipefail
-        # A verified lock already had its groups checked.
-        if [[ -n "$CONSTRAINTS_LOCK" && "$CONSTRAINTS_LOCK" != "$VERIFY_LOCK" &&
-          ("$CHECKED" != true || "$CONSTRAINTS_LOCK" != "$BUILD_LOCK") ]]; then
-          uv run --no-project --python "$RUNNER_TEMP/lock-reader" python \
-            "$GITHUB_ACTION_PATH/../tools/check_lock_groups.py" "$CONSTRAINTS_LOCK" --build-constraints
-        fi
         if [[ -n "$CONSTRAINTS_LOCK" ]]; then BUILD_LOCK=$CONSTRAINTS_LOCK; fi
         args=()
         if [[ -n "$TARGET_PLATFORM" || -n "$TARGETS" ]]; then

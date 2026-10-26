@@ -47,20 +47,6 @@ def lock_project(tmp_path: Path) -> Path:
     return project
 
 
-def test_refresh_rejects_secondary_options_without_lock(tmp_path: Path, action_scripts: Path) -> None:
-    result = action(
-        tmp_path,
-        tmp_path,
-        action_scripts,
-        "refresh-release-lock",
-        version="",
-        ADDITIONAL_LOCK_GROUPS="build",
-    )
-
-    assert result.returncode != 0
-    assert "secondary matrix inputs require additional-lock" in result.stderr
-
-
 @pytest.mark.parametrize(("mode", "upgrade"), [("check", []), ("refresh", ["--upgrade"])])
 def test_refresh_locks_every_group_and_extra_with_nab(
     tmp_path: Path, action_scripts: Path, fake_uv: Path, mode: str, upgrade: list[str]
@@ -110,13 +96,6 @@ def test_refresh_hides_certificate_overrides_from_nab(
 
     assert result.returncode == 0, result.stderr
     assert not {"SSL_CERT_FILE", "SSL_CERT_DIR"} & _uv_call(tmp_path)["env"].keys()
-
-
-def test_refresh_rejects_unknown_mode(tmp_path: Path, action_scripts: Path, fake_uv: Path) -> None:
-    result = _run_step(action_scripts, "Resolve all project groups and extras", tmp_path, fake_uv, MODE="other")
-
-    assert result.returncode != 0
-    assert "invalid lock mode: other" in result.stderr
 
 
 def test_refresh_check_accepts_current_lock(

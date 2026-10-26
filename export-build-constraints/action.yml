@@ -8,10 +8,7 @@ inputs:
     description: Nab platform ID such as linux_aarch64; required with targets
     default: ""
   targets:
-    description: Space-separated pairs such as 3.15.0:cpython; selected package versions must match
-    default: ""
-  verify-groups:
-    description: Additional lock groups whose packages enter the release build
+    description: Space-separated pairs such as 3.15.0:cpython
     default: ""
   exclude-newer:
     description: Upload cutoff for the tools this Action installs from PyPI
@@ -30,8 +27,6 @@ runs:
       uses: $/install-locked-tools
       with:
         constraints-lock: ${{ inputs.lock }}
-        verify-lock: ${{ inputs.verify-groups != '' && inputs.lock || '' }}
-        verify-groups: ${{ inputs.verify-groups }}
         target-platform: ${{ inputs.target-platform }}
         targets: ${{ inputs.targets }}
         exclude-newer: ${{ inputs.exclude-newer }}

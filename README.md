@@ -9,13 +9,13 @@ keeps its dispatch form, publisher, GitHub environment, and required check names
 `install-locked-tools` creates a virtual environment and installs selected groups from the caller's `pylock.toml`. The
 caller's full project lock records runtime dependencies, every extra, and every dependency group across supported Python
 versions and platforms. CI resolves test, type, and documentation dependencies fresh; release jobs install only the
-selected release groups. The Action rejects missing groups and leaves tracked files unchanged. Source builds use
-constraints generated from the lock's `build` group under the runner's temporary directory. A lock without a `build`
-group exports an empty constraints file.
+selected release groups. The Action leaves tracked files unchanged. Source builds use constraints generated from the
+lock's `build` group under the runner's temporary directory. A lock without a `build` group exports an empty constraints
+file.
 
-The Action only checks that the selected groups exist in the lock; installs are hash-checked. Lock integrity comes from
-Nab: `refresh-release-lock` in `check` mode regenerates the lock and fails if it differs. It runs on pull requests
-through `validate-news`. The cutoff and any per-package exception live in the caller's `[tool.nab]` table.
+Installs are hash-checked. Lock integrity comes from Nab: `refresh-release-lock` in `check` mode regenerates the lock
+and fails if it differs. It runs on pull requests through `validate-news`. The cutoff and any per-package exception live
+in the caller's `[tool.nab]` table.
 
 Select the groups each job needs. The shared prepare workflow uses `release-prepare`. A full lock records each group and
 extra, but a new combination still needs an install check before a caller uses it.
@@ -24,9 +24,7 @@ extra, but a new combination still needs an install check before a caller uses i
 - `groups`: whitespace-separated release dependency groups. Leave empty to export build constraints without installing
   release tools.
 - `constraints-lock`: lock used to export build constraints; defaults to `pylock.toml`. Use a secondary lock when the
-  build matrix differs from the release-tool matrix. Without `groups`, the Action checks only this lock.
-- `verify-lock` and `verify-groups`: check that another lock has the selected groups without installing them. Use this
-  before bundling packages from a separate runtime lock, such as a zipapp.
+  build matrix differs from the release-tool matrix.
 - `target-platform` and `targets`: Nab platform ID and space-separated `full-version:implementation` pairs for build
   constraints. Pass both when exporting constraints for a specific build target; otherwise the runner selects the
   target.
@@ -36,20 +34,6 @@ extra, but a new combination still needs an install check before a caller uses i
 The `build-constraints` output names the hashed constraints file. The Action adds installed command launchers to
 `GITHUB_PATH` for later steps while leaving the runner's `python`, `pip`, and `uv` commands on their original paths. Run
 `actions/checkout` and `astral-sh/setup-uv` with Python 3.15 before it.
-
-For a zipapp that bundles wheels from a separate runtime lock, check that lock in the same job before building it:
-
-```yaml
-  - uses: tox-dev/github-workflows/install-locked-tools@SHA
-    with:
-      groups: release-build
-      venv: ${{ runner.temp }}/release-tools
-      verify-lock: pylock.zipapp.toml
-      verify-groups: project-runtime
-```
-
-`export-build-constraints` also accepts `verify-groups`. Pass it when its secondary lock supplies build tools outside
-the `build` group, such as profile-guided optimization tools in a `pgo` group.
 
 ## Tools the Actions install
 
@@ -152,10 +136,9 @@ workflow never updates a committed `uv.lock`. Build constraints are generated fr
 For a second lock such as `pylock.build.toml`, set `additional-lock`, `additional-matrix-python`,
 `additional-matrix-platforms`, and `additional-matrix-implementations`. `additional-lock-groups` selects dependency
 groups in that lock; with no groups, the updater selects build requirements. Set `additional-lock-selection: project`
-for a lock that selects the project's runtime dependencies instead. The lock must already exist, and the updater writes
-both locks in the same dependency PR. The writer accepts only those locks. Pass the same `additional-lock` and matrix
-inputs to `validate-news` in the PR workflow. It checks changes to either lock against the project, including a PR that
-changes only the secondary lock.
+for a lock that selects the project's runtime dependencies instead. The updater writes both locks in the same dependency
+PR. The writer accepts only those locks. Pass the same `additional-lock` and matrix inputs to `validate-news` in the PR
+workflow. It checks changes to either lock against the project, including a PR that changes only the secondary lock.
 
 `refresh-release-lock` is the read-only half of the updater. In `refresh` mode, it upgrades the full primary lock and
 writes `$RUNNER_TEMP/lock.patch` if a lock changes. In `check` mode, it regenerates the primary lock without upgrading
@@ -303,8 +286,7 @@ plus `target-platform` and `targets` when the build matrix needs constraints for
       targets: 3.15.0:cpython
 ```
 
-`targets` is a space-separated list of `full-version:implementation` pairs. All selected targets must resolve the same
-build package versions; otherwise the Action fails instead of writing an ambiguous constraints file.
+`targets` is a space-separated list of `full-version:implementation` pairs.
 
 ## Prepare and tag with one reusable workflow
 

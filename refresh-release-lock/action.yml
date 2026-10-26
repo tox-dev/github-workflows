@@ -35,23 +35,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Check lock inputs
-      shell: bash
-      env:
-        ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
-        ADDITIONAL_GROUPS: ${{ inputs.additional-lock-groups }}
-        ADDITIONAL_SELECTION: ${{ inputs.additional-lock-selection }}
-        MATRIX_PYTHON: ${{ inputs.additional-matrix-python }}
-        MATRIX_PLATFORMS: ${{ inputs.additional-matrix-platforms }}
-        MATRIX_IMPLEMENTATIONS: ${{ inputs.additional-matrix-implementations }}
-      run: |
-        set -euo pipefail
-        if [[ -z "$ADDITIONAL_LOCK" &&
-          ("$ADDITIONAL_SELECTION" != build-or-groups ||
-          -n "$ADDITIONAL_GROUPS$MATRIX_PYTHON$MATRIX_PLATFORMS$MATRIX_IMPLEMENTATIONS") ]]; then
-          echo '::error::secondary matrix inputs require additional-lock' >&2
-          exit 1
-        fi
     - name: Install Nab
       shell: bash
       env:
@@ -84,12 +67,8 @@ runs:
         set -euo pipefail
         unset SSL_CERT_FILE SSL_CERT_DIR
         case "$MODE" in
-        check) refresh=() ;;
         refresh) refresh=(--upgrade) ;;
-        *)
-          echo "::error::invalid lock mode: $MODE" >&2
-          exit 1
-          ;;
+        *) refresh=() ;;
         esac
         cp pylock.toml "$RUNNER_TEMP/lock-before.toml"
         uv run --no-project --python "$RUNNER_TEMP/lock-tools" nab lock --all-groups --all-extras --no-cache "${refresh[@]}"
@@ -113,19 +92,9 @@ runs:
         set -euo pipefail
         unset SSL_CERT_FILE SSL_CERT_DIR
         case "$MODE" in
-        check) refresh=() ;;
         refresh) refresh=(--upgrade) ;;
-        *)
-          echo "::error::invalid lock mode: $MODE" >&2
-          exit 1
-          ;;
+        *) refresh=() ;;
         esac
-        if [[ "$ADDITIONAL_LOCK" != pylock.*.toml || "$ADDITIONAL_LOCK" == */* ||
-          ! -f "$ADDITIONAL_LOCK" || -z "$MATRIX_PYTHON" ||
-          -z "$MATRIX_PLATFORMS" || -z "$MATRIX_IMPLEMENTATIONS" ]]; then
-          echo '::error::additional-lock needs an existing pylock.*.toml and a complete matrix' >&2
-          exit 1
-        fi
         platforms=()
         implementations=()
         selected_groups=()
@@ -141,25 +110,11 @@ runs:
           read -ra words <<<"$line"
           selected_groups+=("${words[@]}")
         done <<<"$ADDITIONAL_GROUPS"
-        if ((${#platforms[@]} == 0 || ${#implementations[@]} == 0)); then
-          echo '::error::secondary matrix needs platforms and implementations' >&2
-          exit 1
-        fi
         case "$ADDITIONAL_SELECTION" in
-        build-or-groups)
+        project) selection=() ;;
+        *)
           selection=(--build-requirements)
           if ((${#selected_groups[@]})); then selection=(--groups "${selected_groups[@]}"); fi
-          ;;
-        project)
-          if ((${#selected_groups[@]})); then
-            echo '::error::project secondary lock cannot select dependency groups' >&2
-            exit 1
-          fi
-          selection=()
-          ;;
-        *)
-          echo '::error::unknown secondary lock selection' >&2
-          exit 1
           ;;
         esac
         cp "$ADDITIONAL_LOCK" "$RUNNER_TEMP/additional-lock-before.toml"

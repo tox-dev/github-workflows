@@ -147,50 +147,6 @@ def test_install_locked_tools_reuses_windows_shaped_environment(tmp_path: Path, 
     assert (tmp_path / "lock-tools/pyvenv.cfg").is_file()
 
 
-def test_install_locked_tools_rejects_missing_group(tmp_path: Path, action_scripts: Path, caller: Path) -> None:
-    result = install(
-        caller,
-        action_scripts,
-        tmp_path,
-        groups="relesae",
-        venv=tmp_path / "tools",
-    )
-    assert result.returncode != 0
-    assert "missing lock dependency groups: relesae" in result.stderr
-
-
-def test_install_locked_tools_rejects_artifact_version_mismatch(tmp_path: Path) -> None:
-    source = Path(__file__).resolve().parents[2]
-    document = tomlkit.parse((CALLER / "pylock.toml").read_text())
-    package = next(package for package in document["packages"] if package["name"] == "setuptools")
-    artifact = package["wheels"][0]
-    artifact["url"] = artifact["url"].replace(str(package["version"]), "0.0.0")
-    lock = tmp_path / "pylock.toml"
-    lock.write_text(tomlkit.dumps(document))
-
-    result = subprocess.run(
-        ["python", str(source / "tools/check_lock_groups.py"), str(lock), "release-news"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "package version" in result.stderr
-
-
-def test_install_locked_tools_constraints_only_accepts_no_build_group(tmp_path: Path, action_scripts: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text('[tool.nab]\nuploaded-prior-to = "P7D"\n')
-    (tmp_path / "pylock.toml").write_text(
-        'lock-version = "1.0"\nrequires-python = ">=3.15"\ncreated-by = "test"\n'
-        'dependency-groups = ["project-runtime"]\npackages = []\n'
-        "[tool.nab]\ncreated-at = 2026-10-19T00:00:00Z\n"
-    )
-    result = action(tmp_path, tmp_path, action_scripts, "install-locked-tools", version="")
-    assert result.returncode == 0, result.stderr
-    assert next(tmp_path.glob("build-constraints-*.txt")).read_text() == ""
-
-
 def test_install_locked_tools_reuses_exporter(tmp_path: Path, action_scripts: Path, caller: Path) -> None:
     for target in ("notes", "validators"):
         result = install(

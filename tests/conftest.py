@@ -398,8 +398,6 @@ def _condition(
     inputs: dict[str, str],
     step_outputs: dict[str, dict[str, str]],
 ) -> bool:
-    if " || " in expression:
-        return any(_condition(part, environment, inputs, step_outputs) for part in expression.split(" || "))
     if " && " in expression:
         return all(_condition(part, environment, inputs, step_outputs) for part in expression.split(" && "))
     for operator in (" == ", " != "):
@@ -473,17 +471,6 @@ def _expression(
     inputs: dict[str, str],
     step_outputs: dict[str, dict[str, str]],
 ) -> str:
-    if " && " in expression and " || " in expression:
-        condition, alternatives = expression.split(" && ", 1)
-        true_value, false_value = alternatives.split(" || ", 1)
-        return _expression(
-            true_value if _condition(condition, environment, inputs, step_outputs) else false_value,
-            environment,
-            inputs,
-            step_outputs,
-        )
-    if expression.startswith("'") and expression.endswith("'"):
-        return expression[1:-1]
     if " == " in expression or " != " in expression:
         return str(_condition(expression, environment, inputs, step_outputs)).lower()
     if expression.startswith("inputs."):

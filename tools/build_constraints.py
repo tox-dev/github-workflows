@@ -25,9 +25,6 @@ def main() -> None:
             lock = Pylock.from_dict(tomllib.load(stream))
         targets = _target_environments(args.target_platform, args.targets) if args.targets else [None]
         selected_by_target = [_selected_build(lock, environment) for environment in targets]
-        versions = [{name: version for name, (version, _) in selected.items()} for selected in selected_by_target]
-        if any(other != versions[0] for other in versions[1:]):
-            parser.error("build package versions differ across requested targets")
         selected = selected_by_target[0]
         for other in selected_by_target[1:]:
             for name, (_, hashes) in other.items():
@@ -57,14 +54,10 @@ def _target_environments(platform: str, values: str) -> list[Environment]:
         "windows_amd64": ("win32", "Windows", "AMD64", "nt"),
         "windows_arm64": ("win32", "Windows", "ARM64", "nt"),
     }
-    if platform not in platforms:
-        raise ValueError(f"unknown target platform: {platform}")
     environments = []
     for value in values.replace(",", " ").split():
-        version_text, separator, implementation = value.partition(":")
+        version_text, _, implementation = value.partition(":")
         version = Version(version_text)
-        if not separator or len(version.release) != 3 or implementation not in {"cpython", "pypy"}:
-            raise ValueError(f"invalid target: {value}; expected full-version:cpython|pypy")
         system_platform, platform_system, machine, os_name = platforms[platform]
         environment = default_environment()
         environment.update(
@@ -81,8 +74,6 @@ def _target_environments(platform: str, values: str) -> list[Environment]:
             platform_version="",
         )
         environments.append(environment)
-    if not environments:
-        raise ValueError("at least one target is required")
     return environments
 
 

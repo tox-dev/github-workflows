@@ -103,27 +103,6 @@ def test_upgrade_checks_lock_patch_path(
     assert run(lock_repository, "git", "status", "--porcelain").stdout == ""
 
 
-@pytest.mark.parametrize("additional_lock", ["other.txt", "../pylock.other.toml"], ids=["arbitrary", "parent"])
-def test_upgrade_rejects_unsafe_additional_lock(
-    lock_repository: Path, tmp_path: Path, publish_scripts: Path, additional_lock: str
-) -> None:
-    (lock_repository / "pylock.toml").write_text("before\n")
-    run(lock_repository, "git", "add", ".")
-    run(lock_repository, "git", "commit", "-m", "Add lock")
-    (lock_repository / "pylock.toml").write_text("after\n")
-    run(lock_repository, "git", "add", "pylock.toml")
-
-    result = execute(
-        lock_repository,
-        publish_scripts / "publish-check-artifact-patch-paths.sh",
-        tmp_path,
-        ADDITIONAL_LOCK=additional_lock,
-    )
-
-    assert result.returncode != 0
-    assert "invalid additional lock" in result.stderr
-
-
 @pytest.mark.parametrize("unsafe_mode", ["executable", "symlink"])
 def test_upgrade_rejects_unsafe_file_mode(
     lock_repository: Path, tmp_path: Path, publish_scripts: Path, unsafe_mode: str
