@@ -1,0 +1,1 @@
+Check out the full history in the `validate-python-release` build job again, so version tools such as hatch-vcs and setuptools-scm see the release tag. 6.0.0 built `0.1.dev1+g<sha>` instead of the tagged version.
