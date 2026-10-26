@@ -227,34 +227,41 @@ def test_refresh_rejects_invalid_nab_commit(tmp_path: Path, action_scripts: Path
 
 _NAB_COMMIT: Final = "0123456789abcdef0123456789abcdef01234567"
 _NAB_SOURCE: Final = f"git+https://github.com/notatallshaw/nab@{_NAB_COMMIT}"
+_NAB_WORKSPACE: Final = [
+    f"nab @ {_NAB_SOURCE}",
+    f"nab-index @ {_NAB_SOURCE}#subdirectory=nab-index",
+    f"nab-markersets @ {_NAB_SOURCE}#subdirectory=nab-markersets",
+    f"nab-project @ {_NAB_SOURCE}#subdirectory=nab-project",
+    f"nab-provider @ {_NAB_SOURCE}#subdirectory=nab-provider",
+    f"nab-resolver @ {_NAB_SOURCE}#subdirectory=nab-resolver",
+]
+_VERSIONED_LOCK: Final = f'{_LOCK}nab-version = "0.0.21"\n'
 
 
-@pytest.mark.parametrize(
-    ("commit", "requirements"),
-    [
-        pytest.param("", ["nab>=0.0.22"], id="release"),
-        pytest.param(
-            _NAB_COMMIT,
-            [
-                f"nab @ {_NAB_SOURCE}",
-                f"nab-index @ {_NAB_SOURCE}#subdirectory=nab-index",
-                f"nab-markersets @ {_NAB_SOURCE}#subdirectory=nab-markersets",
-                f"nab-project @ {_NAB_SOURCE}#subdirectory=nab-project",
-                f"nab-provider @ {_NAB_SOURCE}#subdirectory=nab-provider",
-                f"nab-resolver @ {_NAB_SOURCE}#subdirectory=nab-resolver",
-            ],
-            id="git-commit-workspace",
-        ),
-    ],
-)
-def test_refresh_installs_selected_nab(
-    tmp_path: Path, action_scripts: Path, commit: str, requirements: list[str]
-) -> None:
+@pytest.fixture
+def fake_installer(tmp_path: Path) -> Path:
     installer = tmp_path / "tools/install_live_tools.sh"
     installer.parent.mkdir()
     installer.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$RUNNER_TEMP/installed"\n')
     installer.chmod(0o755)
     (tmp_path / "action").mkdir()
+    return installer
+
+
+@pytest.mark.parametrize(
+    ("mode", "commit", "requirements"),
+    [
+        pytest.param("refresh", "", ["nab>=0.0.22"], id="refresh-release"),
+        pytest.param("check", "", ["nab==0.0.21"], id="check-locked-release"),
+        pytest.param("refresh", _NAB_COMMIT, _NAB_WORKSPACE, id="refresh-git-commit-workspace"),
+        pytest.param("check", _NAB_COMMIT, _NAB_WORKSPACE, id="check-git-commit-workspace"),
+    ],
+)
+@pytest.mark.usefixtures("fake_installer")
+def test_refresh_installs_selected_nab(
+    tmp_path: Path, action_scripts: Path, mode: str, commit: str, requirements: list[str]
+) -> None:
+    (tmp_path / "pylock.toml").write_text(_VERSIONED_LOCK)
 
     result = _run_step(
         action_scripts,
@@ -262,11 +269,33 @@ def test_refresh_installs_selected_nab(
         tmp_path,
         tmp_path / "bin/uv",
         GITHUB_ACTION_PATH=str(tmp_path / "action"),
+        MODE=mode,
         NAB_GIT_COMMIT=commit,
     )
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "installed").read_text().splitlines() == [f"{tmp_path}/lock-tools", *requirements]
+
+
+@pytest.mark.parametrize("lock", [None, _LOCK], ids=["no-lock", "no-nab-version"])
+@pytest.mark.usefixtures("fake_installer")
+def test_refresh_check_requires_locked_nab_version(tmp_path: Path, action_scripts: Path, lock: str | None) -> None:
+    if lock is not None:
+        (tmp_path / "pylock.toml").write_text(lock)
+
+    result = _run_step(
+        action_scripts,
+        "Install Nab",
+        tmp_path,
+        tmp_path / "bin/uv",
+        GITHUB_ACTION_PATH=str(tmp_path / "action"),
+        MODE="check",
+        NAB_GIT_COMMIT="",
+    )
+
+    assert result.returncode != 0
+    assert "::error::check mode needs the Nab version in pylock.toml [tool.nab] nab-version" in result.stderr
+    assert not (tmp_path / "installed").exists()
 
 
 @pytest.mark.parametrize(

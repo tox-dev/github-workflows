@@ -65,6 +65,7 @@ runs:
       env:
         EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
         EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
+        MODE: ${{ inputs.mode }}
         NAB_GIT_COMMIT: ${{ inputs.nab-git-commit }}
       run: |
         set -euo pipefail
@@ -75,6 +76,19 @@ runs:
           for package in nab-index nab-markersets nab-project nab-provider nab-resolver; do
             requirements+=("$package @ $source#subdirectory=$package")
           done
+        elif [[ "$MODE" == check ]]; then
+          version=""
+          if [[ -f pylock.toml ]]; then
+            version=$(python3 -c 'import tomllib
+        with open("pylock.toml", "rb") as lock:
+            print(tomllib.load(lock).get("tool", {}).get("nab", {}).get("nab-version", ""))')
+          fi
+          if [[ -z "$version" ]]; then
+            echo '::error::check mode needs the Nab version in pylock.toml [tool.nab] nab-version' >&2
+            exit 1
+          fi
+          # A newer Nab rewrites nab-version, so checking with it would fail every committed lock.
+          requirements=("nab==$version")
         fi
         "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/lock-tools" "${requirements[@]}"
     - name: Resolve all project groups and extras

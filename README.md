@@ -168,11 +168,13 @@ changes only the secondary lock.
 
 `refresh-release-lock` is the read-only half of the updater. In `refresh` mode, it upgrades the full primary lock and
 writes `$RUNNER_TEMP/lock.patch` if a lock changes. In `check` mode, it regenerates the primary lock without upgrading
-and fails if anything other than Nab's recorded command line differs. Every Nab run unsets `SSL_CERT_FILE` and
-`SSL_CERT_DIR`, so Nab uses its own certificate store. `validate-news` calls this mode when a PR changes release inputs,
-including a workspace member's `pyproject.toml` or a secondary lock. The resulting PR's normal formatting job runs
-`prek`; the writer checks patch paths and modes. Its `changed` output is `true` only when the refresh produces a patch.
-Neither mode pushes a branch or requests a write token.
+and fails if anything other than Nab's recorded command line differs. Check mode installs the Nab version that the
+committed `pylock.toml` records in `[tool.nab] nab-version`, and fails if the lock has none, because a newer Nab would
+rewrite that field in every committed lock. Refresh mode installs the newest Nab under the cutoff. Every Nab run unsets
+`SSL_CERT_FILE` and `SSL_CERT_DIR`, so Nab uses its own certificate store. `validate-news` calls this mode when a PR
+changes release inputs, including a workspace member's `pyproject.toml` or a secondary lock. The resulting PR's normal
+formatting job runs `prek`; the writer checks patch paths and modes. Its `changed` output is `true` only when the
+refresh produces a patch. Neither mode pushes a branch or requests a write token.
 
 Every shared `prek` command runs through `tools/cooled_prek.sh`, which the `cooled-prek` Action wraps for workflows, and
 passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek.toml` and also runs nested
