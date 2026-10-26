@@ -91,7 +91,7 @@ jobs:
           retention-days: 7
   publish:
     needs: generate-lock
-    if: needs.generate-lock.outputs.changed == 'true' && github.ref == 'refs/heads/main'
+    if: needs.generate-lock.outputs.changed == 'true'
     runs-on: ubuntu-26.04
     environment: release-auth
     permissions:
