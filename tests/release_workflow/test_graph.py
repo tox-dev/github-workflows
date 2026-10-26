@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-from pytest_httpserver import HTTPServer
 
 
 @pytest.mark.parametrize(
@@ -84,7 +83,6 @@ def test_release_writer_has_only_notes_and_reconciler() -> None:
     assert publish["needs"] == "notes"
     assert [step.get("uses", step.get("name")) for step in publish["steps"]] == [
         "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
-        "Require the tag to still name the release commit",
         "$/publish-github-release",
     ]
     assert publish["steps"][-1]["with"]["commit"] == "${{ github.sha }}"
@@ -123,33 +121,6 @@ def test_action_manifests_have_no_empty_environment_mapping() -> None:
     for path in root.glob("*/action.yml"):
         action = yaml.safe_load(path.read_text())
         assert all("env" not in step or isinstance(step["env"], dict) for step in action["runs"]["steps"]), path
-
-
-@pytest.mark.parametrize(("tag_commit", "accepted"), [("a" * 40, True), ("b" * 40, False)], ids=["same", "moved"])
-def test_release_writer_requires_the_tag_at_the_event_commit(
-    tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]], tag_commit: str, accepted: bool
-) -> None:
-    server, environment = github_api
-    server.expect_request("/api/v3/repos/tox-dev/fixture/commits/refs/tags/1.0.0").respond_with_json(
-        {"sha": tag_commit}
-    )
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/release.yaml").read_text())
-    step = next(
-        step
-        for step in workflow["jobs"]["publish"]["steps"]
-        if step.get("name") == "Require the tag to still name the release commit"
-    )
-
-    result = subprocess.run(
-        ["bash", "-e", "-o", "pipefail", "-c", step["run"]],
-        cwd=tmp_path,
-        env=os.environ | environment | {"GITHUB_REPOSITORY": "tox-dev/fixture", "GITHUB_SHA": "a" * 40, "TAG": "1.0.0"},
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert (result.returncode == 0) is accepted, result.stderr
 
 
 def test_release_notes_render_read_only_from_full_history() -> None:

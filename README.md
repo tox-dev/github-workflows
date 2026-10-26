@@ -238,8 +238,8 @@ with `release-creator tags --previous`, renders the section with `release-creato
 and the Full Changelog link. Keep PyPI OIDC in the caller's `release` environment job.
 
 Run the tag workflow under `concurrency` keyed by the tag, without cancelling a run in progress. The release job has
-`contents: write` and no checkout. It reconciles the PyPI digests, requires that the tag still resolves to `GITHUB_SHA`,
-and then creates the GitHub Release with a single `publish-github-release` call after PyPI, with no separate stage job:
+`contents: write` and no checkout. It reconciles the PyPI digests and then creates the GitHub Release with a single
+`publish-github-release` call after PyPI, with no separate stage job:
 
 ```yaml
 concurrency:
@@ -268,11 +268,6 @@ jobs:
           project: example
           version: ${{ github.ref_name }}
           dist: dist
-      - name: Require the tag to still name the release commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: test "$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$TAG" --jq .sha)" = "$GITHUB_SHA"
       - uses: tox-dev/github-workflows/publish-github-release@SHA
         env:
           GH_TOKEN: ${{ github.token }}
@@ -530,14 +525,14 @@ credentials.
 
 ## Publish a GitHub Release
 
-`publish-github-release` verifies the tag and its rendered notes before writing a GitHub Release. Pass the exact notes
-file and the tag's commit SHA. A retry resumes a matching draft, or succeeds without a write when the published Release
-already matches. Run it in a Contents-write job that downloads the notes and optional assets; it needs no checkout or
-tool installation. For a repository that must upload GitHub assets before PyPI, call it with `mode: stage`, verify
-PyPI's exact artifact set, then call it with `mode: publish` and the same `assets-directory`. The draft stays private
-until the second call succeeds. Enable immutable releases in the repository before using this Action. Drafts can still
-be edited, so the Action checks them again before upload and publication. A matching published release whose API record
-is immutable needs no write or second metadata fetch. Older mutable releases retain the recheck.
+`publish-github-release` writes a GitHub Release from the rendered notes. Pass the exact notes file and the tag's commit
+SHA. A retry resumes a matching draft, or succeeds without a write when the published Release already matches. Run it in
+a Contents-write job that downloads the notes and optional assets; it needs no checkout or tool installation. For a
+repository that must upload GitHub assets before PyPI, call it with `mode: stage`, verify PyPI's exact artifact set,
+then call it with `mode: publish` and the same `assets-directory`. The draft stays private until the second call
+succeeds. Enable immutable releases in the repository before using this Action. Drafts can still be edited, so the
+Action checks them again before upload and publication. A matching published release whose API record is immutable needs
+no write or second metadata fetch. Older mutable releases retain the recheck.
 
 ```yaml
   - uses: tox-dev/github-workflows/publish-github-release@SHA
@@ -550,22 +545,22 @@ is immutable needs no write or second metadata fetch. Older mutable releases ret
       notes-file: ${{ runner.temp }}/release-notes.md
 ```
 
-- `tag`, `commit`, `title`, and `notes-file` are required. The Action uses the caller repository; `commit` is the commit
-  the existing tag must resolve to. `title` and the file bytes must match an existing Release exactly.
+- `tag`, `commit`, `title`, and `notes-file` are required. The Action uses the caller repository; `commit` is the tag's
+  commit, used as the target when the Action creates the Release. `title` and the file bytes must match an existing
+  Release exactly.
 - `assets-directory`: Optional directory containing only the assets to attach. The Action compares each filename and
   SHA256 digest with GitHub's Release asset metadata, uploads missing draft assets, and rejects extra or changed assets.
   After publication it verifies GitHub's release attestation for each local asset.
 - `prerelease`: `true` or `false`; default `false`. It must match an existing Release.
 - `mode`: `complete` (default) creates or resumes a draft and publishes it in one call. `stage` creates or resumes a
   draft and uploads assets without publishing. `publish` requires an existing draft and publishes it after checking the
-  tag, notes, and complete asset set again.
+  notes and complete asset set again.
 
 **Output:** No named output. **Remote effect:** Depending on `mode`, the Action creates or resumes a draft, uploads
 missing assets, and publishes only after the complete asset set matches. A matching published Release causes no write. A
-different body, title, tag commit, prerelease flag, or asset set fails without changing the existing Release. A failed
-upload leaves the draft for a later retry. The Action removes incomplete `starter` assets before retrying. It retries
-reading the release by ID for up to ten seconds after draft creation or asset upload; a mismatch still fails when that
-window ends.
+different body, title, prerelease flag, or asset set fails without changing the existing Release. A failed upload leaves
+the draft for a later retry. The Action removes incomplete `starter` assets before retrying. It retries reading the
+release by ID for up to ten seconds after draft creation or asset upload; a mismatch still fails when that window ends.
 
 ## Reconcile a post-release pull request
 
@@ -701,12 +696,11 @@ marketplace-publish:
 `channel` is empty for Stable; use a Marketplace channel name for a prerelease. Keep the publishing step named
 `Publish signed ZIP`. The Action recognizes that name and two older upload step names in prior runs and deployment jobs.
 Keep those names in the Action when adding another. Give the job Actions and Deployments read access and the workflow a
-concurrency group keyed by tag. Use the `release` environment on the upload job. The Action verifies the remote tag,
-then searches earlier tag runs and release deployments. For the same commit, an acceptance receipt must match the
-original artifact IDs, signed ZIP digest, and release notes bytes before the Action skips upload. Any earlier release
-deployment without a verified receipt stops for manual reconciliation, even if that run did not reach the Marketplace
-step. The same applies when the linked job is no longer available. A changed publishing step name fails before upload
-until the Action recognizes it.
+concurrency group keyed by tag. Use the `release` environment on the upload job. The Action searches earlier tag runs
+and release deployments. An acceptance receipt must match the original artifact IDs, signed ZIP digest, and release
+notes bytes before the Action skips upload. Any earlier release deployment without a verified receipt stops for manual
+reconciliation, even if that run did not reach the Marketplace step. The same applies when the linked job is no longer
+available. A changed publishing step name fails before upload until the Action recognizes it.
 
 **Output:** A `marketplace-acceptance-<run>-<attempt>` Actions artifact after a new upload. It records the tag, commit,
 plugin, channel, signed ZIP artifact and SHA256, and notes artifact and SHA256. **Remote effect:** One multipart upload

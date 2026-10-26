@@ -183,44 +183,6 @@ def test_prior_upload_without_receipt_blocks_retry(
     assert not httpserver.log
 
 
-@pytest.mark.parametrize(
-    "previous_step",
-    [
-        pytest.param("Publish signed ZIP", id="current"),
-        pytest.param("📤 Publish to JetBrains Marketplace", id="legacy"),
-    ],
-)
-def test_prior_upload_on_another_commit_blocks_retry(
-    signed_archive: Path,
-    tmp_path: Path,
-    marketplace_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-    httpserver: HTTPServer,
-    previous_step: str,
-) -> None:
-    result = publish_action(
-        tmp_path,
-        marketplace_scripts,
-        github_api,
-        previous_run=True,
-        previous_commit="1" * 40,
-        previous_step=previous_step,
-        ARCHIVE=str(signed_archive),
-        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
-        PLUGIN_ID="29973",
-        CHANNEL="beta",
-        PUBLISH_TOKEN="fixture-token",
-    )
-    assert result.returncode != 0
-    assert "earlier Marketplace upload on commit" in result.stderr
-    assert any(
-        request.path == "/api/v3/repos/tox-dev/fixture/actions/runs"
-        and request.query_string == b"branch=v0.1.11&per_page=100"
-        for request, _ in github_api[0].log
-    )
-    assert not httpserver.log
-
-
 def test_prior_upload_from_renamed_workflow_blocks_retry(
     signed_archive: Path,
     tmp_path: Path,
@@ -487,54 +449,6 @@ def test_current_run_other_deployments_allow_upload(
     )
 
 
-@pytest.mark.parametrize("annotated", [pytest.param(False, id="lightweight"), pytest.param(True, id="annotated")])
-def test_remote_moved_tag_blocks_upload(
-    signed_archive: Path,
-    tmp_path: Path,
-    marketplace_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-    httpserver: HTTPServer,
-    annotated: bool,
-) -> None:
-    result = publish_action(
-        tmp_path,
-        marketplace_scripts,
-        github_api,
-        remote_commit="1" * 40,
-        annotated=annotated,
-        ARCHIVE=str(signed_archive),
-        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
-        PLUGIN_ID="29973",
-        CHANNEL="beta",
-        PUBLISH_TOKEN="fixture-token",
-    )
-    assert result.returncode != 0
-    assert not httpserver.log
-
-
-def test_annotated_tag_targets_release_commit(
-    signed_archive: Path,
-    tmp_path: Path,
-    marketplace_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-    httpserver: HTTPServer,
-) -> None:
-    httpserver.expect_request("/api/updates/upload", method="POST").respond_with_data("{}")
-    result = publish_action(
-        tmp_path,
-        marketplace_scripts,
-        github_api,
-        annotated=True,
-        ARCHIVE=str(signed_archive),
-        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
-        PLUGIN_ID="29973",
-        CHANNEL="beta",
-        PUBLISH_TOKEN="fixture-token",
-    )
-    assert result.returncode == 0, result.stderr
-    assert len(httpserver.log) == 1
-
-
 @pytest.mark.parametrize("previous_workflow", ["release.yaml", "old-release.yaml"])
 def test_prior_acceptance_with_matching_artifacts_skips_upload(
     signed_archive: Path,
@@ -731,8 +645,6 @@ def publish_action(
     *,
     runner_temp: Path | None = None,
     previous_run: bool = False,
-    previous_commit: str = "0" * 40,
-    previous_step: str = "Publish signed ZIP",
     previous_workflow: str = "release.yaml",
     previous_deployment: bool = False,
     previous_deployment_run: int = 41,
@@ -754,20 +666,11 @@ def publish_action(
     receipt_changes: dict[str, str | int] | None = None,
     prior_signed: bytes | None = None,
     prior_notes: bytes | None = None,
-    remote_commit: str = "0" * 40,
-    annotated: bool = False,
     fork_run: bool = False,
     reconciled_attempt: bool = False,
     **settings: str,
 ) -> subprocess.CompletedProcess[str]:
     server, environment = github_api
-    server.expect_request("/api/v3/repos/tox-dev/fixture/git/ref/tags/v0.1.11").respond_with_json(
-        {"object": {"type": "tag" if annotated else "commit", "sha": "f" * 40 if annotated else remote_commit}}
-    )
-    if annotated:
-        server.expect_request(f"/api/v3/repos/tox-dev/fixture/git/tags/{'f' * 40}").respond_with_json(
-            {"object": {"type": "commit", "sha": remote_commit}}
-        )
     runs = (
         [
             {
@@ -786,7 +689,7 @@ def publish_action(
             {
                 "id": 41,
                 "head_branch": "v0.1.11",
-                "head_sha": previous_commit,
+                "head_sha": "0" * 40,
                 "head_repository": {"full_name": "tox-dev/fixture"},
                 "path": f".github/workflows/{previous_workflow}",
             }
@@ -852,7 +755,10 @@ def publish_action(
         server.expect_request("/api/v3/repos/tox-dev/fixture/actions/runs/41/jobs").respond_with_json(
             {
                 "jobs": [
-                    {"run_attempt": attempt, "steps": [{"name": previous_step, "started_at": "2026-10-23T00:00:00Z"}]}
+                    {
+                        "run_attempt": attempt,
+                        "steps": [{"name": "Publish signed ZIP", "started_at": "2026-10-23T00:00:00Z"}],
+                    }
                     for attempt in ((1, 2) if reconciled_attempt else (1,))
                 ]
             }

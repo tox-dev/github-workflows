@@ -5,7 +5,7 @@ inputs:
     description: Existing Git tag for the release
     required: true
   commit:
-    description: Commit expected at the tag
+    description: Commit the release targets
     required: true
   title:
     description: Exact GitHub Release title
@@ -30,7 +30,6 @@ runs:
       env:
         GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
-        COMMIT: ${{ inputs.commit }}
         TITLE: ${{ inputs.title }}
         NOTES_FILE: ${{ inputs.notes-file }}
         ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
@@ -47,8 +46,6 @@ runs:
           exit 1
           ;;
         esac
-        tag_commit=$(gh api "repos/$GH_REPO/commits/refs/tags/$TAG" --jq .sha)
-        test "$tag_commit" == "$COMMIT"
         printf '[]\n' >"$RUNNER_TEMP/release-assets.json"
         if [[ -n "$ASSETS_DIRECTORY" ]]; then
           shopt -s nullglob dotglob

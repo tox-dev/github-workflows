@@ -56,7 +56,6 @@ runs:
     - name: Verify release identity
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.github-token }}
         TAG: ${{ inputs.tag }}
         COMMIT: ${{ inputs.commit }}
         SIGNED_ARTIFACT_ID: ${{ inputs.signed-artifact-id }}
@@ -69,23 +68,12 @@ runs:
         for artifact_id in "$SIGNED_ARTIFACT_ID" "$NOTES_ARTIFACT_ID"; do
           case "$artifact_id" in '' | *[!0-9]*) exit 1 ;; esac
         done
-        target=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object | [.type, .sha] | @tsv')
-        while true; do
-          read -r object_type object_sha <<<"$target"
-          if [[ "$object_type" == commit ]]; then
-            [[ "$object_sha" == "$COMMIT" ]] || exit 1
-            break
-          fi
-          [[ "$object_type" == tag ]] || exit 1
-          target=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" --jq '.object | [.type, .sha] | @tsv')
-        done
     - name: Find earlier Marketplace upload
       id: earlier
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         TAG: ${{ inputs.tag }}
-        COMMIT: ${{ inputs.commit }}
       run: |
         set -euo pipefail
         encoded_tag=$(jq -rn --arg tag "$TAG" '$tag | @uri')
@@ -93,7 +81,7 @@ runs:
           --jq '.workflow_runs[] | [.id, .head_branch, .head_sha, .head_repository.full_name] | @tsv' \
           >"$RUNNER_TEMP/marketplace-runs.tsv"
         prior=0
-        while IFS=$'\t' read -r run branch sha source; do
+        while IFS=$'\t' read -r run branch _ source; do
           [[ "$branch" == "$TAG" && "$source" == "$GITHUB_REPOSITORY" ]] || continue
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?filter=all&per_page=100" \
             --jq ".jobs[] | .run_attempt as \$attempt | .steps[] |
@@ -102,11 +90,6 @@ runs:
             >"$RUNNER_TEMP/marketplace-attempts.txt"
           while IFS= read -r attempt; do
             if [[ "$run" == "$GITHUB_RUN_ID" && "$attempt" -ge "$GITHUB_RUN_ATTEMPT" ]]; then continue; fi
-            if [[ "$sha" != "$COMMIT" ]]; then
-              echo "::error::Tag $TAG had an earlier Marketplace upload on commit $sha." \
-                "Reconcile run $run attempt $attempt manually." >&2
-              exit 1
-            fi
             gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" \
               --jq '.artifacts[] | [.name, .id, .expired] | @tsv' >"$RUNNER_TEMP/marketplace-artifacts-$run.tsv"
             receipt_name="marketplace-acceptance-$run-$attempt"
