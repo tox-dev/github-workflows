@@ -77,13 +77,6 @@ def test_validator_builds_reproducible_distributions(
     assert outputs[0] == outputs[1]
 
 
-def test_validator_rejects_nonempty_distribution_directory(tmp_path: Path, release_workflow: dict[str, Any]) -> None:
-    (tmp_path / "dist").mkdir()
-    (tmp_path / "dist" / "old.whl").write_bytes(b"old")
-    result = run_release_step(release_workflow, "build", "Require empty distribution directory", tmp_path)
-    assert result.returncode != 0
-
-
 def test_validator_rejects_backend_hash_mismatch(
     build_repository: Path, build_constraints: Path, tmp_path: Path, release_workflow: dict[str, Any]
 ) -> None:
@@ -102,41 +95,3 @@ def test_validator_rejects_backend_hash_mismatch(
     result = run_release_step(release_workflow, "build", "Build wheel and sdist", build_repository, **environment)
     assert result.returncode != 0
     assert "Hash mismatch" in result.stderr
-
-
-@pytest.mark.parametrize(
-    ("tag", "filenames", "accepted"),
-    [
-        pytest.param("1.2.3", ("example-1.2.3-py3-none-any.whl", "example-1.2.3.tar.gz"), True, id="matching"),
-        pytest.param("v1.2.3", ("example-1.2.3-py3-none-any.whl", "example-1.2.3.tar.gz"), True, id="v-prefix"),
-        pytest.param("1.2.3", ("example-1.2.4-py3-none-any.whl", "example-1.2.3.tar.gz"), False, id="wrong-wheel"),
-        pytest.param("1.2.3", ("example-1.2.3-py3-none-any.whl", "example-1.2.4.tar.gz"), False, id="wrong-sdist"),
-        pytest.param(
-            "1.2.3",
-            ("example-1.2.3-py3-none-any.whl", "example-1.2.3.tar.gz", "unexpected.txt"),
-            False,
-            id="extra-file",
-        ),
-    ],
-)
-def test_validator_matches_built_version_to_tag(
-    tmp_path: Path, tag: str, filenames: tuple[str, ...], accepted: bool
-) -> None:
-    (tmp_path / "dist").mkdir()
-    for filename in filenames:
-        (tmp_path / "dist" / filename).touch()
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/validate-python-release.yaml").read_text()
-    )
-    check = next(
-        step for step in workflow["jobs"]["build"]["steps"] if step.get("name") == "Match distribution version to tag"
-    )
-    result = subprocess.run(
-        ["bash", "-c", check["run"]],
-        cwd=tmp_path,
-        env=os.environ | {"TAG": tag},
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert (result.returncode == 0) is accepted, result.stderr

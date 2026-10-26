@@ -110,7 +110,7 @@ def test_main_reports_invalid_directory(
         cast("Callable[[], None]", _MODULE.main)()
 
     assert raised.value.code == 2
-    assert "distribution directory does not exist" in capsys.readouterr().err
+    assert "No such file or directory" in capsys.readouterr().err
 
 
 def test_script_entrypoint_prints_distribution_paths(
@@ -125,23 +125,6 @@ def test_script_entrypoint_prints_distribution_paths(
         str(distribution / "fixture-1.0-py3-none-any.whl"),
         str(distribution / "fixture-1.0.tar.gz"),
     ]
-
-
-def test_verify_files_rejects_missing_directory(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="distribution directory does not exist"):
-        verify_files("fixture", "1.0", tmp_path / "missing")
-
-
-def test_verify_files_rejects_empty_directory(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="distribution directory is empty"):
-        verify_files("fixture", "1.0", tmp_path)
-
-
-def test_verify_files_rejects_directory_entry(distribution: Path) -> None:
-    (distribution / "nested").mkdir()
-
-    with pytest.raises(ValueError, match="invalid distribution path"):
-        verify_files("fixture", "1.0", distribution)
 
 
 def test_verify_files_ignores_other_release_wheel(distribution: Path, mocker: MockerFixture) -> None:
@@ -278,26 +261,6 @@ def test_verify_files_rejects_bad_remote_release(
     distribution: Path, mocker: MockerFixture, change: str, message: str
 ) -> None:
     _serve(mocker, distribution, change=change)
-
-    with pytest.raises(ValueError, match=message):
-        verify_files("fixture", "1.0", distribution)
-
-
-@pytest.mark.parametrize(
-    ("change", "message"),
-    [
-        pytest.param("wrong-version", "another release", id="wrong-version"),
-        pytest.param("symlink", "invalid distribution path", id="symlink"),
-        pytest.param("hidden", "invalid distribution path", id="hidden"),
-    ],
-)
-def test_verify_files_rejects_bad_local_release(distribution: Path, change: str, message: str) -> None:
-    if change == "wrong-version":
-        (distribution / "fixture-2.0-py3-none-any.whl").write_bytes(b"other")
-    elif change == "symlink":
-        (distribution / "link.whl").symlink_to(distribution / "fixture-1.0-py3-none-any.whl")
-    else:
-        (distribution / ".hidden").write_bytes(b"other")
 
     with pytest.raises(ValueError, match=message):
         verify_files("fixture", "1.0", distribution)

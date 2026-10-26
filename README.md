@@ -212,8 +212,8 @@ uploads. The tag caller renders the Release body and has the only Contents write
 ## Validate a Python release
 
 `validate-python-release.yaml` runs one `build` job. It exports hashed build constraints from the caller lock, builds
-the wheel and sdist, requires exactly one of each at the tag's version, and uploads them. The workflow does not inspect
-the built files further; check package metadata and wheel contents in the package's own `tox -e pkg_meta` run.
+the wheel and sdist, and uploads them. The workflow does not inspect the built files further; check package metadata and
+wheel contents in the package's own `tox -e pkg_meta` run.
 
 ```yaml
 build:
@@ -280,10 +280,9 @@ jobs:
 
 ## Build a distribution for a pull request
 
-`build-python-distribution` remains available for existing keyless PR build jobs. It checks that `dist/` is empty,
-exports hashed build constraints from the caller's lock, and writes a wheel and sdist to `dist/`. It does not upload or
-publish them. Tagged release jobs use `validate-python-release.yaml` so lock and release tools run in a separate job
-from the distribution build.
+`build-python-distribution` remains available for existing keyless PR build jobs. It exports hashed build constraints
+from the caller's lock, and writes a wheel and sdist to `dist/`. It does not upload or publish them. Tagged release jobs
+use `validate-python-release.yaml`.
 
 ```yaml
   - uses: tox-dev/github-workflows/build-python-distribution@SHA
@@ -519,9 +518,9 @@ invalid attestation fails. The GitHub Release writer must depend on this verific
 ```
 
 `project`, `version`, and `dist` are required. The Action installs `pypi-attestations` on Python 3.15 under the
-`exclude-newer` cutoff and waits up to 120 seconds for PyPI's listing to propagate. It checks the complete local file
-set, then runs `pypi-attestations verify pypi` on each local file against the caller repository. It prints no
-credentials.
+`exclude-newer` cutoff and waits up to 120 seconds for PyPI's listing to propagate. It compares every file in `dist`
+with that listing, then runs `pypi-attestations verify pypi` on each local file against the caller repository. It prints
+no credentials.
 
 ## Publish a GitHub Release
 

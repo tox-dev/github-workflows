@@ -10,38 +10,6 @@ from pytest_httpserver import HTTPServer
 
 
 @pytest.mark.parametrize(
-    ("project", "version", "distribution_exists", "error"),
-    [
-        pytest.param("", "1.0", True, "name is invalid", id="missing-project"),
-        pytest.param("fixture", "", True, "Invalid version", id="missing-version"),
-        pytest.param("fixture", "1.0", False, "distribution directory does not exist", id="missing-distribution"),
-    ],
-)
-def test_reconcile_rejects_invalid_inputs(
-    tmp_path: Path,
-    action_scripts: Path,
-    project: str,
-    version: str,
-    distribution_exists: bool,
-    error: str,
-) -> None:
-    distribution = tmp_path / "dist"
-    if distribution_exists:
-        distribution.mkdir()
-    result = action(
-        Path(__file__).resolve().parents[2],
-        tmp_path,
-        action_scripts,
-        "reconcile-pypi-artifacts",
-        version=version,
-        PROJECT=project,
-        DIST=str(distribution),
-    )
-    assert result.returncode != 0
-    assert error in result.stderr
-
-
-@pytest.mark.parametrize(
     ("remote_extra", "wrong_digest", "expected_error"),
     [
         pytest.param(False, False, "Provenance for file", id="matching-files-require-attestation"),

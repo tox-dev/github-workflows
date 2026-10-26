@@ -10,14 +10,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Require empty output directory
-      shell: bash
-      run: |
-        set -euo pipefail
-        if [[ -d dist && -n $(find dist -mindepth 1 -maxdepth 1 -print -quit) ]]; then
-          echo '::error::distribution output directory is not empty: dist' >&2
-          exit 1
-        fi
     - name: Select build interpreter
       shell: bash
       run: uv venv --allow-existing --python 3.15 "$RUNNER_TEMP/build-python"

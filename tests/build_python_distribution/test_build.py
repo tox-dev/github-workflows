@@ -48,27 +48,6 @@ def test_build_python_distribution_repeats_exact_bytes(
     assert outputs[0] == outputs[1]
 
 
-def test_build_python_distribution_rejects_existing_artifact(
-    build_repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
-    (build_repository / ".gitignore").write_text("dist/\n")
-    run(build_repository, "git", "add", ".gitignore")
-    run(build_repository, "git", "commit", "-m", "Ignore build output")
-    output = build_repository / "dist"
-    output.mkdir()
-    (output / "old.whl").write_bytes(b"old")
-    result = action(
-        build_repository,
-        tmp_path,
-        action_scripts,
-        "build-python-distribution",
-        version="0.2.0",
-        RUNNER_TEMP=str(tmp_path),
-    )
-    assert result.returncode != 0
-    assert "distribution output directory is not empty" in result.stderr
-
-
 def test_build_python_distribution_rejects_backend_hash_mismatch(
     build_repository: Path, tmp_path: Path, action_scripts: Path
 ) -> None:

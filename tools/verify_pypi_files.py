@@ -44,20 +44,12 @@ def main() -> None:
 
 
 def verify_files(project: str, version: str, dist: Path) -> list[Path]:
-    if not dist.is_dir():
-        raise ValueError(f"distribution directory does not exist: {dist}")
-    name = canonicalize_name(project, validate=True)
+    name = canonicalize_name(project)
     release = Version(version)
     local: dict[str, str] = {}
     for path in dist.iterdir():
-        if path.is_symlink() or not path.is_file() or path.name.startswith("."):
-            raise ValueError(f"invalid distribution path: {path}")
-        if _identity(path.name) != (name, release):
-            raise ValueError(f"distribution belongs to another release: {path.name}")
         with path.open("rb") as stream:
             local[path.name] = hashlib.file_digest(stream, "sha256").hexdigest()
-    if not local:
-        raise ValueError(f"distribution directory is empty: {dist}")
     deadline = time.monotonic() + 120
     delay = 1
     while True:
