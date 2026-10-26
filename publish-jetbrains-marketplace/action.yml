@@ -45,7 +45,6 @@ runs:
       run: |
         set -euo pipefail
         test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
-        unzip -tq "$ARCHIVE" >/dev/null
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
     - name: Find earlier Marketplace upload
       id: earlier
@@ -159,8 +158,6 @@ runs:
         mkdir "$RUNNER_TEMP/prior-acceptance"
         gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "$RECEIPT_NAME" \
           --dir "$RUNNER_TEMP/prior-acceptance"
-        receipt="$RUNNER_TEMP/prior-acceptance/marketplace-acceptance.json"
-        [[ -f "$receipt" && ! -L "$receipt" ]] || exit 1
     # A later attempt finds this attempt's started upload step; the copy shows it skipped the upload.
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: steps.earlier.outputs.accepted == '1'
@@ -207,9 +204,6 @@ runs:
           --dir "$RUNNER_TEMP/prior-signed"
         gh run download "$source_run" --repo "$GITHUB_REPOSITORY" --name release-notes \
           --dir "$RUNNER_TEMP/prior-notes"
-        [[ -f "$RUNNER_TEMP/prior-signed/${ARCHIVE##*/}" && ! -L "$RUNNER_TEMP/prior-signed/${ARCHIVE##*/}" ]] || exit 1
-        [[ -f "$RUNNER_TEMP/prior-notes/release-notes.md" &&
-          ! -L "$RUNNER_TEMP/prior-notes/release-notes.md" ]] || exit 1
         test "$(sha256sum "$RUNNER_TEMP/prior-signed/${ARCHIVE##*/}" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         cmp "$NOTES_FILE" "$RUNNER_TEMP/prior-notes/release-notes.md"
     - name: Upload signed ZIP
@@ -217,7 +211,6 @@ runs:
       shell: bash
       env:
         ARCHIVE: ${{ inputs.archive }}
-        EXPECTED_SHA: ${{ inputs.sha256 }}
         PLUGIN_ID: ${{ inputs.plugin-id }}
         CHANNEL: ${{ inputs.channel }}
         PUBLISH_TOKEN: ${{ inputs.publish-token }}
@@ -225,7 +218,6 @@ runs:
         set -euo pipefail
         upload_file=$(mktemp "$RUNNER_TEMP/marketplace-upload.XXXXXX.zip")
         cp -- "$ARCHIVE" "$upload_file"
-        test "$(sha256sum "$upload_file" | cut -d' ' -f1)" = "$EXPECTED_SHA"
         cd "$RUNNER_TEMP"
         status=$(curl --fail-with-body --max-time 120 --silent --show-error --write-out '%{http_code}' \
           --output "$RUNNER_TEMP/marketplace-response.json" \

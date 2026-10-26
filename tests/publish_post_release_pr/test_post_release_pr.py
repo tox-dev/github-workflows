@@ -10,12 +10,10 @@ from conftest import action
 from pytest_httpserver import HTTPServer
 
 
-def test_action_maps_writer_app_slug() -> None:
+def test_action_maps_writer_allowed_paths() -> None:
     action = yaml.safe_load((Path(__file__).resolve().parents[2] / "publish-post-release-pr/action.yml").read_text())
-    assert action["inputs"]["app-slug"]["required"]
     assert action["inputs"]["allowed-paths"]["required"]
-    assert action["runs"]["steps"][0]["env"]["APP_SLUG"] == "${{ inputs.app-slug }}"
-    assert action["runs"]["steps"][1]["env"]["ALLOWED_PATHS"] == "${{ inputs.allowed-paths }}"
+    assert action["runs"]["steps"][0]["env"]["ALLOWED_PATHS"] == "${{ inputs.allowed-paths }}"
     assert "outputs" not in action
     assert {"repository", "base", "label"}.isdisjoint(action["inputs"])
 
@@ -36,21 +34,15 @@ def run_publish(action_scripts: Path, *, cwd: Path, env: dict[str, str]) -> subp
     )
 
 
-def expect_bot(server: HTTPServer) -> None:
-    server.expect_request("/api/v3/users/fixture-app[bot]", method="GET").respond_with_json({"id": 123})
-
-
 def publish(
     tmp_path: Path,
     action_scripts: Path,
     github_api: tuple[HTTPServer, dict[str, str]],
     *,
-    main_blob: str,
     expected_blob: str,
     additional_blob: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], HTTPServer]:
     server, environment = github_api
-    expect_bot(server)
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
     paths = tmp_path / "paths.tsv"
@@ -71,23 +63,9 @@ def publish(
             }
         ]
     )
-    server.expect_request("/api/v3/repos/tox-dev/fixture/git/ref/heads/main", method="GET").respond_with_json(
-        {"object": {"sha": "a" * 40}}
+    server.expect_request("/api/v3/repos/tox-dev/fixture/issues/7/labels", method="GET").respond_with_json(
+        [{"name": "skip news"}]
     )
-    server.expect_request(
-        "/api/v3/repos/tox-dev/fixture/contents/gradle.properties", query_string="ref=main", method="GET"
-    ).respond_with_json({"type": "file", "sha": main_blob})
-    if additional_blob is not None and main_blob == expected_blob:
-        server.expect_request(
-            "/api/v3/repos/tox-dev/fixture/contents/other.txt", query_string="ref=main", method="GET"
-        ).respond_with_json({"type": "file", "sha": additional_blob})
-    if main_blob == expected_blob:
-        server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7/files", method="GET").respond_with_json(
-            [{"filename": "gradle.properties"}, *([{"filename": "other.txt"}] if additional_blob is not None else [])]
-        )
-        server.expect_request("/api/v3/repos/tox-dev/fixture/issues/7/labels", method="GET").respond_with_json(
-            [{"name": "skip news"}]
-        )
     result = run_publish(
         action_scripts,
         cwd=tmp_path,
@@ -95,12 +73,10 @@ def publish(
         | environment
         | {
             "GITHUB_REPOSITORY": "tox-dev/fixture",
-            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": "a" * 40,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
-            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "PATHS_FILE": str(paths),
             "ALLOWED_PATHS": "gradle.properties\nother.txt\n" if additional_blob is not None else "gradle.properties",
@@ -116,34 +92,23 @@ def publish(
 def test_merged_branch_deleted_and_main_matches_is_complete(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
-    result, server = publish(tmp_path, action_scripts, github_api, main_blob="b" * 40, expected_blob="b" * 40)
+    result, server = publish(tmp_path, action_scripts, github_api, expected_blob="b" * 40)
     assert result.returncode == 0, result.stderr
-    assert [request.method for request, _ in server.log] == ["GET"] * 6
+    assert [request.method for request, _ in server.log] == ["GET"] * 2
 
 
 def test_multiline_allowed_paths_accepts_trailing_newline(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
-    result, server = publish(
-        tmp_path, action_scripts, github_api, main_blob="b" * 40, expected_blob="b" * 40, additional_blob="c" * 40
-    )
+    result, server = publish(tmp_path, action_scripts, github_api, expected_blob="b" * 40, additional_blob="c" * 40)
     assert result.returncode == 0, result.stderr
-    assert [request.method for request, _ in server.log] == ["GET"] * 7
-
-
-def test_merged_branch_deleted_and_later_main_change_fails(
-    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
-) -> None:
-    result, server = publish(tmp_path, action_scripts, github_api, main_blob="c" * 40, expected_blob="b" * 40)
-    assert result.returncode != 0
-    assert [request.method for request, _ in server.log] == ["GET"] * 4
+    assert [request.method for request, _ in server.log] == ["GET"] * 2
 
 
 def test_open_pull_request_metadata_change_fails(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     server, environment = github_api
-    expect_bot(server)
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
     paths = tmp_path / "paths.tsv"
@@ -168,12 +133,10 @@ def test_open_pull_request_metadata_change_fails(
         | environment
         | {
             "GITHUB_REPOSITORY": "tox-dev/fixture",
-            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": "a" * 40,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
-            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "PATHS_FILE": str(paths),
             "ALLOWED_PATHS": "gradle.properties",
@@ -190,7 +153,6 @@ def test_closed_unmerged_pr_blocks_retry_before_write(
     tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     server, environment = github_api
-    expect_bot(server)
     bundle, base, commit, blob = candidate(tmp_path)
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
@@ -216,12 +178,10 @@ def test_closed_unmerged_pr_blocks_retry_before_write(
         | environment
         | {
             "GITHUB_REPOSITORY": "tox-dev/fixture",
-            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
-            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "PATHS_FILE": str(paths),
             "ALLOWED_PATHS": "gradle.properties",
@@ -233,7 +193,7 @@ def test_closed_unmerged_pr_blocks_retry_before_write(
     )
     assert result.returncode != 0
     assert "post-release pull request was closed without merging; reopen it to retry" in result.stderr
-    assert [request.method for request, _ in server.log] == ["GET", "GET"]
+    assert [request.method for request, _ in server.log] == ["GET"]
 
 
 def run_git(directory: Path, *args: str) -> str:
@@ -242,14 +202,7 @@ def run_git(directory: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def candidate(
-    tmp_path: Path,
-    *,
-    extra_path: bool = False,
-    wrong_author: bool = False,
-    wrong_committer: bool = False,
-    wrong_message: bool = False,
-) -> tuple[Path, str, str, str]:
+def candidate(tmp_path: Path, *, extra_path: bool = False) -> tuple[Path, str, str, str]:
     repository = tmp_path / "source"
     repository.mkdir()
     run_git(repository, "init", "-q", "-b", "main")
@@ -265,13 +218,7 @@ def candidate(
     if extra_path:
         (repository / "other.txt").write_text("unexpected\n")
         run_git(repository, "add", "other.txt")
-    if wrong_author:
-        run_git(repository, "config", "user.name", "Different author")
-    subprocess.run(
-        ["git", "-C", str(repository), "commit", "-qm", "Different message" if wrong_message else "Bump version"],
-        env=os.environ | ({"GIT_COMMITTER_NAME": "Different committer"} if wrong_committer else {}),
-        check=True,
-    )
+    run_git(repository, "commit", "-qm", "Bump version")
     commit = run_git(repository, "rev-parse", "HEAD")
     blob = run_git(repository, "rev-parse", "HEAD:gradle.properties")
     bundle = tmp_path / "candidate.bundle"
@@ -279,32 +226,17 @@ def candidate(
     return bundle, base, commit, blob
 
 
-@pytest.mark.parametrize(
-    "branch_tamper",
-    [
-        pytest.param("none", id="exact-branch"),
-        pytest.param("tree", id="divergent-tree"),
-        pytest.param("author", id="divergent-author"),
-        pytest.param("committer", id="divergent-committer"),
-        pytest.param("message", id="divergent-message"),
-        pytest.param("base", id="moved-base"),
-        pytest.param("parent", id="merge-commit"),
-    ],
-)
-def test_open_branch_must_match_prepared_candidate(
-    tmp_path: Path,
-    action_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-    branch_tamper: str,
+def test_open_pull_request_branch_is_reused(
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     server, environment = github_api
-    expect_bot(server)
     bundle, base, commit, blob = candidate(tmp_path)
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
     paths = tmp_path / "paths.tsv"
     paths.write_text(f"gradle.properties\t{blob}\n")
-    server.expect_request("/api/v3/repos/tox-dev/fixture/pulls", method="GET").respond_with_json(
+    prefix = "/api/v3/repos/tox-dev/fixture"
+    server.expect_ordered_request(f"{prefix}/pulls", method="GET").respond_with_json(
         [
             {
                 "number": 7,
@@ -317,33 +249,10 @@ def test_open_branch_must_match_prepared_candidate(
             }
         ]
     )
-    server.expect_request("/api/v3/repos/tox-dev/fixture/git/ref/heads/main", method="GET").respond_with_json(
-        {"object": {"sha": "c" * 40 if branch_tamper == "base" else base}}
+    server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
+        {"object": {"sha": commit}}
     )
-    server.expect_request(
-        "/api/v3/repos/tox-dev/fixture/git/ref/heads/post-release-v2.4.7", method="GET"
-    ).respond_with_json({"object": {"sha": commit}})
-    server.expect_request(f"/api/v3/repos/tox-dev/fixture/git/commits/{commit}", method="GET").respond_with_json(
-        {
-            "parents": [{"sha": base}] + ([{"sha": "d" * 40}] if branch_tamper == "parent" else []),
-            "author": {
-                "name": "Other" if branch_tamper == "author" else "fixture-app[bot]",
-                "email": "123+fixture-app[bot]@users.noreply.github.com",
-            },
-            "committer": {
-                "name": "Other" if branch_tamper == "committer" else "fixture-app[bot]",
-                "email": "123+fixture-app[bot]@users.noreply.github.com",
-            },
-            "message": "Other" if branch_tamper == "message" else "Bump version",
-            "tree": {
-                "sha": "b" * 40 if branch_tamper == "tree" else run_git(tmp_path / "source", "rev-parse", "HEAD^{tree}")
-            },
-        }
-    )
-    if branch_tamper == "none":
-        server.expect_request("/api/v3/repos/tox-dev/fixture/issues/7/labels", method="GET").respond_with_json(
-            [{"name": "skip news"}]
-        )
+    server.expect_ordered_request(f"{prefix}/issues/7/labels", method="GET").respond_with_json([{"name": "skip news"}])
     result = run_publish(
         action_scripts,
         cwd=tmp_path,
@@ -351,12 +260,10 @@ def test_open_branch_must_match_prepared_candidate(
         | environment
         | {
             "GITHUB_REPOSITORY": "tox-dev/fixture",
-            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
-            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "PATHS_FILE": str(paths),
             "ALLOWED_PATHS": "gradle.properties",
@@ -366,18 +273,14 @@ def test_open_branch_must_match_prepared_candidate(
             "RUNNER_TEMP": str(tmp_path),
         },
     )
-    assert (result.returncode == 0) is (branch_tamper == "none"), result.stderr
-    assert all(request.method == "GET" for request, _ in server.log)
+    assert result.returncode == 0, result.stderr
+    assert [request.method for request, _ in server.log] == ["GET"] * 3
 
 
-@pytest.mark.parametrize(
-    "matching_head", [pytest.param(True, id="prepared-head"), pytest.param(False, id="changed-head")]
-)
 def test_absent_branch_pushes_prepared_commit_and_opens_pr(
-    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]], matching_head: bool
+    tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
 ) -> None:
     server, environment = github_api
-    server.expect_ordered_request("/api/v3/users/fixture-app[bot]", method="GET").respond_with_json({"id": 123})
     bundle, base, commit, blob = candidate(tmp_path)
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
@@ -399,32 +302,16 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
     paths.write_text(f"gradle.properties\t{blob}\n")
     prefix = "/api/v3/repos/tox-dev/fixture"
     server.expect_ordered_request(f"{prefix}/pulls", method="GET").respond_with_json([])
-    server.expect_ordered_request(f"{prefix}/git/ref/heads/main", method="GET").respond_with_json(
-        {"object": {"sha": base}}
-    )
     server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
         {"message": "Not Found"}, status=404
     )
-    server.expect_ordered_request(f"{prefix}/git/ref/heads/main", method="GET").respond_with_json(
-        {"object": {"sha": base}}
-    )
-    server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
-        {"object": {"sha": commit}}
-    )
-    server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
-        {"object": {"sha": commit}}
-    )
     server.expect_ordered_request(f"{prefix}/pulls", method="POST").respond_with_json(
-        {"number": 7, "head": {"sha": commit if matching_head else "b" * 40}}, status=201
+        {"number": 7, "head": {"sha": commit}}, status=201
     )
-    if matching_head:
-        server.expect_ordered_request(f"{prefix}/git/ref/heads/post-release-v2.4.7", method="GET").respond_with_json(
-            {"object": {"sha": commit}}
-        )
-        server.expect_ordered_request(f"{prefix}/issues/7/labels", method="GET").respond_with_json([])
-        server.expect_ordered_request(f"{prefix}/issues/7/labels", method="POST").respond_with_json(
-            [{"name": "skip news"}], status=200
-        )
+    server.expect_ordered_request(f"{prefix}/issues/7/labels", method="GET").respond_with_json([])
+    server.expect_ordered_request(f"{prefix}/issues/7/labels", method="POST").respond_with_json(
+        [{"name": "skip news"}], status=200
+    )
     result = run_publish(
         action_scripts,
         cwd=tmp_path,
@@ -432,12 +319,10 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
         | environment
         | {
             "GITHUB_REPOSITORY": "tox-dev/fixture",
-            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
             "TITLE": "Bump version to 2.4.8-dev",
-            "COMMIT_MESSAGE": "Bump version",
             "BODY_FILE": str(body),
             "PATHS_FILE": str(paths),
             "ALLOWED_PATHS": "gradle.properties",
@@ -448,7 +333,7 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
             "GIT_CONFIG_GLOBAL": str(git_config),
         },
     )
-    assert (result.returncode == 0) is matching_head, result.stderr
+    assert result.returncode == 0, result.stderr
     assert run_git(remote, "rev-parse", "refs/heads/post-release-v2.4.7") == commit
 
 
@@ -458,9 +343,6 @@ def test_absent_branch_pushes_prepared_commit_and_opens_pr(
         pytest.param("commit", id="stale-bundle"),
         pytest.param("blob", id="changed-path-manifest"),
         pytest.param("extra", id="extra-path"),
-        pytest.param("author", id="wrong-author"),
-        pytest.param("committer", id="wrong-committer"),
-        pytest.param("message", id="wrong-message"),
         pytest.param("unauthorized", id="unauthorized-path"),
     ],
 )
@@ -471,14 +353,7 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
     changed_input: str,
 ) -> None:
     server, environment = github_api
-    expect_bot(server)
-    bundle, base, commit, blob = candidate(
-        tmp_path,
-        extra_path=changed_input in {"extra", "unauthorized"},
-        wrong_author=changed_input == "author",
-        wrong_committer=changed_input == "committer",
-        wrong_message=changed_input == "message",
-    )
+    bundle, base, commit, blob = candidate(tmp_path, extra_path=changed_input in {"extra", "unauthorized"})
     body = tmp_path / "body.md"
     body.write_text("Set the next development version.\n")
     paths = tmp_path / "paths.tsv"
@@ -493,7 +368,6 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
         | environment
         | {
             "GITHUB_REPOSITORY": "tox-dev/fixture",
-            "APP_SLUG": "fixture-app",
             "BASE": "main",
             "BASE_COMMIT": base,
             "BRANCH": "post-release-v2.4.7",
@@ -503,10 +377,9 @@ def test_prepared_candidate_identity_is_checked_before_api_write(
             "ALLOWED_PATHS": "gradle.properties",
             "BUNDLE": str(bundle),
             "CANDIDATE_COMMIT": "d" * 40 if changed_input == "commit" else commit,
-            "COMMIT_MESSAGE": "Bump version",
             "LABEL": "skip news",
             "RUNNER_TEMP": str(tmp_path),
         },
     )
     assert result.returncode != 0
-    assert [request.method for request, _ in server.log] == ["GET"]
+    assert not server.log

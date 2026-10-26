@@ -548,11 +548,9 @@ steps.
     env:
       GH_TOKEN: ${{ steps.app-token.outputs.token }}
     with:
-      app-slug: ${{ steps.app-token.outputs.app-slug }}
       base-commit: ${{ needs.prepare.outputs.base-commit }}
       branch: post-release-${{ github.ref_name }}
       title: Bump version to 2.4.8-dev
-      commit-message: Bump version to 2.4.8-dev after 2.4.7
       body-file: prepared/body.md
       paths-file: prepared/paths.tsv
       allowed-paths: gradle.properties
@@ -560,27 +558,25 @@ steps.
       candidate-commit: ${{ needs.prepare.outputs.candidate-commit }}
 ```
 
-The Action derives the bot identity from the writer's App slug and verifies the commit author and committer, exact
-commit message, single-parent commit, changed path set against the writer's `allowed-paths`, regular file modes, and
-blob identities before any write.
+The Action verifies that the candidate is a single-parent commit on `base-commit`, and checks its changed path set
+against the writer's `allowed-paths`, its regular file modes, and its blob identities before any write.
 
-Pass the keyless job's `base-commit`, the desired `branch` and `title`, its exact one-line `commit-message`, and the
-exact PR body in `body-file`. `paths-file` contains one tab-separated path and desired Git blob SHA1 per line. The
-Action targets `main` in `GITHUB_REPOSITORY` and applies `skip news` to the PR.
+Pass the keyless job's `base-commit`, the desired `branch` and `title`, and the exact PR body in `body-file`.
+`paths-file` contains one tab-separated path and desired Git blob SHA1 per line. The Action targets `main` in
+`GITHUB_REPOSITORY` and applies `skip news` to the PR.
 
 A matching open branch and PR need no second push. If a matching branch has no PR, it creates one. A merged PR with a
-deleted branch succeeds only when the current base still has the expected file bytes. A closed, unmerged PR fails before
-the Action creates a replacement branch or PR; reopen the PR before retrying. A different branch, PR title, body, base,
-path set, or merged file state fails without a force-push. When the prepared change has already merged and produced no
-new commit, pass empty `bundle` and `candidate-commit` values with the same path manifest; the Action still checks the
-merged PR and current base. The Action has no named output.
+deleted branch succeeds. A closed, unmerged PR fails before the Action creates a replacement branch or PR; reopen the PR
+before retrying. A different PR title, body, or base fails without a force-push. When the prepared change has already
+merged and produced no new commit, pass empty `bundle` and `candidate-commit` values with the same path manifest; the
+Action finds the merged PR. The Action has no named output.
 
 ## Sign a JetBrains plugin
 
 `sign-jetbrains-plugin` signs an unsigned plugin ZIP after a keyless Gradle `buildPlugin` job. Run it in a fresh job on
 `ubuntu-26.04` with the signing environment, no checkout, and no Gradle invocation. Download the unsigned artifact and
-pass the SHA256 emitted before that artifact was uploaded. The Action checks the file and its digest, downloads
-JetBrains Marketplace ZIP Signer 0.1.43 from Maven Central, verifies its pinned SHA256, and uses the runner's Java 17
+pass the SHA256 emitted before that artifact was uploaded. The Action checks the file's digest, downloads JetBrains
+Marketplace ZIP Signer 0.1.43 from Maven Central, verifies its pinned SHA256, and uses the runner's Java 17
 installation. It accepts plain PEM or base64 credentials and an encrypted private key with its password. The private key
 is mapped only into the sign step's environment. Its temporary file is removed when that step ends.
 

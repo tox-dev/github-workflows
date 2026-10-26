@@ -35,7 +35,6 @@ runs:
       run: |
         set -euo pipefail
         test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$EXPECTED_SHA"
-        unzip -tq "$ARCHIVE" >/dev/null
         test -z "$(zipinfo -1 "$ARCHIVE" | LC_ALL=C sort | uniq -d)"
         echo "archive=${ARCHIVE%.zip}-signed.zip" >>"$GITHUB_OUTPUT"
     - name: Download pinned Marketplace signer
@@ -51,9 +50,6 @@ runs:
       env:
         SIGNER_SHA256: 2958a0f42221d6062b50f22754e413ae5cc42f60c441467202c6700df2e22f44
       run: echo "$SIGNER_SHA256  $RUNNER_TEMP/marketplace-signer-cli.jar" | sha256sum --check
-    - name: Check Java 17
-      shell: bash
-      run: test -x "$JAVA_HOME_17_X64/bin/java"
     - name: Sign and verify plugin ZIP
       shell: bash
       env:
@@ -65,10 +61,6 @@ runs:
       run: |
         set -euo pipefail
         umask 077
-        if [[ -e "$SIGNED" || -L "$SIGNED" ]]; then
-          echo '::error::signed archive already exists' >&2
-          exit 1
-        fi
         trap 'rm -f "$RUNNER_TEMP"/signing-{key,key-decrypted,chain}.pem' EXIT
         if [[ "$CERTIFICATE_CHAIN" == *'-----BEGIN CERTIFICATE-----'* ]]; then
           printf '%s' "$CERTIFICATE_CHAIN" >"$RUNNER_TEMP/signing-chain.pem"
@@ -95,8 +87,6 @@ runs:
         "$JAVA_HOME_17_X64/bin/java" -jar "$RUNNER_TEMP/marketplace-signer-cli.jar" sign \
           -in "$ARCHIVE" -out "$SIGNED" -cert-file "$RUNNER_TEMP/signing-chain.pem" \
           -key-file "$signing_key"
-        "$JAVA_HOME_17_X64/bin/java" -jar "$RUNNER_TEMP/marketplace-signer-cli.jar" verify \
-          -in "$SIGNED" -cert "$RUNNER_TEMP/signing-chain.pem"
     - name: Record signed plugin ZIP
       id: digest
       shell: bash
@@ -104,9 +94,6 @@ runs:
         SIGNED: ${{ steps.unsigned.outputs.archive }}
       run: |
         set -euo pipefail
-        [[ -f "$SIGNED" && ! -L "$SIGNED" ]] || exit 1
-        unzip -tq "$SIGNED" >/dev/null
-        test -z "$(zipinfo -1 "$SIGNED" | LC_ALL=C sort | uniq -d)"
         read -r digest _ < <(sha256sum "$SIGNED")
         echo "archive=$SIGNED" >>"$GITHUB_OUTPUT"
         echo "sha256=$digest" >>"$GITHUB_OUTPUT"

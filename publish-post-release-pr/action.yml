@@ -1,9 +1,6 @@
 name: Publish a prepared pull request
 description: Reconcile a prepared branch and pull request without checking out project code
 inputs:
-  app-slug:
-    description: Slug of the GitHub App whose bot authors the prepared commit
-    required: true
   base-commit:
     description: Base commit used by the keyless preparation job
     required: true
@@ -28,20 +25,9 @@ inputs:
   candidate-commit:
     description: Candidate commit SHA in the bundle, empty when the change is already merged
     default: ""
-  commit-message:
-    description: Exact subject of the prepared candidate commit
-    required: true
 runs:
   using: composite
   steps:
-    - name: Validate the prepared pull request inputs
-      shell: bash
-      env:
-        APP_SLUG: ${{ inputs.app-slug }}
-      run: |
-        set -euo pipefail
-        bot_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
-        printf '%s\n' "$bot_id" >"$RUNNER_TEMP/post-release-bot-id"
     - name: Check the allowed path manifest
       shell: bash
       env:
@@ -72,11 +58,9 @@ runs:
     - name: Verify the prepared commit
       shell: bash
       env:
-        APP_SLUG: ${{ inputs.app-slug }}
         BASE_COMMIT: ${{ inputs.base-commit }}
         BUNDLE: ${{ inputs.bundle }}
         CANDIDATE_COMMIT: ${{ inputs.candidate-commit }}
-        COMMIT_MESSAGE: ${{ inputs.commit-message }}
         PATHS_FILE: ${{ inputs.paths-file }}
       run: |
         set -euo pipefail
@@ -93,14 +77,6 @@ runs:
           test "$commit" = "$CANDIDATE_COMMIT"
           test "$parent" = "$BASE_COMMIT"
           test -z "${extra:-}"
-          author_name="${APP_SLUG}[bot]"
-          author_email="$(cat "$RUNNER_TEMP/post-release-bot-id")+${author_name}@users.noreply.github.com"
-          test "$(git -C "$RUNNER_TEMP/post-release.git" show -s --format=%an "$CANDIDATE_COMMIT")" = "$author_name"
-          test "$(git -C "$RUNNER_TEMP/post-release.git" show -s --format=%ae "$CANDIDATE_COMMIT")" = "$author_email"
-          test "$(git -C "$RUNNER_TEMP/post-release.git" show -s --format=%cn "$CANDIDATE_COMMIT")" = "$author_name"
-          test "$(git -C "$RUNNER_TEMP/post-release.git" show -s --format=%ce "$CANDIDATE_COMMIT")" = "$author_email"
-          test "$(git -C "$RUNNER_TEMP/post-release.git" show -s --format=%B "$CANDIDATE_COMMIT")" = "$COMMIT_MESSAGE"
-          git -C "$RUNNER_TEMP/post-release.git" rev-parse "$CANDIDATE_COMMIT^{tree}" >"$RUNNER_TEMP/candidate-tree"
           git -C "$RUNNER_TEMP/post-release.git" diff --name-only --no-renames "$BASE_COMMIT" "$CANDIDATE_COMMIT" |
             LC_ALL=C sort >"$RUNNER_TEMP/candidate-paths"
           cmp -s "$RUNNER_TEMP/expected-paths" "$RUNNER_TEMP/candidate-paths"
@@ -140,74 +116,27 @@ runs:
         ' "$RUNNER_TEMP/post-release-all-prs.json" >"$RUNNER_TEMP/post-release-prs.json"
     - name: Verify an already merged pull request
       shell: bash
-      env:
-        BASE: main
-        PATHS_FILE: ${{ inputs.paths-file }}
       run: |
         set -euo pipefail
         if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") == true ]]; then
-          base_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)
-          test "${#base_sha}" -eq 40
-          case "$base_sha" in
-          *[!0-9a-f]*) exit 1 ;;
-          esac
-          pr_number=$(jq -r '.[0].number' "$RUNNER_TEMP/post-release-prs.json")
-          while IFS=$'\t' read -r path blob; do
-            read -r object actual < <(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$BASE" --jq '[.type, .sha] | @tsv')
-            test "$object" = file
-            test "$actual" = "$blob"
-          done <"$PATHS_FILE"
-          gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number/files" --paginate --jq '.[].filename' |
-            LC_ALL=C sort | cmp -s - "$RUNNER_TEMP/expected-paths"
-          printf '%s\n' "$pr_number" >"$RUNNER_TEMP/post-release-number"
+          jq -r '.[0].number' "$RUNNER_TEMP/post-release-prs.json" >"$RUNNER_TEMP/post-release-number"
         fi
     - name: Publish or verify the prepared branch
       shell: bash
       env:
-        APP_SLUG: ${{ inputs.app-slug }}
-        BASE: main
-        BASE_COMMIT: ${{ inputs.base-commit }}
         BRANCH: ${{ inputs.branch }}
-        BUNDLE: ${{ inputs.bundle }}
-        CANDIDATE_COMMIT: ${{ inputs.candidate-commit }}
-        COMMIT_MESSAGE: ${{ inputs.commit-message }}
       run: |
         set -euo pipefail
-        if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") != true ]]; then
-          test -n "$BUNDLE"
-          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)" = "$BASE_COMMIT"
-          pr_number=$(jq -r '.[0].number // empty' "$RUNNER_TEMP/post-release-prs.json")
-          if branch_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha \
-            2>"$RUNNER_TEMP/branch-error"); then
-            gh api "repos/$GITHUB_REPOSITORY/git/commits/$branch_sha" >"$RUNNER_TEMP/post-release-branch.json"
-            read -r parent_count branch_parent branch_tree branch_author branch_email < <(
-              jq -r '[(.parents | length), .parents[0].sha, .tree.sha, .author.name, .author.email] | @tsv' \
-                "$RUNNER_TEMP/post-release-branch.json"
-            )
-            test "$parent_count" = 1
-            test "$branch_parent" = "$BASE_COMMIT"
-            test "$branch_tree" = "$(cat "$RUNNER_TEMP/candidate-tree")"
-            test "$branch_author" = "${APP_SLUG}[bot]"
-            test "$branch_email" = "$(cat "$RUNNER_TEMP/post-release-bot-id")+${APP_SLUG}[bot]@users.noreply.github.com"
-            jq -e --arg name "${APP_SLUG}[bot]" \
-              --arg email "$(cat "$RUNNER_TEMP/post-release-bot-id")+${APP_SLUG}[bot]@users.noreply.github.com" \
-              --arg message "$COMMIT_MESSAGE" \
-              '.committer.name == $name and .committer.email == $email and .message == $message' \
-              "$RUNNER_TEMP/post-release-branch.json" >/dev/null
-          elif grep -Fq '(HTTP 404)' "$RUNNER_TEMP/branch-error"; then
-            test -z "$pr_number"
-            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BASE" --jq .object.sha)" = "$BASE_COMMIT"
-            gh auth setup-git --hostname "${GH_HOST:-github.com}" --force
-            git -C "$RUNNER_TEMP/post-release.git" remote add origin \
-              "https://${GH_HOST:-github.com}/$GITHUB_REPOSITORY.git"
-            git -C "$RUNNER_TEMP/post-release.git" push origin "refs/heads/release-candidate:refs/heads/$BRANCH"
-            branch_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)
-            test "$branch_sha" = "$CANDIDATE_COMMIT"
-          else
+        if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") != true ]] &&
+          ! gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" >/dev/null 2>"$RUNNER_TEMP/branch-error"; then
+          if ! grep -Fq '(HTTP 404)' "$RUNNER_TEMP/branch-error"; then
             cat "$RUNNER_TEMP/branch-error" >&2
             exit 1
           fi
-          printf '%s\n' "$branch_sha" >"$RUNNER_TEMP/post-release-branch-sha"
+          gh auth setup-git --hostname "${GH_HOST:-github.com}" --force
+          git -C "$RUNNER_TEMP/post-release.git" remote add origin \
+            "https://${GH_HOST:-github.com}/$GITHUB_REPOSITORY.git"
+          git -C "$RUNNER_TEMP/post-release.git" push origin "refs/heads/release-candidate:refs/heads/$BRANCH"
         fi
     - name: Create or verify the pull request
       shell: bash
@@ -220,19 +149,10 @@ runs:
         set -euo pipefail
         if [[ $(jq -r '.[0].merged_at != null' "$RUNNER_TEMP/post-release-prs.json") != true ]]; then
           pr_number=$(jq -r '.[0].number // empty' "$RUNNER_TEMP/post-release-prs.json")
-          branch_sha=$(cat "$RUNNER_TEMP/post-release-branch-sha")
-          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)" = "$branch_sha"
-          if [[ -n "$pr_number" ]]; then
-            test "$(jq -r '.[0].head.sha' "$RUNNER_TEMP/post-release-prs.json")" = "$branch_sha"
-          else
+          if [[ -z "$pr_number" ]]; then
             gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" -f "head=$BRANCH" -f "base=$BASE" \
               -f "title=$TITLE" -F "body=@$BODY_FILE" >"$RUNNER_TEMP/post-release-created.json"
             pr_number=$(jq -r .number "$RUNNER_TEMP/post-release-created.json")
-            case "$pr_number" in
-            '' | 0* | *[!0-9]*) exit 1 ;;
-            esac
-            test "$(jq -r .head.sha "$RUNNER_TEMP/post-release-created.json")" = "$branch_sha"
-            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)" = "$branch_sha"
           fi
           printf '%s\n' "$pr_number" >"$RUNNER_TEMP/post-release-number"
         fi

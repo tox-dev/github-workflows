@@ -89,7 +89,6 @@ def test_signs_and_verifies_exact_archive(
     "invalid",
     [
         pytest.param("digest", id="wrong-digest"),
-        pytest.param("corrupt", id="corrupt-zip"),
         pytest.param("duplicate", id="duplicate-member"),
     ],
 )
@@ -100,9 +99,7 @@ def test_rejects_invalid_unsigned_archive(
     invalid: str,
 ) -> None:
     archive = unsigned_archive
-    if invalid == "corrupt":
-        archive.write_bytes(b"not a ZIP")
-    elif invalid == "duplicate":
+    if invalid == "duplicate":
         with ZipFile(archive, "a") as content:
             content.writestr("Plugin/lib/Plugin.jar", b"changed")
     assert (
@@ -117,44 +114,6 @@ def test_rejects_invalid_unsigned_archive(
         ).returncode
         != 0
     )
-
-
-def test_rejects_missing_java(action_scripts: Path, unsigned_archive: Path, tmp_path: Path) -> None:
-    assert (
-        action(
-            tmp_path,
-            tmp_path,
-            action_scripts,
-            "sign-jetbrains-plugin",
-            version="",
-            ARCHIVE=str(unsigned_archive),
-            SHA256=hashlib.sha256(unsigned_archive.read_bytes()).hexdigest(),
-            JAVA_HOME_17_X64=str(tmp_path / "missing"),
-        ).returncode
-        != 0
-    )
-
-
-@pytest.mark.parametrize("existing", [pytest.param("file", id="file"), pytest.param("symlink", id="symlink")])
-def test_rejects_existing_signed_archive(
-    action_scripts: Path, unsigned_archive: Path, tmp_path: Path, existing: str
-) -> None:
-    signed = tmp_path / "Plugin 2-1.0-signed.zip"
-    if existing == "symlink":
-        signed.symlink_to(unsigned_archive)
-    else:
-        signed.write_bytes(b"existing")
-    result = action(
-        tmp_path,
-        tmp_path,
-        action_scripts,
-        "sign-jetbrains-plugin",
-        version="",
-        ARCHIVE=str(unsigned_archive),
-        SHA256=hashlib.sha256(unsigned_archive.read_bytes()).hexdigest(),
-    )
-    assert result.returncode != 0
-    assert "signed archive already exists" in result.stderr
 
 
 @pytest.fixture

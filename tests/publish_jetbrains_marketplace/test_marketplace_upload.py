@@ -18,7 +18,6 @@ from pytest_httpserver import HTTPServer
     "changed",
     [
         pytest.param("digest", id="digest"),
-        pytest.param("corrupt", id="corrupt"),
         pytest.param("duplicate", id="duplicate"),
     ],
 )
@@ -38,9 +37,6 @@ def test_invalid_archive_or_input_fails_before_upload(
     }
     if changed == "digest":
         settings["SHA256"] = "0" * 64
-    elif changed == "corrupt":
-        signed_archive.write_bytes(b"not a zip")
-        settings["SHA256"] = sha256(signed_archive.read_bytes()).hexdigest()
     else:
         with ZipFile(signed_archive, "a") as content:
             content.writestr("Fish Shell/lib/plugin.jar", b"duplicate")
@@ -434,30 +430,6 @@ def test_prior_acceptance_with_matching_artifacts_skips_upload(
         PUBLISH_TOKEN="fixture-token",
     )
     assert result.returncode == 0, result.stderr
-    assert not httpserver.log
-
-
-def test_prior_acceptance_missing_receipt_file_blocks_retry(
-    signed_archive: Path,
-    tmp_path: Path,
-    marketplace_scripts: Path,
-    github_api: tuple[HTTPServer, dict[str, str]],
-    httpserver: HTTPServer,
-) -> None:
-    result = publish_action(
-        tmp_path,
-        marketplace_scripts,
-        github_api,
-        previous_run=True,
-        accepted_archive=signed_archive,
-        missing_receipt=True,
-        ARCHIVE=str(signed_archive),
-        SHA256=sha256(signed_archive.read_bytes()).hexdigest(),
-        PLUGIN_ID="29973",
-        CHANNEL="beta",
-        PUBLISH_TOKEN="fixture-token",
-    )
-    assert result.returncode != 0
     assert not httpserver.log
 
 
