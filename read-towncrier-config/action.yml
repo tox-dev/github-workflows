@@ -1,5 +1,5 @@
 name: Read Towncrier configuration
-description: Read release paths, format, and fragment categories from the committed Towncrier configuration
+description: Read the release paths and format from the committed Towncrier configuration
 outputs:
   changelog:
     description: Changelog path relative to the repository
@@ -27,42 +27,11 @@ runs:
         python3 - "$config_dir/config.toml" "$GITHUB_OUTPUT" <<'PY'
         import sys
         import tomllib
-        from pathlib import Path, PurePosixPath
+        from pathlib import Path
 
-        document = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-        config = document.get("tool", {}).get("towncrier")
-        if not isinstance(config, dict):
-            raise SystemExit("Towncrier configuration is required")
-        types = config.get("type")
-        fragments = config.get("fragment")
-        if types is not None and fragments is not None:
-            raise SystemExit("Towncrier type and fragment tables cannot be combined")
-        for key in ("filename", "directory"):
-            value = config.get(key)
-            if not isinstance(value, str) or not value.isprintable() or not value or value != str(PurePosixPath(value)):
-                raise SystemExit("Towncrier paths must be normalized relative paths")
-            if PurePosixPath(value).is_absolute() or ".." in value.split("/"):
-                raise SystemExit("Towncrier paths must stay within the repository")
+        config = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["tool"]["towncrier"]
         changelog = config["filename"]
-        if changelog.endswith(".md"):
-            format_name = "markdown"
-        elif changelog.endswith(".rst"):
-            format_name = "rst"
-        else:
-            raise SystemExit("Towncrier changelog must use Markdown or RST")
-        if types is not None:
-            if not isinstance(types, list) or not types or any(not isinstance(item, dict) for item in types):
-                raise SystemExit("Towncrier type categories are required")
-            categories = [category.get("directory") for category in types]
-        elif isinstance(fragments, dict) and fragments and all(isinstance(value, dict) for value in fragments.values()):
-            categories = list(fragments)
-        else:
-            raise SystemExit("Towncrier fragment categories are required")
-        if not all(
-            isinstance(category, str) and category.isprintable() and category and "/" not in category
-            for category in categories
-        ):
-            raise SystemExit("Towncrier fragment categories must be printable names")
+        format_name = "rst" if changelog.endswith(".rst") else "markdown"
         with Path(sys.argv[2]).open("a", encoding="utf-8") as output:
             output.write(f"changelog={changelog}\nfragments={config['directory']}\nformat={format_name}\n")
         PY

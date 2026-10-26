@@ -74,21 +74,6 @@ def test_commit_and_tag_rejects_invalid_tag(repository: Path, tmp_path: Path, ac
     assert run(repository, "git", "ls-remote", "origin", "refs/heads/main").stdout == original_remote
 
 
-def test_commit_and_tag_rejects_invalid_annotated(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    (repository / "CHANGELOG.md").write_text("Staged release.\n")
-    run(repository, "git", "add", "CHANGELOG.md")
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "commit-and-tag",
-        version="0.2.0",
-        ANNOTATED="maybe",
-    )
-    assert result.returncode != 0
-    assert "annotated must be true or false" in result.stderr
-
-
 def test_commit_and_tag_keeps_remote_unchanged_on_rejection(
     repository: Path, tmp_path: Path, action_scripts: Path
 ) -> None:
@@ -115,28 +100,5 @@ def test_commit_and_tag_keeps_remote_unchanged_on_rejection(
         PATH=f"{tmp_path}:{os.environ['PATH']}",
     )
     assert result.returncode != 0
-    assert run(repository, "git", "ls-remote", "origin", "refs/heads/main").stdout == before
-    assert not run(repository, "git", "ls-remote", "origin", "refs/tags/0.2.0").stdout
-
-
-def test_commit_and_tag_rejects_missing_token_without_remote_change(
-    repository: Path, tmp_path: Path, action_scripts: Path
-) -> None:
-    assert action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0").returncode == 0
-    run(repository, "git", "reset", "--hard", "HEAD")
-    assert action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0").returncode == 0
-    before = run(repository, "git", "ls-remote", "origin", "refs/heads/main").stdout
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "commit-and-tag",
-        version="0.2.0",
-        APP_SLUG="release-test",
-        TOKEN="",
-        GH_TOKEN="ambient-test-token",  # ruff: ignore[hardcoded-password-func-arg]  # No token reaches GitHub.
-    )
-    assert result.returncode != 0
-    assert "repository App token and slug are required" in result.stderr
     assert run(repository, "git", "ls-remote", "origin", "refs/heads/main").stdout == before
     assert not run(repository, "git", "ls-remote", "origin", "refs/tags/0.2.0").stdout

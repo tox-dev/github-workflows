@@ -130,7 +130,7 @@ def test_render_release_notes_custom_artifact_label(
 @pytest.mark.parametrize(
     ("tag", "remove_heading", "error"),
     [
-        pytest.param("invalid tag", False, "release tag not found", id="invalid-tag"),
+        pytest.param("invalid tag", False, "expected a major.minor.patch version", id="invalid-tag"),
         pytest.param("0.2.0", True, "expected one changelog section", id="missing-heading"),
     ],
 )

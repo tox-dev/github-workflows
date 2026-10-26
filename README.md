@@ -152,8 +152,7 @@ refresh produces a patch. Neither mode pushes a branch or requests a write token
 
 Every shared `prek` command runs through `tools/cooled_prek.sh`, which the `cooled-prek` Action wraps for workflows, and
 passes `--config .pre-commit-config.yaml`. Without it, prek prefers a root `prek.toml` and also runs nested
-configurations, which no guard checks. `prepare-towncrier` therefore rejects a `prek.toml` anywhere, a
-`.pre-commit-config.yml`, and a `.pre-commit-config.yaml` below the root before it runs `prek`.
+configurations, which no guard checks.
 
 ## Start with a caller
 
@@ -324,9 +323,8 @@ tag-triggered ecosystem publisher stays in the caller repository.
 
 ## Read Towncrier configuration
 
-`read-towncrier-config` reads `towncrier.toml` or `pyproject.toml` from the checkout's committed `HEAD`. It requires
-normalized changelog and fragment paths, a Markdown or RST changelog suffix, and explicit fragment categories. It reads
-committed bytes so an untrusted release patch cannot change the allowed paths or categories.
+`read-towncrier-config` reads `towncrier.toml` or `pyproject.toml` from the checkout's committed `HEAD`, so an untrusted
+release patch cannot change the allowed paths.
 
 ```yaml
   - id: towncrier
@@ -336,14 +334,14 @@ committed bytes so an untrusted release patch cannot change the allowed paths or
     run: printf '%s\n' "$CHANGELOG"
 ```
 
-Outputs are `changelog`, `fragments`, and `format` (`markdown` or `rst`). The Action does not modify the checkout or
-GitHub state.
+Outputs are `changelog`, `fragments`, and `format`: `rst` for a `.rst` changelog, otherwise `markdown`. The Action does
+not modify the checkout or GitHub state.
 
 ## Prepare Towncrier release
 
 `prepare-towncrier` chooses the next version, links fragments to their squash PRs, runs Towncrier and the selected
 formatter hook through `prek`, then writes a binary Git patch at `$RUNNER_TEMP/release.patch`. It reads the changelog
-path, fragment directory, categories, and Markdown or RST format from committed Towncrier configuration through
+path, fragment directory, and Markdown or RST format from committed Towncrier configuration through
 `read-towncrier-config`. It does not commit or push. Version selection, fragment linking, the Towncrier build, and
 formatting must all succeed.
 
@@ -364,16 +362,14 @@ group needs release-creator 3.1.0 or later.
   unprefixed numeric tags in the repository's history. This does not set the changelog heading prefix.
 - `changelog-prefix`: Empty by default, so Towncrier writes `1.2.3` even if the tag is `v1.2.3`. Set `v` for a changelog
   whose release headings use `v1.2.3`.
-- `version`: Explicit version for a caller with its own version selector. It takes precedence over `bump`; the Action
-  still checks that it is newer than existing tags.
+- `version`: Explicit version for a caller with its own version selector. It takes precedence over `bump`.
 - `phase`: `all` (default) runs the complete Action. The reusable workflow uses `build` to select the version, link
   authors, and build the changelog while hooks install; it then uses `finalize` to format, render, and write the patch.
   Pass the version selected by `build` to `finalize`.
 
-The committed `tool.towncrier` configuration must give a normalized `filename`, `directory`, and explicit fragment
-categories. The filename must end in `.md` or `.rst`; `mdformat` or `docstrfmt` must be a configured `prek` hook for
-that format. The Action writes the patch at `$RUNNER_TEMP/release.patch`; the reusable workflow uploads it by artifact
-ID.
+The committed `tool.towncrier` configuration gives the `filename` and `directory`. `docstrfmt` formats a `.rst`
+changelog and `mdformat` any other; the formatter must be a configured `prek` hook. The Action writes the patch at
+`$RUNNER_TEMP/release.patch`; the reusable workflow uploads it by artifact ID.
 
 **Output:** `version` is the selected tag string. Use `steps.prepare.outputs.version` as a job output and pass it to
 both later Actions. **Working-tree effect:** Towncrier changes the changelog and consumes fragments; the patch records

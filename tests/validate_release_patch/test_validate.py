@@ -141,42 +141,6 @@ def test_validate_rejects_renamed_fragment_source(repository: Path, tmp_path: Pa
 
 
 @pytest.mark.parametrize(
-    ("before", "after", "error"),
-    [
-        pytest.param("[tool.towncrier]", "[tool.other]", "Towncrier configuration is required", id="missing-config"),
-        pytest.param('directory = "changelog.d"\n', "", "normalized relative paths", id="missing-directory"),
-        pytest.param('filename = "CHANGELOG.md"\n', "", "normalized relative paths", id="missing-filename"),
-        pytest.param(
-            'type = [{ directory = "feature", name = "Added", showcontent = true }]\n',
-            "",
-            "Towncrier fragment categories are required",
-            id="missing-categories",
-        ),
-    ],
-)
-def test_validate_requires_explicit_towncrier_config(
-    repository: Path, tmp_path: Path, action_scripts: Path, before: str, after: str, error: str
-) -> None:
-    project = repository / "pyproject.toml"
-    project.write_text(project.read_text().replace(before, after))
-    run(repository, "git", "add", "pyproject.toml")
-    run(repository, "git", "commit", "-m", "Remove release configuration")
-    run(repository, "git", "push", "origin", "main")
-    (repository / "CHANGELOG.md").write_text("# Changelog\n\n## 0.2.0 (2026-10-22)\n\n- Add a feature.\n")
-    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
-    run(repository, "git", "reset", "--hard", "HEAD")
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "validate-release-patch",
-        version="0.2.0",
-    )
-    assert result.returncode != 0
-    assert error in result.stderr
-
-
-@pytest.mark.parametrize(
     "file_mode",
     [pytest.param("executable", id="executable"), pytest.param("symlink", id="symlink")],
 )

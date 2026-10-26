@@ -23,18 +23,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Require a valid preparation phase
-      shell: bash
-      env:
-        PHASE: ${{ inputs.phase }}
-      run: |
-        case "$PHASE" in
-        all | build | finalize) ;;
-        *)
-          echo '::error::phase must be all, build, or finalize' >&2
-          exit 1
-          ;;
-        esac
     - id: config
       uses: $/read-towncrier-config
     - id: version
@@ -49,17 +37,10 @@ runs:
       run: |
         set -euo pipefail
         if [[ "$PHASE" == finalize ]]; then
-          [[ -n "$VERSION" ]] || {
-            echo '::error::finalize requires a version from the build phase' >&2
-            exit 1
-          }
           printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
           exit 0
         fi
-        if [[ -n "$VERSION" ]]; then
-          git tag --list | release-creator tags --next auto --directory "$FRAGMENTS" >/dev/null
-          git tag --list | release-creator tags "$VERSION" --require-newer
-        else
+        if [[ -z "$VERSION" ]]; then
           args=(--next "$BUMP" --directory "$FRAGMENTS")
           if [[ -n "$TAG_PREFIX" ]]; then
             args+=(--prefix "$TAG_PREFIX")
@@ -85,13 +66,6 @@ runs:
         CHANGELOG_PREFIX: ${{ inputs.changelog-prefix }}
       run: |
         set -euo pipefail
-        case "$CHANGELOG_PREFIX" in
-        '' | v) ;;
-        *)
-          echo '::error::changelog-prefix must be empty or v' >&2
-          exit 1
-          ;;
-        esac
         towncrier build --yes --version "$CHANGELOG_PREFIX${VERSION#v}"
     - name: Add new contributors to the changelog
       if: inputs.phase != 'finalize'
@@ -104,17 +78,6 @@ runs:
         GH_TOKEN: ${{ github.token }}
       run: >-
         release-creator contributors --changelog "$CHANGELOG" --version "$CHANGELOG_PREFIX${VERSION#v}" --repository "$REPOSITORY"
-    - name: Reject other hook configurations
-      if: inputs.phase != 'build'
-      shell: bash
-      run: |
-        set -euo pipefail
-        others=$(git ls-files -- ':(glob)**/prek.toml' ':(glob)**/.pre-commit-config.yml' \
-          ':(glob)*/**/.pre-commit-config.yaml')
-        if [[ -n "$others" ]]; then
-          echo "::error::hooks must be configured only in the root .pre-commit-config.yaml: ${others//$'\n'/, }" >&2
-          exit 1
-        fi
     - name: Format changelog
       if: inputs.phase != 'build'
       shell: bash
@@ -124,12 +87,8 @@ runs:
       run: |
         set -euo pipefail
         case "$FORMAT" in
-        markdown) formatter=mdformat ;;
         rst) formatter=docstrfmt ;;
-        *)
-          echo '::error::unsupported changelog format' >&2
-          exit 1
-          ;;
+        *) formatter=mdformat ;;
         esac
         prek=$GITHUB_ACTION_PATH/../tools/cooled_prek.sh
         if ! "$prek" run "$formatter" --files "$CHANGELOG"; then

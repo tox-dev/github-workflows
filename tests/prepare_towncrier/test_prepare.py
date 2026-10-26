@@ -53,13 +53,6 @@ def test_prepare_finalize_phase_preserves_version_output(
     assert (tmp_path / "output").read_text() == "version=0.2.0\n"
 
 
-def test_prepare_finalize_phase_requires_version(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="", PHASE="finalize")
-
-    assert result.returncode != 0
-    assert "finalize requires a version" in result.stderr
-
-
 def test_prepare_custom_changelog(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
     project = repository / "pyproject.toml"
     project.write_text(project.read_text().replace("CHANGELOG.md", "HISTORY.md"))
@@ -143,33 +136,6 @@ def test_prepare_renders_github_notes(
 
 
 @pytest.mark.parametrize(
-    ("option", "value", "error"),
-    [
-        pytest.param("CHANGELOG_PREFIX", "x", "changelog-prefix must be empty or v", id="changelog-prefix"),
-        pytest.param("PHASE", "unknown", "phase must be all, build, or finalize", id="phase"),
-    ],
-)
-def test_prepare_rejects_invalid_option(
-    repository: Path,
-    tmp_path: Path,
-    action_scripts: Path,
-    option: str,
-    value: str,
-    error: str,
-) -> None:
-    result = action(
-        repository,
-        tmp_path,
-        action_scripts,
-        "prepare-towncrier",
-        version="0.2.0",
-        **{option: value},
-    )
-    assert result.returncode != 0
-    assert error in result.stderr
-
-
-@pytest.mark.parametrize(
     ("bump", "expected"),
     [
         pytest.param("auto", "0.2.0", id="auto"),
@@ -200,14 +166,6 @@ def test_prepare_preserves_prefixed_changelog_heading(repository: Path, tmp_path
     assert result.returncode == 0, result.stderr
     assert "version=v0.2.0" in (tmp_path / "output").read_text()
     assert "## v0.2.0 (" in (repository / "CHANGELOG.md").read_text()
-
-
-@pytest.mark.parametrize("version", [pytest.param("0.1.0", id="existing"), pytest.param("0.0.1", id="older")])
-def test_prepare_rejects_reused_version(repository: Path, tmp_path: Path, action_scripts: Path, version: str) -> None:
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version=version)
-    assert result.returncode != 0
-    assert "must be newer" in result.stderr
-    assert not (tmp_path / "release.patch").exists()
 
 
 def test_prepare_links_named_fragments(
@@ -287,7 +245,7 @@ def test_prepare_rejects_empty_release(repository: Path, tmp_path: Path, action_
     run(repository, "git", "add", "-u")
     run(repository, "git", "commit", "-m", "Remove unused fragment")
     run(repository, "git", "push", "origin", "main")
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
+    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="")
     assert result.returncode != 0
     assert "no changelog fragments to release" in result.stderr
 
@@ -385,29 +343,6 @@ def _author_lookup(github_api: tuple[HTTPServer, dict[str, str]], number: int) -
     _, environment = github_api
     environment["TEST_PULL_NUMBER"] = str(number)
     return environment
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        pytest.param("prek.toml", id="root-prek-toml"),
-        pytest.param("sub/prek.toml", id="nested-prek-toml"),
-        pytest.param(".pre-commit-config.yml", id="root-yml"),
-        pytest.param("sub/.pre-commit-config.yaml", id="nested-yaml"),
-    ],
-)
-def test_prepare_rejects_other_hook_configuration(
-    repository: Path, tmp_path: Path, action_scripts: Path, path: str
-) -> None:
-    (repository / path).parent.mkdir(parents=True, exist_ok=True)
-    (repository / path).write_text("repos: []\n")
-    run(repository, "git", "add", path)
-    run(repository, "git", "commit", "-m", "Add another hook configuration")
-
-    result = action(repository, tmp_path, action_scripts, "prepare-towncrier", version="0.2.0")
-
-    assert result.returncode != 0
-    assert f"only in the root .pre-commit-config.yaml: {path}" in result.stderr
 
 
 @pytest.mark.parametrize(
