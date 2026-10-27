@@ -130,7 +130,7 @@ def test_prepare_renders_github_notes(
 
         - Add a new feature ([#2](https://github.com/tox-dev/github-workflows/pull/2)) by [@gaborbernat](https://github.com/gaborbernat).
 
-        [Full Changelog](https://github.com/tox-dev/github-workflows/compare/0.1.0...0.2.0)
+        [📜 Full Changelog](https://github.com/tox-dev/github-workflows/compare/0.1.0...0.2.0)
         """,
     )
 

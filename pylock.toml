@@ -1030,7 +1030,7 @@ sha256 = "cb7654125e3dcb594269a6feb56ac693f1f13b7c654493a93eba72dc22d18034"
 [[packages]]
 name = "pyyaml"
 version = "6.0.3"
-marker = "\"release-prepare\" in dependency_groups or \"test\" in dependency_groups"
+marker = "\"test\" in dependency_groups"
 requires-python = ">=3.8"
 index = "https://pypi.org/simple/"
 
@@ -1045,7 +1045,7 @@ sha256 = "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
 
 [[packages]]
 name = "release-creator"
-version = "4.1.0"
+version = "4.3.0"
 marker = "\"release-prepare\" in dependency_groups or \"test\" in dependency_groups"
 requires-python = ">=3.15"
 dependencies = [
@@ -1054,28 +1054,18 @@ dependencies = [
     { name = "mdformat" },
     { name = "mdformat-gfm" },
     { name = "packaging" },
-    { name = "pyyaml" },
     { name = "towncrier" },
 ]
 index = "https://pypi.org/simple/"
 
-[packages.sdist]
-name = "release_creator-4.1.0.tar.gz"
-upload-time = 2026-10-26 18:24:45.805437+00:00
-url = "https://files.pythonhosted.org/packages/7f/fd/05d7f3c604476a238d67d5aaa2a4085312e7078c193dbd7ad99ad48d560d/release_creator-4.1.0.tar.gz"
-size = 186016
-
-[packages.sdist.hashes]
-sha256 = "c783037f5ca2efc16fa7cccfb1c2abf0a442f116a63ca82bd7bfb7e2a8343a15"
-
 [[packages.wheels]]
-name = "release_creator-4.1.0-py3-none-any.whl"
-upload-time = 2026-10-26 18:24:44.353933+00:00
-url = "https://files.pythonhosted.org/packages/30/d0/38480e99025c021d07e0710af02547562dfadbd798bef26dc01869a3f81e/release_creator-4.1.0-py3-none-any.whl"
-size = 52922
+name = "release_creator-4.3.0-py3-none-any.whl"
+upload-time = 2026-10-27 20:03:24.840699+00:00
+url = "https://files.pythonhosted.org/packages/c4/35/cb402853dd142441cbfca66439332ff190edb76dc2111bae3bf52fa67ed8/release_creator-4.3.0-py3-none-any.whl"
+size = 53455
 
 [packages.wheels.hashes]
-sha256 = "67deae16d11ac261a1512f18a22c0cf13418f43afc3e56cb74e58ad4422062e3"
+sha256 = "8d5a60d4b90fb772c73f106cce25c4dec9a658ef483b4223a5af4a9f4a6d5429"
 
 [[packages]]
 name = "setuptools"
@@ -1472,10 +1462,6 @@ command-line = [
     "lock",
     "--all-groups",
     "--all-extras",
-    "--no-cache",
-    "pyproject.toml",
-    "--output",
-    "pylock.toml",
 ]
 input-path = "pyproject.toml"
 mode = "universal"
