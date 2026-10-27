@@ -56,9 +56,9 @@ def test_render_release_notes_uses_tagged_changelog(
 
         - Add a new feature ([#2](https://github.com/tox-dev/fixture/pull/2)) by [@gaborbernat](https://github.com/gaborbernat).
 
-        [PyPI release](https://pypi.org/project/fixture/0.2.0/)
+        [🐍 PyPI release](https://pypi.org/project/fixture/0.2.0/)
 
-        [Full Changelog](https://github.com/tox-dev/fixture/compare/0.1.0...0.2.0)
+        [📜 Full Changelog](https://github.com/tox-dev/fixture/compare/0.1.0...0.2.0)
         """,
     )
     assert "previous=0.1.0" in (tmp_path / "output").read_text()
@@ -122,6 +122,43 @@ def test_render_release_notes_custom_artifact_label(
     )
     assert result.returncode == 0, result.stderr
     assert (
-        "[Zipapp](https://github.com/tox-dev/fixture/releases/download/0.2.0/fixture.pyz)"
+        "[📦 Zipapp](https://github.com/tox-dev/fixture/releases/download/0.2.0/fixture.pyz)"
         in (tmp_path / "release-notes.md").read_text()
     )
+
+
+def test_render_release_notes_lists_every_artifact_line(
+    tagged_repository: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    result = action(
+        tagged_repository,
+        tmp_path,
+        action_scripts,
+        "render-release-notes",
+        version="0.2.0",
+        TAG="0.2.0",
+        ARTIFACT_URL="https://pypi.org/project/fixture/0.2.0/\nhttps://pypi.org/project/fixture-bare/0.2.0/\n",
+        ARTIFACT_LABEL="PyPI: fixture\nPyPI: fixture-bare\n",
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        "[🐍 PyPI: fixture](https://pypi.org/project/fixture/0.2.0/), "
+        "[🐍 PyPI: fixture-bare](https://pypi.org/project/fixture-bare/0.2.0/)\n"
+    ) in (tmp_path / "release-notes.md").read_text()
+
+
+def test_render_release_notes_rejects_unpaired_labels(
+    tagged_repository: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    result = action(
+        tagged_repository,
+        tmp_path,
+        action_scripts,
+        "render-release-notes",
+        version="0.2.0",
+        TAG="0.2.0",
+        ARTIFACT_URL="https://pypi.org/project/fixture/0.2.0/\nhttps://pypi.org/project/fixture-bare/0.2.0/",
+        ARTIFACT_LABEL="PyPI: fixture",
+    )
+    assert result.returncode != 0
+    assert "artifact-label has 1 lines for 2 artifact-url lines" in result.stdout

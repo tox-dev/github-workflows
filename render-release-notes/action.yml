@@ -8,11 +8,11 @@ inputs:
     description: Tracked changelog path
     required: true
   artifact-url:
-    description: Published ecosystem release URL
+    description: Published ecosystem release URL, one per line for several packages
     default: ""
   artifact-label:
-    description: Link text for the published artifact
-    default: PyPI release
+    description: Link text for each artifact-url line, in the same order; default PyPI release
+    default: ""
   previous:
     description: Previous tag, or auto to calculate it from Git history
     default: auto
@@ -55,10 +55,19 @@ runs:
         if [[ -n "$PREVIOUS" ]]; then
           args+=(--previous "$PREVIOUS")
         fi
-        if [[ -n "$ARTIFACT_URL" ]]; then
-          args+=(--artifact-url "$ARTIFACT_URL" --artifact-label "$ARTIFACT_LABEL")
-          echo "Artifact link: $ARTIFACT_LABEL -> $ARTIFACT_URL"
-        else
+        mapfile -t urls < <(grep -v '^[[:space:]]*$' <<<"$ARTIFACT_URL" || true)
+        mapfile -t labels < <(grep -v '^[[:space:]]*$' <<<"$ARTIFACT_LABEL" || true)
+        if ((${#labels[@]} && ${#labels[@]} != ${#urls[@]})); then
+          echo "::error::artifact-label has ${#labels[@]} lines for ${#urls[@]} artifact-url lines"
+          exit 1
+        fi
+        for index in "${!urls[@]}"; do
+          args+=(--artifact-url "${urls[index]}")
+          if ((${#labels[@]})); then
+            args+=(--artifact-label "${labels[index]}")
+          fi
+        done
+        if ((${#urls[@]} == 0)); then
           echo 'Artifact link skipped: artifact-url input is empty'
         fi
         release-creator notes "${args[@]}" >"$RUNNER_TEMP/release-notes.md"

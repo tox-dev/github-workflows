@@ -456,9 +456,10 @@ creates the Release; this Action only writes a local Markdown file.
 - `tag` **(required)**: Release version, such as `1.2.3`. The checkout must contain its changelog section.
 - `changelog` **(required)**: Tracked Markdown or reStructuredText changelog in the format that `release-creator notes`
   parses, with exactly one section for the tag.
-- `artifact-url`: Ecosystem release URL, such as a PyPI version page. Omit it for a GitHub-only project.
-- `artifact-label`: Link text for `artifact-url`; default `PyPI release`. Use `Zipapp` or another product name for a
-  different artifact.
+- `artifact-url`: Ecosystem release URL, such as a PyPI version page. Omit it for a GitHub-only project. A project that
+  publishes several packages puts one URL per line; the links share one line of the body, separated by commas.
+- `artifact-label`: Link text for each `artifact-url` line, in the same order; default `PyPI release`. Use `Zipapp` or
+  another product name for a different artifact. `release-creator` adds an emoji for the link's ecosystem.
 
 The Action reads `GITHUB_REPOSITORY` for PR and comparison links. A repository with separate release namespaces, such as
 toml-fmt, calls `release-creator notes --package` directly for its package changelog.

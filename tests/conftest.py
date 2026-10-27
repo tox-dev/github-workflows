@@ -263,7 +263,7 @@ def action(
         "BRANCH": "main",
         "ANNOTATED": "false",
         "ARTIFACT_URL": "",
-        "ARTIFACT_LABEL": "PyPI release",
+        "ARTIFACT_LABEL": "",
         "LOCK": "pylock.toml",
         "MODE": "complete",
     } | extra_env
