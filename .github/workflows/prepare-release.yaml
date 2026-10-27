@@ -18,7 +18,7 @@ jobs:
       pull-requests: read
     with:
       bump: ${{ inputs.bump }}
-      # Temporary: release-creator 4.1.0 is younger than seven days. Delete after 2026-11-02.
-      exclude-newer-package: release-creator=2026-10-26T18:24:46Z
+      # Temporary: release-creator 4.3.0 is younger than seven days. Delete after 2026-11-03.
+      exclude-newer-package: release-creator=2026-10-27T20:03:25Z
     secrets:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
