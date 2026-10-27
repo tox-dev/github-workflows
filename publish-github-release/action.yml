@@ -75,6 +75,30 @@ runs:
           echo "GitHub Release $TAG is published and immutable with the expected assets; nothing to upload or publish"
         fi
         printf 'immutable=%s\n' "$immutable" >>"$GITHUB_OUTPUT"
+    - name: 👋 Credit new contributors
+      shell: bash
+      env:
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
+        COMMIT: ${{ inputs.commit }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+      run: |
+        set -euo pipefail
+        if jq -e '.[0].draft == false' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
+          echo "New Contributors skipped: GitHub Release $TAG is already published"
+          cp "$NOTES_FILE" "$RUNNER_TEMP/release-body.md"
+          exit 0
+        fi
+        # The comparison link that release-creator renders names the previous tag GitHub should count from.
+        previous=$(grep -oP "/compare/\K[^)]+(?=\.\.\.\Q$TAG\E\))" "$NOTES_FILE" | head -n 1 || true)
+        request=(-f "tag_name=$TAG" -f "target_commitish=$COMMIT")
+        if [[ -n "$previous" ]]; then
+          request+=(-f "previous_tag_name=$previous")
+        fi
+        echo "Generated notes range: ${previous:-first release}...$TAG"
+        gh api -X POST "repos/$GH_REPO/releases/generate-notes" "${request[@]}" --jq .body >"$RUNNER_TEMP/generated-notes.md"
+        python3 "$GITHUB_ACTION_PATH/../tools/new_contributors.py" \
+          "$NOTES_FILE" "$RUNNER_TEMP/generated-notes.md" "$RUNNER_TEMP/release-body.md"
     - name: 🚀 Create or update the draft
       shell: bash
       env:
@@ -82,23 +106,22 @@ runs:
         TAG: ${{ inputs.tag }}
         COMMIT: ${{ inputs.commit }}
         TITLE: ${{ inputs.title }}
-        NOTES_FILE: ${{ inputs.notes-file }}
         PRERELEASE: ${{ inputs.prerelease }}
       run: |
         set -euo pipefail
         if jq -e 'length == 0' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
           jq -n --arg tag "$TAG" --arg commit "$COMMIT" --arg title "$TITLE" \
-            --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+            --rawfile body "$RUNNER_TEMP/release-body.md" --argjson prerelease "$PRERELEASE" \
             '{tag_name: $tag, target_commitish: $commit, name: $title, body: $body,
               draft: true, prerelease: $prerelease}' >"$RUNNER_TEMP/release-request.json"
           gh api -X POST "repos/$GH_REPO/releases" --input "$RUNNER_TEMP/release-request.json" \
             >"$RUNNER_TEMP/release-created.json"
           jq -er '.id | select(type == "number")' "$RUNNER_TEMP/release-created.json" >"$RUNNER_TEMP/release-id"
           echo "GitHub Release $TAG: created draft $(<"$RUNNER_TEMP/release-id") for $COMMIT (prerelease $PRERELEASE)"
-        elif jq -e --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+        elif jq -e --arg title "$TITLE" --rawfile body "$RUNNER_TEMP/release-body.md" --argjson prerelease "$PRERELEASE" \
           '.[0].draft and (.[0].name != $title or .[0].body != $body or .[0].prerelease != $prerelease)' \
           "$RUNNER_TEMP/release-existing.json" >/dev/null; then
-          jq -n --arg title "$TITLE" --rawfile body "$NOTES_FILE" --argjson prerelease "$PRERELEASE" \
+          jq -n --arg title "$TITLE" --rawfile body "$RUNNER_TEMP/release-body.md" --argjson prerelease "$PRERELEASE" \
             '{name: $title, body: $body, prerelease: $prerelease}' >"$RUNNER_TEMP/release-update.json"
           gh api -X PATCH "repos/$GH_REPO/releases/$(<"$RUNNER_TEMP/release-id")" \
             --input "$RUNNER_TEMP/release-update.json" \

@@ -39,7 +39,7 @@ runs:
         set -euo pipefail
         if [[ "$PHASE" == finalize ]]; then
           echo "Release version: $VERSION (from the version input in the finalize phase)"
-          echo 'Fragment linking, changelog build and contributors skipped: the build phase did them'
+          echo 'Fragment linking and changelog build skipped: the build phase did them'
           printf 'version=%s\n' "$VERSION" >>"$GITHUB_OUTPUT"
           exit 0
         fi
@@ -77,17 +77,6 @@ runs:
         set -euo pipefail
         echo "Changelog version: $CHANGELOG_PREFIX${VERSION#v} (tag $VERSION${CHANGELOG_PREFIX:+, changelog-prefix $CHANGELOG_PREFIX})"
         towncrier build --yes --version "$CHANGELOG_PREFIX${VERSION#v}"
-    - name: 📝 Add new contributors to the changelog
-      if: inputs.phase != 'finalize'
-      shell: bash
-      env:
-        VERSION: ${{ steps.version.outputs.version }}
-        CHANGELOG_PREFIX: ${{ inputs.changelog-prefix }}
-        CHANGELOG: ${{ steps.config.outputs.changelog }}
-        REPOSITORY: ${{ github.repository }}
-        GH_TOKEN: ${{ github.token }}
-      run: >-
-        release-creator contributors --changelog "$CHANGELOG" --version "$CHANGELOG_PREFIX${VERSION#v}" --repository "$REPOSITORY"
     - name: 🧹 Format changelog
       if: inputs.phase != 'build'
       shell: bash

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import ssl
 import subprocess
@@ -139,45 +138,29 @@ def repository(tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]], mo
 
     def graphql(request: Request) -> Response:
         query = request.get_json()["query"]
-        if 'object(oid: "' in query:
-            commits = (part.split('"', 1)[0] for part in query.split('object(oid: "')[1:])
-            data: dict[str, object] = {
-                "repository": {
-                    f"c{index}": {
-                        "associatedPullRequests": {
-                            "nodes": [
-                                {
-                                    "number": int(environment.get("TEST_PULL_NUMBER", "2")),
-                                    "mergedAt": "2026-10-22T00:00:00Z",
-                                    "mergeCommit": {
-                                        "oid": commit,
-                                        "authors": {
-                                            "nodes": [
-                                                {"name": "Release test", "email": "a@example.org", "user": author}
-                                            ]
-                                        },
+        commits = (part.split('"', 1)[0] for part in query.split('object(oid: "')[1:])
+        data: dict[str, object] = {
+            "repository": {
+                f"c{index}": {
+                    "associatedPullRequests": {
+                        "nodes": [
+                            {
+                                "number": int(environment.get("TEST_PULL_NUMBER", "2")),
+                                "mergedAt": "2026-10-22T00:00:00Z",
+                                "mergeCommit": {
+                                    "oid": commit,
+                                    "authors": {
+                                        "nodes": [{"name": "Release test", "email": "a@example.org", "user": author}]
                                     },
-                                    "author": author,
-                                }
-                            ]
-                        }
+                                },
+                                "author": author,
+                            }
+                        ]
                     }
-                    for index, commit in enumerate(commits)
                 }
+                for index, commit in enumerate(commits)
             }
-        elif "pullRequest(number: " in query:
-            numbers = re.findall(r"p(\d+): pullRequest", query)
-            data = {
-                "repository": {
-                    f"p{number}": {"number": int(number), "mergedAt": "2026-10-22T00:00:00Z", "author": author}
-                    for number in numbers
-                }
-            }
-        else:
-            data = {
-                alias: {"issueCount": int(environment.get("TEST_PRIOR_PULLS", "0"))}
-                for alias in re.findall(r"(s\d+): search", query)
-            }
+        }
         return Response(json.dumps({"data": data}), mimetype="application/json")
 
     server.expect_request("/api/graphql", method="POST").respond_with_handler(graphql)

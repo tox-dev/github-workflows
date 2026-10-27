@@ -361,10 +361,6 @@ path, fragment directory, and Markdown or RST format from committed Towncrier co
 `read-towncrier-config`. It does not commit or push. Version selection, fragment linking, the Towncrier build, and
 formatting must all succeed.
 
-After the Towncrier build, the Action runs release-creator's step that adds a "New Contributors" subsection to the new
-changelog section with `release-creator contributors`, which release-creator 3.1.0 adds. The caller's `release-prepare`
-group needs release-creator 3.1.0 or later.
-
 ```yaml
   - id: prepare
     uses: tox-dev/github-workflows/prepare-towncrier@SHA
@@ -531,6 +527,9 @@ the asset recheck.
 
 - `tag`, `commit`, `title`, and `notes-file` are required. The Action uses the caller repository; `commit` is the tag's
   commit, used as the target when the Action creates the Release.
+- Before it writes a draft, the Action asks GitHub to generate notes for the range from the previous tag in the notes'
+  `Full Changelog` link to `tag`, and adds GitHub's first-time contributors, bots excluded, as a `New Contributors`
+  section above the trailing links. The changelog file never carries this list. A published Release is left as it is.
 - `assets-directory`: Optional directory of the assets to attach. The Action compares each filename and SHA256 digest
   with GitHub's Release asset metadata, uploads missing draft assets, and rejects extra or changed assets. After
   publication it verifies GitHub's release attestation for each local asset.
