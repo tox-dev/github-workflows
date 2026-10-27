@@ -4,6 +4,7 @@ on:
     types: [opened, reopened, synchronize, labeled, unlabeled]
 permissions:
   contents: read
+  pull-requests: read
 jobs:
   changelog:
     name: 📝 News fragment

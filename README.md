@@ -63,7 +63,7 @@ caller's `pylock.toml`.
 configured directory against the configured categories, filename format, and nonempty content. A valid fragment runs
 `towncrier check` against the PR base. A human PR without a fragment needs `skip news`; a bot PR without a fragment does
 not. A bot's supplied fragment is checked and included in the normal release flow. The Action reads repository files and
-Git history; it does not add labels or write to GitHub.
+Git history and reads the PR's current labels; it does not add labels or write to GitHub.
 
 Each check runs only when the pull request touches what it validates, compared with the merge base:
 
@@ -85,6 +85,7 @@ changelog:
   runs-on: ubuntu-26.04
   permissions:
     contents: read
+    pull-requests: read
   steps:
     - uses: actions/checkout@CHECKOUT_SHA
       with:
@@ -102,7 +103,9 @@ changelog:
 ```
 
 The Action expects a pull request base ref and a Markdown or reStructuredText changelog. The caller should also run on
-`labeled` and `unlabeled` events, so a label added after opening the PR updates the required check.
+`labeled` and `unlabeled` events, so a label added after opening the PR updates the required check. The Action reads the
+PR's labels from the API rather than from the event, so re-running an older run sees the labels the PR has now; the job
+needs `pull-requests: read` for that.
 
 ## Refresh release tools
 

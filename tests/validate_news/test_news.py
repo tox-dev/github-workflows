@@ -8,10 +8,18 @@ from typing import Final
 import pytest
 import yaml
 from conftest import action, run
+from pytest_httpserver import HTTPServer
 
 _STEPS: Final = yaml.safe_load((Path(__file__).resolve().parents[2] / "validate-news/action.yml").read_text())["runs"][
     "steps"
 ]
+
+
+def _current_labels(github_api: tuple[HTTPServer, dict[str, str]], skip: str) -> dict[str, str]:
+    server, environment = github_api
+    labels = [{"name": "documentation"}, *([{"name": "skip news"}] if skip == "true" else [])]
+    server.expect_request("/api/v3/repos/tox-dev/fixture/pulls/7", method="GET").respond_with_json({"labels": labels})
+    return environment
 
 
 def _script(action_scripts: Path, step_id: str) -> Path:
@@ -27,7 +35,13 @@ def _script(action_scripts: Path, step_id: str) -> Path:
     ],
 )
 def test_validate_news_without_fragment(
-    repository: Path, tmp_path: Path, action_scripts: Path, bot: str, skip: str, accepted: bool
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    bot: str,
+    skip: str,
+    accepted: bool,
+    github_api: tuple[HTTPServer, dict[str, str]],
 ) -> None:
     result = action(
         repository,
@@ -37,7 +51,7 @@ def test_validate_news_without_fragment(
         version="0.2.0",
         BASE_REF="main",
         BOT_AUTHOR=bot,
-        SKIP_NEWS=skip,
+        **_current_labels(github_api, skip),
     )
     assert (result.returncode == 0) == accepted
     if not accepted:
@@ -52,7 +66,9 @@ def test_validate_news_without_fragment(
         pytest.param("123.feature.2.md", id="numbered-multiple"),
     ],
 )
-def test_validate_news_checks_bot_fragment(repository: Path, tmp_path: Path, action_scripts: Path, name: str) -> None:
+def test_validate_news_checks_bot_fragment(
+    repository: Path, tmp_path: Path, action_scripts: Path, name: str, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     (repository / "changelog.d" / name).write_text("Add another feature.\n")
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Add news")
@@ -64,12 +80,14 @@ def test_validate_news_checks_bot_fragment(repository: Path, tmp_path: Path, act
         version="0.2.0",
         BASE_REF="main",
         BOT_AUTHOR="true",
-        SKIP_NEWS="true",
+        **_current_labels(github_api, "true"),
     )
     assert result.returncode == 0, result.stderr
 
 
-def test_validate_news_reads_rst_categories(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_validate_news_reads_rst_categories(
+    repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     project = repository / "pyproject.toml"
     project.write_text(
         project.read_text()
@@ -90,7 +108,7 @@ def test_validate_news_reads_rst_categories(repository: Path, tmp_path: Path, ac
         version="0.2.0",
         BASE_REF="main",
         BOT_AUTHOR="false",
-        SKIP_NEWS="false",
+        **_current_labels(github_api, "false"),
     )
     assert result.returncode == 0, result.stderr
 
@@ -105,7 +123,13 @@ def test_validate_news_reads_rst_categories(repository: Path, tmp_path: Path, ac
     ],
 )
 def test_validate_news_rejects_bad_fragment(
-    repository: Path, tmp_path: Path, action_scripts: Path, name: str, content: str, error: str
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    name: str,
+    content: str,
+    error: str,
+    github_api: tuple[HTTPServer, dict[str, str]],
 ) -> None:
     (repository / "changelog.d" / name).write_text(content)
     run(repository, "git", "add", ".")
@@ -118,13 +142,15 @@ def test_validate_news_rejects_bad_fragment(
         version="0.2.0",
         BASE_REF="main",
         BOT_AUTHOR="true",
-        SKIP_NEWS="false",
+        **_current_labels(github_api, "false"),
     )
     assert result.returncode != 0
     assert error in result.stderr
 
 
-def test_validate_news_requires_pr_base(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+def test_validate_news_requires_pr_base(
+    repository: Path, tmp_path: Path, action_scripts: Path, github_api: tuple[HTTPServer, dict[str, str]]
+) -> None:
     result = action(
         repository,
         tmp_path,
@@ -133,7 +159,7 @@ def test_validate_news_requires_pr_base(repository: Path, tmp_path: Path, action
         version="0.2.0",
         BASE_REF="",
         BOT_AUTHOR="true",
-        SKIP_NEWS="false",
+        **_current_labels(github_api, "false"),
     )
     assert result.returncode != 0
     assert "origin/" in result.stderr
@@ -264,6 +290,7 @@ def test_validate_news_checks_changed_release_inputs_against_the_lock(
     monkeypatch: pytest.MonkeyPatch,
     change: str,
     accepted: bool,
+    github_api: tuple[HTTPServer, dict[str, str]],
 ) -> None:
     monkeypatch.delenv("SSL_CERT_FILE")
     project = repository / "pyproject.toml"
@@ -287,7 +314,7 @@ def test_validate_news_checks_changed_release_inputs_against_the_lock(
         "validate-news",
         version="0.2.0",
         BASE_REF="main",
-        SKIP_NEWS="true",
+        **_current_labels(github_api, "true"),
     )
 
     assert (result.returncode == 0) is accepted, result.stderr
@@ -371,7 +398,12 @@ def test_validate_news_detects_news_input_change(
     ],
 )
 def test_validate_news_checks_towncrier_config_only_when_touched(
-    repository: Path, tmp_path: Path, action_scripts: Path, touched: str, accepted: bool
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    touched: str,
+    accepted: bool,
+    github_api: tuple[HTTPServer, dict[str, str]],
 ) -> None:
     project = repository / "pyproject.toml"
     project.write_text(project.read_text().replace('directory = "changelog.d"\n', 'package = "fixture"\n'))
@@ -392,7 +424,7 @@ def test_validate_news_checks_towncrier_config_only_when_touched(
         "validate-news",
         version="0.2.0",
         BASE_REF="main",
-        SKIP_NEWS="true",
+        **_current_labels(github_api, "true"),
     )
 
     assert (result.returncode == 0) is accepted, result.stderr
@@ -409,7 +441,13 @@ def test_validate_news_checks_towncrier_config_only_when_touched(
     ],
 )
 def test_validate_news_explains_choices(
-    repository: Path, tmp_path: Path, action_scripts: Path, bot: str, skip: str, explanation: str
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    bot: str,
+    skip: str,
+    explanation: str,
+    github_api: tuple[HTTPServer, dict[str, str]],
 ) -> None:
     result = action(
         repository,
@@ -419,7 +457,7 @@ def test_validate_news_explains_choices(
         version="0.2.0",
         BASE_REF="main",
         BOT_AUTHOR=bot,
-        SKIP_NEWS=skip,
+        **_current_labels(github_api, skip),
     )
 
     assert explanation in result.stdout

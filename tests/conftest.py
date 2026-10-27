@@ -471,8 +471,8 @@ def _expression(
         return environment.get("GH_TOKEN", environment.get("GH_ENTERPRISE_TOKEN", ""))
     if expression == "github.event.pull_request.user.type":
         return "Bot" if environment.get("BOT_AUTHOR") == "true" else "User"
-    if expression == "contains(github.event.pull_request.labels.*.name, 'skip news')":
-        return environment.get("SKIP_NEWS", "false")
+    if expression == "github.event.pull_request.number":
+        return environment.get("PULL_NUMBER", "7")
     raise ValueError(f"unsupported GitHub step environment: {expression}")  # pragma: no cover - new syntax only
 
 

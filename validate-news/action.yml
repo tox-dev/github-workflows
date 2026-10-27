@@ -89,10 +89,23 @@ runs:
         source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         release-creator validate-news --base "$BASE_REF" >"$RUNNER_TEMP/news-fragment-count"
         echo "Changed fragments: $(plural "$(<"$RUNNER_TEMP/news-fragment-count")" fragment) valid against origin/$BASE_REF"
+    - id: labels
+      name: 🏷️ Read the current labels
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
+        PULL: ${{ github.event.pull_request.number }}
+      run: |
+        set -euo pipefail
+        # A re-run replays its original event, whose label list can predate a skip news label added since.
+        skip=$(gh api "repos/$REPOSITORY/pulls/$PULL" --jq 'any(.labels[]; .name == "skip news")')
+        echo "Current labels of #$PULL: skip news $([[ "$skip" == true ]] && echo present || echo absent)"
+        echo "skip=$skip" >>"$GITHUB_OUTPUT"
     - name: 🔍 Require news for human changes
       shell: bash
       env:
-        SKIP_NEWS: ${{ contains(github.event.pull_request.labels.*.name, 'skip news') }}
+        SKIP_NEWS: ${{ steps.labels.outputs.skip }}
         BOT_AUTHOR: ${{ github.event.pull_request.user.type == 'Bot' }}
       run: |
         # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
