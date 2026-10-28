@@ -40,7 +40,7 @@ outcome sounds.
 - A release patch that `validate-release-patch` accepts although it touches paths other than the changelog and fragment
   deletions, or changes file modes.
 - A step that publishes files whose digests or attestations do not match what the build produced.
-- A tool installed outside the hash-checked lock or ahead of its upload cooldown.
+- A locked tool installed without its hash check, or any tool installed ahead of its upload cutoff.
 - An App token or credential reaching a step that runs project or third-party code.
 
 **Out of scope**

@@ -10,8 +10,9 @@ A release is split between jobs with different rights. Read-only jobs check news
 build distributions from a hash-checked lock, and render notes. A writer job in the caller's `release-auth` environment
 mints a GitHub App token, applies only a patch that `validate-release-patch` accepts, and pushes the release commit and
 tag. Publishing jobs reconcile PyPI's file digests and trusted-publisher attestations with the build, and create an
-immutable GitHub Release whose assets they verify. Every action is SHA-pinned; tools come from `pylock.toml` with a
-seven-day upload cooldown.
+immutable GitHub Release whose assets they verify. Every action is SHA-pinned. Release tools come from a hash-checked
+`pylock.toml`; the few helpers the actions install for themselves, such as the lock reader and the attestation verifier,
+come from PyPI under a seven-day upload cutoff.
 
 ```mermaid
 flowchart LR
@@ -59,12 +60,12 @@ An attacker who controls any of these already has what github-workflows could gi
 
 ## Threats and controls
 
-| STRIDE                 | Threat                                                                      | Control                                                                 |
-| ---------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Tampering              | A compromised build job smuggles a workflow change into the release commit. | `validate-release-patch` path and mode allowlist.                       |
-| Elevation of privilege | PR code reads the release App token.                                        | The token is minted only in the writer job, which runs no project code. |
-| Tampering              | A freshly published malicious tool version enters the release toolchain.    | Hash-checked locks with a seven-day upload cooldown.                    |
-| Repudiation            | Release commits cannot be traced to an approved run.                        | Commits and tags are authored by the App from a recorded workflow run.  |
+| STRIDE                 | Threat                                                                      | Control                                                                                             |
+| ---------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Tampering              | A compromised build job smuggles a workflow change into the release commit. | `validate-release-patch` path and mode allowlist.                                                   |
+| Elevation of privilege | PR code reads the release App token.                                        | The token is minted only in the writer job, which runs no project code.                             |
+| Tampering              | A freshly published malicious tool version enters the release toolchain.    | Hash-checked locks resolved with a seven-day upload cooldown, and the same cutoff for helper tools. |
+| Repudiation            | Release commits cannot be traced to an approved run.                        | Commits and tags are authored by the App from a recorded workflow run.                              |
 
 ## Release chain
 
@@ -79,6 +80,14 @@ Callers pin the full commit SHA of a release.
 | A release patch that edits `.github/workflows/` is accepted | Vulnerability | Allowlist bypass.                |
 | A caller runs the writer on `pull_request_target`           | Not ours      | Caller configuration.            |
 | A tool update waits seven days to land                      | Expected      | The cooldown is deliberate.      |
+
+## Severity
+
+- **High:** pull request content runs as shell code in a job with a write token or secret, an App token reaches a step
+  that runs project or third-party code, or files are published whose digests or attestations do not match the build.
+- **Medium:** `validate-release-patch` accepts a path or mode outside its allowlist, or a tool skips its hash check or
+  upload cutoff.
+- **Low:** a job fails or misreports without crossing a boundary.
 
 ## Accepted risks
 
