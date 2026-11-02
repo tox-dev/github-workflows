@@ -107,6 +107,10 @@ The Action expects a pull request base ref and a Markdown or reStructuredText ch
 PR's labels from the API rather than from the event, so re-running an older run sees the labels the PR has now; the job
 needs `pull-requests: read` for that.
 
+Opening a PR with labels, as `gh pr create --label` does, fires `labeled` a moment after `opened`. A label event within
+a minute of opening passes at once, since the run for `opened` reads the labels when it checks. Do not cancel runs in
+progress with a `concurrency` group: the cancelled run would show as a failed check while the other one passes.
+
 ## Refresh release tools
 
 Call `upgrade-release-tools.yaml` from a scheduled or manual workflow. Its read-only job refreshes the universal
