@@ -62,6 +62,7 @@ def test_validate_news_without_fragment(
     "name",
     [
         pytest.param("+addition.feature.md", id="named"),
+        pytest.param("addition.feature.md", id="bare-name"),
         pytest.param("+addition.feature.1.md", id="named-multiple"),
         pytest.param("123.feature.2.md", id="numbered-multiple"),
     ],
@@ -117,7 +118,6 @@ def test_validate_news_reads_rst_categories(
     ("name", "content", "error"),
     [
         pytest.param("+addition.unknown.md", "Add a feature.\n", "unsupported changelog fragment", id="category"),
-        pytest.param("addition.feature.md", "Add a feature.\n", "unsupported changelog fragment", id="name"),
         pytest.param("+addition.feature.x.md", "Add a feature.\n", "unsupported changelog fragment", id="ordinal"),
         pytest.param("+addition.feature.md", " \n", "empty changelog fragment", id="empty"),
     ],
@@ -461,3 +461,37 @@ def test_validate_news_explains_choices(
     )
 
     assert explanation in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("event", "updated", "checked"),
+    [
+        pytest.param("labeled", "2026-01-01T00:00:02Z", False, id="labeled-at-opening"),
+        pytest.param("unlabeled", "2026-01-01T00:00:59Z", False, id="unlabeled-at-opening"),
+        pytest.param("labeled", "2026-01-01T00:01:00Z", True, id="labeled-later"),
+        pytest.param("synchronize", "2026-01-01T00:00:02Z", True, id="pushed-at-opening"),
+    ],
+)
+def test_validate_news_skips_labels_set_while_opening(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    event: str,
+    updated: str,
+    checked: bool,
+    github_api: tuple[HTTPServer, dict[str, str]],
+) -> None:
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-news",
+        version="0.2.0",
+        BASE_REF="main",
+        BOT_AUTHOR="false",
+        EVENT_ACTION=event,
+        CREATED_AT="2026-01-01T00:00:00Z",
+        UPDATED_AT=updated,
+        **_current_labels(github_api, "false"),
+    )
+    assert (result.returncode, "add a changelog fragment" in result.stderr) == ((1, True) if checked else (0, False))

@@ -28,8 +28,25 @@ inputs:
 runs:
   using: composite
   steps:
+    - id: opening
+      name: 🧭 Skip labels set while opening
+      if: github.event.action == 'labeled' || github.event.action == 'unlabeled'
+      shell: bash
+      env:
+        CREATED: ${{ github.event.pull_request.created_at }}
+        UPDATED: ${{ github.event.pull_request.updated_at }}
+      run: |
+        set -euo pipefail
+        # `gh pr create --label` labels a pull request right after opening it, so `labeled` fires beside `opened`. The
+        # run for `opened` reads the current labels when it checks, which leaves this run nothing to add.
+        seconds=$(($(date -d "$UPDATED" +%s) - $(date -d "$CREATED" +%s)))
+        if ((seconds < 60)); then
+          echo "News check skipped: labels changed ${seconds}s after opening, which the run for opening covers"
+          echo 'skip=true' >>"$GITHUB_OUTPUT"
+        fi
     - id: news-change
       name: 🧭 Check whether news inputs changed
+      if: steps.opening.outputs.skip != 'true'
       shell: bash
       env:
         BASE_REF: ${{ github.base_ref }}
@@ -91,6 +108,7 @@ runs:
         echo "Changed fragments: $(plural "$(<"$RUNNER_TEMP/news-fragment-count")" fragment) valid against origin/$BASE_REF"
     - id: labels
       name: 🏷️ Read the current labels
+      if: steps.opening.outputs.skip != 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -103,6 +121,7 @@ runs:
         echo "Current labels of #$PULL: skip news $([[ "$skip" == true ]] && echo present || echo absent)"
         echo "skip=$skip" >>"$GITHUB_OUTPUT"
     - name: 🔍 Require news for human changes
+      if: steps.opening.outputs.skip != 'true'
       shell: bash
       env:
         SKIP_NEWS: ${{ steps.labels.outputs.skip }}
@@ -124,6 +143,7 @@ runs:
         fi
     - id: lock-change
       name: 🧭 Check whether release inputs changed
+      if: steps.opening.outputs.skip != 'true'
       shell: bash
       env:
         BASE_REF: ${{ github.base_ref }}

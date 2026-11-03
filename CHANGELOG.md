@@ -2,6 +2,18 @@
 
 <!-- towncrier release notes start -->
 
+<a name="release-6-3-0"></a>
+
+## 6.3.0 (2026-11-02)
+
+<a name="release-6-3-0-added"></a>
+
+### Added
+
+- `validate-news` passes at once for a label added or removed within a minute of a pull request opening, as
+  `gh pr create --label` does, since the run for the opening already checks the current labels
+  ([#40](https://github.com/tox-dev/github-workflows/pull/40)) by [@gaborbernat](https://github.com/gaborbernat).
+
 <a name="release-6-2-2"></a>
 
 ## 6.2.2 (2026-10-30)

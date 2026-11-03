@@ -473,6 +473,12 @@ def _expression(
         return "Bot" if environment.get("BOT_AUTHOR") == "true" else "User"
     if expression == "github.event.pull_request.number":
         return environment.get("PULL_NUMBER", "7")
+    if expression == "github.event.action":
+        return environment.get("EVENT_ACTION", "opened")
+    if expression == "github.event.pull_request.created_at":
+        return environment.get("CREATED_AT", "2026-01-01T00:00:00Z")
+    if expression == "github.event.pull_request.updated_at":
+        return environment.get("UPDATED_AT", "2026-01-01T00:00:00Z")
     raise ValueError(f"unsupported GitHub step environment: {expression}")  # pragma: no cover - new syntax only
 
 
