@@ -1,0 +1,281 @@
+name: Prepare release-creator release
+on:
+  workflow_call:
+    inputs:
+      bump:
+        description: Version selection mode passed to release-creator tags
+        type: string
+        default: auto
+      package:
+        description: Package whose tags and fragments the release scopes to, empty for a single-package repository
+        type: string
+        default: ""
+      tag-format:
+        description: Tag template, one of {version}, v{version}, {package}/{version}, or {package}/v{version}
+        type: string
+        default: "{version}"
+      changelog:
+        description: Tracked Markdown changelog that assemble-command writes and contributors edits
+        type: string
+        default: CHANGELOG.md
+      assemble-command:
+        description: Shell command that writes the changelog section from the pending fragments, run with PACKAGE, VERSION, and TAG set
+        required: true
+        type: string
+      release-paths:
+        description: Newline-separated glob patterns for the only paths the release patch may change, {package} expands to package
+        required: true
+        type: string
+      cargo-set-version:
+        description: Run cargo set-version with the release version before the changelog is assembled
+        type: boolean
+        default: false
+      cargo-set-version-args:
+        description: Arguments before the version for cargo set-version, such as -p {package}; {package} expands to package
+        type: string
+        default: ""
+      annotated:
+        description: Create an annotated tag
+        type: boolean
+        default: false
+      release-auth-deployment:
+        description: Create a GitHub Deployment for the App-key job
+        type: boolean
+        default: true
+      exclude-newer:
+        description: Upload cutoff for the tools the shared Actions install from PyPI
+        type: string
+        default: 7 days
+      exclude-newer-package:
+        description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+        type: string
+        default: ""
+    secrets:
+      RELEASE_APP_PRIVATE_KEY:
+        description: Key held by the caller's release-auth environment
+        required: true
+permissions: {}
+concurrency:
+  group: prepare-release-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  assemble:
+    name: 🏷️ Assemble release
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      number: ${{ steps.version.outputs.number }}
+      artifact-id: ${{ steps.patch.outputs.artifact-id }}
+      release-paths: ${{ steps.version.outputs.release-paths }}
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📦 Install locked release tools
+        uses: $/install-locked-tools
+        with:
+          groups: release-prepare
+          venv: ${{ runner.temp }}/release-tools
+          exclude-newer: ${{ inputs.exclude-newer }}
+          exclude-newer-package: ${{ inputs.exclude-newer-package }}
+      - name: 🦀 Install Rust toolchain
+        if: ${{ inputs.cargo-set-version }}
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+      - name: 🦀 Install cargo-edit
+        if: ${{ inputs.cargo-set-version }}
+        uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3.5.0
+        with:
+          crate: cargo-edit
+          version: 0.13.13
+      - name: 🧹 Install prek hooks
+        id: hooks
+        uses: $/cooled-prek
+        with:
+          args: install-hooks
+        background: true
+      - name: 🏷️ Select release version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          PACKAGE: ${{ inputs.package }}
+          TAG_FORMAT: ${{ inputs.tag-format }}
+          CHANGELOG: ${{ inputs.changelog }}
+          RELEASE_PATHS: ${{ inputs.release-paths }}
+        run: |
+          set -euo pipefail
+          case "$TAG_FORMAT" in
+          '{version}' | 'v{version}')
+            if [[ -n "$PACKAGE" ]]; then
+              echo "::error::tag-format $TAG_FORMAT names no package, but package is $PACKAGE" >&2
+              exit 1
+            fi
+            fragments=changelog.d
+            ;;
+          '{package}/{version}' | '{package}/v{version}')
+            if [[ -z "$PACKAGE" ]]; then
+              echo "::error::tag-format $TAG_FORMAT needs a package input" >&2
+              exit 1
+            fi
+            fragments="changelog.d/$PACKAGE"
+            ;;
+          *)
+            echo "::error::unsupported tag-format: $TAG_FORMAT" >&2
+            exit 1
+            ;;
+          esac
+          args=(--next "$BUMP" --directory "$fragments")
+          if [[ -n "$PACKAGE" ]]; then
+            args+=(--package "$PACKAGE")
+          fi
+          # release-creator prints its progress on stderr, so stdout holds the tag alone.
+          selected=$(git tag --list | release-creator tags "${args[@]}" 2>/dev/null)
+          number=${selected##*/}
+          number=${number#v}
+          tag=${TAG_FORMAT//'{package}'/$PACKAGE}
+          tag=${tag//'{version}'/$number}
+          echo "Release $tag (version $number, bump $BUMP from the fragments in $fragments)"
+          {
+            printf 'number=%s\n' "$number"
+            printf 'version=%s\n' "$tag"
+            echo 'release-paths<<RELEASE_PATHS_EOF'
+            printf '%s\n' "${RELEASE_PATHS//'{package}'/$PACKAGE}"
+            echo RELEASE_PATHS_EOF
+          } >>"$GITHUB_OUTPUT"
+      - name: 📝 Link fragments and authors
+        env:
+          PACKAGE: ${{ inputs.package }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fragments=changelog.d
+          if [[ -n "$PACKAGE" ]]; then
+            fragments="changelog.d/$PACKAGE"
+          fi
+          release-creator fragments --directory "$fragments" --repository "$REPOSITORY"
+      - name: ⚙️ Bump Cargo version
+        if: ${{ inputs.cargo-set-version }}
+        env:
+          CARGO_SET_VERSION: ${{ inputs.cargo-set-version-args }}
+          NUMBER: ${{ steps.version.outputs.number }}
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          set -euo pipefail
+          read -ra cargo_arguments <<<"${CARGO_SET_VERSION//'{package}'/$PACKAGE}"
+          cargo set-version "${cargo_arguments[@]}" "$NUMBER"
+      - name: 📝 Assemble changelog
+        env:
+          PACKAGE: ${{ inputs.package }}
+          VERSION: ${{ steps.version.outputs.number }}
+          TAG: ${{ steps.version.outputs.version }}
+          ASSEMBLE_COMMAND: ${{ inputs.assemble-command }}
+        run: bash -c "$ASSEMBLE_COMMAND"
+      - name: 📝 Add new contributors to the changelog
+        env:
+          CHANGELOG: ${{ inputs.changelog }}
+          NUMBER: ${{ steps.version.outputs.number }}
+          PACKAGE: ${{ inputs.package }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(--changelog "$CHANGELOG" --version "$NUMBER" --repository "$REPOSITORY")
+          if [[ -n "$PACKAGE" ]]; then
+            args+=(--package "$PACKAGE")
+          fi
+          release-creator contributors "${args[@]}"
+      - name: ⏳ Wait for prek hooks
+        wait: hooks
+      - name: 🧹 Format changelog
+        id: format
+        continue-on-error: true
+        uses: $/cooled-prek
+        with:
+          args: run mdformat --files ${{ inputs.changelog }}
+      - name: 🧹 Confirm changelog format
+        if: ${{ steps.format.outcome == 'failure' }}
+        uses: $/cooled-prek
+        with:
+          args: run mdformat --files ${{ inputs.changelog }}
+      - name: 📝 Track a new changelog
+        env:
+          CHANGELOG: ${{ inputs.changelog }}
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch -- "$CHANGELOG" >/dev/null 2>&1; then
+            echo "$CHANGELOG is already tracked"
+          else
+            git add -N -- "$CHANGELOG"
+          fi
+      - name: 📝 Write release patch
+        run: |
+          set -euo pipefail
+          git diff HEAD --binary >"$RUNNER_TEMP/release.patch"
+          git diff HEAD --stat
+      - name: 📤 Upload release patch
+        id: patch
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-patch
+          path: ${{ runner.temp }}/release.patch
+          if-no-files-found: error
+  push:
+    name: ⬆️ Push release commit and tag
+    needs: assemble
+    runs-on: ubuntu-26.04
+    environment:
+      name: release-auth
+      deployment: ${{ inputs.release-auth-deployment }}
+    permissions:
+      contents: read
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: 📩 Download release patch
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.assemble.outputs.artifact-id }}
+          path: ${{ runner.temp }}/release-patch
+      - name: ⚙️ Apply release patch
+        uses: $/validate-release-patch
+        with:
+          allowed-paths: ${{ needs.assemble.outputs.release-paths }}
+      - id: repository
+        name: ⚙️ Select the current repository
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=${REPOSITORY#*/}" >>"$GITHUB_OUTPUT"
+      - name: 🔑 Create release App token
+        id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.repository.outputs.name }}
+          permission-contents: write
+      - name: 🏷️ Commit and tag release
+        uses: $/commit-and-tag
+        with:
+          version: ${{ needs.assemble.outputs.version }}
+          token: ${{ steps.token.outputs.token }}
+          app-slug: ${{ steps.token.outputs.app-slug }}
+          message: release ${{ needs.assemble.outputs.version }}
+          annotated: ${{ inputs.annotated }}

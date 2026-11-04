@@ -406,10 +406,9 @@ needs no release tools.
 
 **Output:** No named output. **Working-tree effect:** Applies and stages the patch. The Action reads the changelog path
 and fragment directory from committed Towncrier configuration. Only the changelog and direct fragment deletions may
-appear in the patch, as regular files. An unexpected path or mode fails the job. Set `allowed-paths` to newline-separated
-glob patterns to replace that path rule: the patch may then change only the matching paths, and the Towncrier
-configuration is not read. The [release-creator preparation](#prepare-release-creator-release) sets it.
-
+appear in the patch, as regular files. An unexpected path or mode fails the job. Set `allowed-paths` to
+newline-separated glob patterns to replace that path rule: the patch may then change only the matching paths, and the
+Towncrier configuration is not read. The [release-creator preparation](#prepare-release-creator-release) sets it.
 
 ## Commit and tag release
 
@@ -761,6 +760,84 @@ What stays in the caller:
 - Package checks on the built files, such as an sdist that must carry vendored code. The workflow inspects nothing
   inside the built files; check them in the package's own `tox -e pkg_meta` run.
 - Publishing. Keep PyPI trusted publishing in the caller's tag workflow.
+
+## Prepare release-creator release
+
+`prepare-release-creator.yaml` runs the same two-job split as
+[prepare-towncrier-release](#prepare-and-tag-with-one-reusable-workflow). `assemble` has no App key. It selects the tag
+from the tags and pending fragments, links fragments to their pull requests, optionally runs `cargo set-version`, runs
+the caller's changelog command, adds New Contributors, formats the changelog with the `mdformat` prek hook, and uploads
+the patch. `push` downloads that patch by ID, applies it with [validate-release-patch](#validate-release-patch) using
+`allowed-paths`, mints a repository-scoped App token, and runs [commit-and-tag](#commit-and-tag-release).
+
+```yaml
+jobs:
+  prepare:
+    uses: >-
+      tox-dev/github-workflows/.github/workflows/prepare-release-creator.yaml@SHA
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      bump: ${{ inputs.bump }}
+      package: ${{ inputs.package }}
+      tag-format: '{package}/{version}'
+      cargo-set-version: true
+      cargo-set-version-args: -p {package}
+      assemble-command: >-
+        uv run --project "$PACKAGE" python tasks/generate_readme.py "$PACKAGE" &&
+        python3 tasks/assemble_release.py "$PACKAGE" "$VERSION"
+      release-paths: |
+        CHANGELOG.md
+        Cargo.lock
+        uv.lock
+        {package}/Cargo.toml
+        {package}/README.rst
+        changelog.d/{package}/*
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+```
+
+Simplint's single-package release uses unprefixed tags and no package scope:
+
+```yaml
+    with:
+      bump: ${{ inputs.bump }}
+      tag-format: '{version}'
+      cargo-set-version: true
+      assemble-command: python3 tasks/assemble_release.py "$VERSION"
+      release-paths: |
+        CHANGELOG.md
+        Cargo.lock
+        Cargo.toml
+        changelog.d/*
+```
+
+- `bump`: `auto`, `major`, `minor`, or `patch`, passed to `release-creator tags --next`.
+- `package`: scopes tags to `package/` and fragments to `changelog.d/<package>`. Empty for a single-package repository.
+- `tag-format`: `{version}`, `v{version}`, `{package}/{version}`, or `{package}/v{version}`. A `{package}` format needs
+  `package`, and a format without it rejects `package`.
+- `changelog`: tracked Markdown changelog; default `CHANGELOG.md`.
+- `assemble-command` **(required)**: shell command that writes the changelog section from the fragments. It runs with
+  `PACKAGE`, `VERSION` (the bare number), and `TAG` set, and it may run the package's own build steps first.
+- `release-paths` **(required)**: newline-separated glob patterns, the only paths the patch may change. `{package}`
+  expands to `package`. Each matched path may be added, modified, or deleted as a regular file; other modes fail.
+  `validate-release-patch` does not read the Towncrier configuration in this mode.
+- `cargo-set-version`: run `cargo set-version` with the number before assembly; default `false`.
+  `cargo-set-version-args` holds the arguments before the number, such as `-p {package}`. Cargo and cargo-edit install
+  only when this is set.
+- `annotated`, `release-auth-deployment`, `exclude-newer`, and `exclude-newer-package` match
+  `prepare-towncrier-release`.
+
+The caller keeps the `release-auth` environment with `RELEASE_APP_PRIVATE_KEY` and the `RELEASE_APP_CLIENT_ID` variable.
+Assembly installs `release-prepare`, which contains release-creator, Towncrier, and prek.
+
+What stays in the caller:
+
+- The changelog. `assemble-command` writes it, because release-creator does not build a `## <package>` section in a
+  shared changelog. Simplint's `assemble_release.py` and toml-fmt's package sections both stay in the caller.
+- Any Cargo or uv version change beyond `cargo-set-version`, such as `uv version --package` for a second Python package.
+- The tag-triggered publisher, which stays in the caller repository.
 
 ## Test a caller
 
