@@ -697,6 +697,68 @@ rerun the tag workflow: the keyless stage check must skip Marketplace upload bef
 Marketplace rejected the update, resolve the rejection and prepare a new release tag. A 404 alone does not authorize
 another upload of the same tag.
 
+## Build maturin wheels
+
+`build-maturin-wheels.yaml` builds a maturin extension for a JSON build matrix and uploads the wheels and sdist under
+the artifact names the caller's publisher reads. The `source` job checks out the commit, runs the optional pre-build
+command once, and uploads the source. Each matrix entry runs in its own `build` job, the `sdist` job builds the sdist
+from the hash-checked build group, and the `gate` job fails when a job failed. Every job holds `contents: read` only.
+
+```yaml
+jobs:
+  build:
+    uses: >-
+      tox-dev/github-workflows/.github/workflows/build-maturin-wheels.yaml@SHA
+    with:
+      package-name: pyproject-fmt
+      package-path: pyproject-fmt
+      matrix: >-
+        [
+          {"os": "ubuntu-24.04", "target": "x86_64", "artifact": "linux-x86_64", "manylinux": "2_28",
+           "python": "3.15 3.14t pypy3.11"},
+          {"os": "ubuntu-24.04", "target": "aarch64", "artifact": "linux-aarch64", "args": "--zig"},
+          {"os": "ubuntu-24.04", "target": "x86_64", "artifact": "linux-x86_64-315t",
+           "python": "3.15t", "args": "--no-default-features --features extension-module"},
+          {"os": "windows-2025", "target": "x64", "artifact": "windows-x64", "python": "3.15 3.14t"},
+          {"os": "macos-15", "target": "aarch64", "artifact": "macos-aarch64", "python": "3.15 3.14t pypy3.11"}
+        ]
+      post-build-command: uv run --no-project pyproject-fmt/build_backend.py dist
+    permissions:
+      contents: read
+```
+
+Each matrix entry takes these keys:
+
+- `os`: runner label, used as `runs-on`.
+- `target`: Rust target triple passed to maturin.
+- `artifact`: suffix of the uploaded `<package-name>-wheels-<artifact>` artifact.
+- `python`: space-separated interpreters for `--interpreter`; default `3.15`.
+- `manylinux`: manylinux or musllinux policy; default `auto`.
+- `args`: extra maturin arguments, such as `--zig`.
+
+`package-path` is the directory holding the package's `Cargo.toml`; the sdist is built from it. `release-build` defaults
+to `false`, but any tag ref runs in release mode too, so a tag caller can omit it. Release mode builds without sccache.
+`workflow_call` defaults cannot be expressions, so the workflow combines the two inside.
+
+`pre-build-command` runs once in the source job from the checkout root, so every wheel job builds the same tree. Use it
+for a version bump, which must happen before the source artifact is written. `post-build-command` runs in each wheel job
+after maturin, from the checkout root with the wheels in `dist`. Vendoring belongs there, because maturin skips the PEP
+517 hook that would otherwise vendor files. Both commands run under `bash -c`; the caller installs whatever they need,
+such as cargo-edit for `cargo set-version`.
+
+The source job installs the `release-build` group of the caller's `pylock.toml` to read the maturin version. The sdist
+job exports constraints from the `build` group. Both groups come from the lock that
+[export-build-constraints](#export-constraints-for-a-build-matrix) reads, with the same `exclude-newer` inputs.
+
+What stays in the caller:
+
+- Profile-guided optimization. A PGO leg needs an instrumented build, a training run, and a profile check inside the
+  same job. Simplint keeps its four PGO legs in a local job and passes the remaining matrix entries to this workflow.
+- Version selection, README generation, and any other changes to the source beyond `pre-build-command`.
+- Package checks on the built files, such as an sdist that must carry vendored code. The workflow inspects nothing
+  inside the built files; check them in the package's own `tox -e pkg_meta` run.
+- Publishing. Keep PyPI trusted publishing in the caller's tag workflow.
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's

@@ -1,0 +1,200 @@
+name: Build maturin wheels
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        description: Distribution name that prefixes the artifact names, such as pyproject-fmt
+        required: true
+        type: string
+      package-path:
+        description: Directory holding the package's Cargo.toml and build backend, . for the repository root
+        default: "."
+        type: string
+      matrix:
+        description: JSON array of build entries with os, target, artifact, and optional python, manylinux, and args
+        required: true
+        type: string
+      sdist:
+        description: Build the sdist and upload it as the sdist artifact
+        default: true
+        type: boolean
+      release-build:
+        description: Build a release without sccache; any tag ref already does
+        default: false
+        type: boolean
+      pre-build-command:
+        description: Shell command run once before the wheels, in the repository root, such as a version bump
+        default: ""
+        type: string
+      post-build-command:
+        description: Shell command run in each wheel job after maturin, with the wheels in dist, such as vendoring
+        default: ""
+        type: string
+      exclude-newer:
+        description: Upload cutoff for the tools the shared Actions install from PyPI
+        default: 7 days
+        type: string
+      exclude-newer-package:
+        description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+        default: ""
+        type: string
+permissions: {}
+jobs:
+  source:
+    name: 🏷️ Prepare source
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.source.outputs.artifact-id }}
+      maturin-version: ${{ steps.maturin.outputs.version }}
+      release: ${{ inputs.release-build || startsWith(github.ref, 'refs/tags/') }}
+      source-date-epoch: ${{ steps.source-date-epoch.outputs.value }}
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📦 Install locked release build tools
+        uses: $/install-locked-tools
+        with:
+          groups: release-build
+          venv: ${{ runner.temp }}/release-tools
+          exclude-newer: ${{ inputs.exclude-newer }}
+          exclude-newer-package: ${{ inputs.exclude-newer-package }}
+      - name: ⚙️ Read locked maturin version
+        id: maturin
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$("$RUNNER_TEMP/release-tools/bin/maturin" --version)
+          printf 'version=v%s\n' "${version#maturin }" >>"$GITHUB_OUTPUT"
+      - name: ⚙️ Read source timestamp
+        id: source-date-epoch
+        shell: bash
+        run: echo "value=$(git log -1 --format=%ct)" >>"$GITHUB_OUTPUT"
+      - name: 🏷️ Run pre-build command
+        if: ${{ inputs.pre-build-command != '' }}
+        shell: bash
+        env:
+          PRE_BUILD_COMMAND: ${{ inputs.pre-build-command }}
+        run: bash -c "$PRE_BUILD_COMMAND"
+      - name: 📤 Upload source
+        id: source
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.package-name }}-source
+          path: |
+            .
+            !.git
+          compression-level: 9
+          retention-days: 1
+          if-no-files-found: error
+  build:
+    name: 🏗️ ${{ matrix.artifact }}
+    needs: [source]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.source.outputs.source-date-epoch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.matrix) }}
+    steps:
+      - name: 📩 Download source
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.source.outputs.artifact-id }}
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        env:
+          UV_VENV_SEED: "true"
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+          activate-environment: true
+      - name: 🏗️ Build wheels
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: ${{ needs.source.outputs.maturin-version }}
+          target: ${{ matrix.target }}
+          args: >-
+            -m ${{ inputs.package-path }}/Cargo.toml --locked --release --out dist --target-dir target --interpreter ${{ matrix.python || '3.15' }} ${{ matrix.args }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          docker-options: --env SOURCE_DATE_EPOCH
+          sccache: ${{ needs.source.outputs.release != 'true' }}
+      - name: 🏗️ Run post-build command
+        if: ${{ inputs.post-build-command != '' }}
+        shell: bash
+        env:
+          POST_BUILD_COMMAND: ${{ inputs.post-build-command }}
+        run: bash -c "$POST_BUILD_COMMAND"
+      - name: 📤 Upload wheels
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.package-name }}-wheels-${{ matrix.artifact }}
+          path: dist
+          if-no-files-found: error
+  sdist:
+    name: 🏗️ sdist
+    if: ${{ inputs.sdist }}
+    needs: [source]
+    runs-on: ubuntu-26.04
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.source.outputs.source-date-epoch }}
+    permissions:
+      contents: read
+    steps:
+      - name: 📩 Download source
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.source.outputs.artifact-id }}
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📦 Export locked build constraints
+        id: constraints
+        uses: $/export-build-constraints
+        with:
+          exclude-newer: ${{ inputs.exclude-newer }}
+          exclude-newer-package: ${{ inputs.exclude-newer-package }}
+      - name: 🏗️ Build sdist
+        shell: bash
+        env:
+          BUILD_CONSTRAINTS: ${{ steps.constraints.outputs.path }}
+          PACKAGE_PATH: ${{ inputs.package-path }}
+        run: |
+          set -euo pipefail
+          uv build --sdist --out-dir dist --build-constraints "$BUILD_CONSTRAINTS" --require-build-hashes "$PACKAGE_PATH"
+      - name: 📤 Upload sdist
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.package-name }}-wheels-sdist
+          path: dist
+          if-no-files-found: error
+  gate:
+    name: 🚦 Build distributions pass
+    if: ${{ always() }}
+    needs: [source, build, sdist]
+    runs-on: ubuntu-26.04
+    permissions: {}
+    steps:
+      - name: 🚦 Fail when a build job failed or was cancelled
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          jq -e 'all(to_entries[]; .value.result == "success" or .value.result == "skipped")' <<<"$NEEDS_JSON"
