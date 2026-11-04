@@ -795,6 +795,38 @@ The writer job uploads those files with the App token from the `release-auth` en
           if-no-files-found: error
 ```
 
+## Publish a pre-commit mirror
+
+`publish-pre-commit-mirror.yaml` generates a pre-commit mirror of a Python package's hook with pre-commit-mirror-maker
+1.14.0, formats the result with prek 0.5.5, and commits it as `Mirror: <version>`. On `main`, one atomic push updates
+the branch and creates the `v<version>` tag, then a GitHub release is created.
+
+- Formatting runs twice. The first run may rewrite files and exit 1; the second run must pass on the rewritten tree. Any
+  other exit status fails the job.
+- A tag that already exists on origin fails the run. A published tag is never moved, because a moved tag changes the rev
+  users have pinned. Bump the package version to publish new content.
+- The job runs the repository's pre-commit hooks while it holds `contents: write`. Trigger it on pushes to `main`,
+  schedules, and manual dispatches, not on `pull_request`, so no pull request's hook code runs with that token.
+
+```yaml
+name: Mirror
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "30 8 * * *"
+permissions: {}
+jobs:
+  mirror:
+    uses: tox-dev/github-workflows/.github/workflows/publish-pre-commit-mirror.yaml@SHA
+    permissions:
+      contents: write
+    with:
+      package-name: pyproject-fmt
+      files-regex: '(^|/)pyproject\.toml$'
+```
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's

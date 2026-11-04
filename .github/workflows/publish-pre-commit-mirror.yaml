@@ -1,0 +1,114 @@
+name: 🪞 Publish pre-commit mirror
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        description: Package that pre-commit-mirror-maker wraps, such as pyproject-fmt
+        required: true
+        type: string
+      files-regex:
+        description: Regular expression for the files the mirrored hook accepts
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: pre-commit-mirror-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  mirror:
+    name: 🪞 Mirror
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # The push below reuses this checkout's credential, so the token never appears in the remote URL.
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 # zizmor: ignore[artipacked]
+        with:
+          persist-credentials: true
+      - name: 📦 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.7"
+          enable-cache: false
+      - name: 🪞 Generate mirror
+        env:
+          PACKAGE_NAME: ${{ inputs.package-name }}
+          FILES_REGEX: ${{ inputs.files-regex }}
+        run: |
+          set -euo pipefail
+          uvx -p 3.15 --from pre-commit-mirror-maker==1.14.0 pre-commit-mirror . \
+            --language=python --package-name="$PACKAGE_NAME" --files-regex "$FILES_REGEX"
+      - name: 📝 Update README with current version
+        run: |
+          set -euo pipefail
+          version=$(cat .version)
+          sed -i "s/rev: \".*\"/rev: \"v$version\"/" README.md
+      - name: 💅 Format generated files
+        run: |
+          set -euo pipefail
+          prek=(uvx --from prek==0.5.5 prek)
+          # The first run exits 1 when a hook rewrites files; the second run must pass on the rewritten tree.
+          status=0
+          "${prek[@]}" run --all-files || status=$?
+          case "$status" in
+          0)
+            echo 'Formatting left the generated files unchanged'
+            ;;
+          1)
+            echo 'Formatting rewrote generated files, checking the result'
+            "${prek[@]}" run --all-files
+            ;;
+          *)
+            echo "::error::prek exited with $status, not a file change" >&2
+            exit "$status"
+            ;;
+          esac
+      - name: 🔄 Commit mirror changes
+        id: commit
+        run: |
+          set -euo pipefail
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No mirror changes to commit'
+            exit 0
+          fi
+          version=$(cat .version)
+          git -c user.name='Github Actions' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "Mirror: $version"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+      - name: 🔍 Check the release tag is new
+        if: ${{ github.ref == 'refs/heads/main' && steps.commit.outputs.version != '' }}
+        env:
+          VERSION: ${{ steps.commit.outputs.version }}
+        run: |
+          set -euo pipefail
+          status=0
+          git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null || status=$?
+          case "$status" in
+          0)
+            echo "::error::tag v$VERSION already exists; a moved tag would change the rev users have pinned, bump the package version" >&2
+            exit 1
+            ;;
+          2) echo "Tag v$VERSION is new" ;;
+          *)
+            echo "::error::could not read tags from origin, git exited with $status" >&2
+            exit "$status"
+            ;;
+          esac
+      - name: 🚀 Push mirror commit and tag
+        if: ${{ github.ref == 'refs/heads/main' && steps.commit.outputs.version != '' }}
+        env:
+          VERSION: ${{ steps.commit.outputs.version }}
+        run: |
+          set -euo pipefail
+          git tag "v$VERSION"
+          git push --atomic origin HEAD:refs/heads/main "refs/tags/v$VERSION"
+      - name: 🎉 Create GitHub release
+        if: ${{ github.ref == 'refs/heads/main' && steps.commit.outputs.version != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.commit.outputs.version }}
+        run: gh release create "v$VERSION" --generate-notes
