@@ -1,0 +1,311 @@
+name: 🔀 Open maintenance PR
+on:
+  workflow_call:
+    inputs:
+      artifact-id:
+        description: ID of the maintenance-patch artifact the caller uploaded in the same run
+        type: string
+        required: true
+      allowed-paths:
+        description: Newline-separated shell glob patterns for the paths the patch may change
+        type: string
+        required: true
+      branch:
+        description: Branch that holds the maintenance commit; a later run replaces it
+        type: string
+        required: true
+      base:
+        description: Branch the pull request targets
+        type: string
+        default: main
+      title:
+        description: Pull request title, also the commit subject
+        type: string
+        required: true
+      body:
+        description: Pull request body
+        type: string
+        default: ""
+      labels:
+        description: Newline-separated labels to add to the pull request
+        type: string
+        default: ""
+    secrets:
+      RELEASE_APP_PRIVATE_KEY:
+        description: Repo-only release App key
+        required: true
+permissions: {}
+concurrency:
+  group: open-maintenance-pr-${{ inputs.branch }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    name: 🔍 Validate maintenance patch
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      patch-sha256: ${{ steps.digest.outputs.sha256 }}
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: 📩 Download maintenance patch
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ inputs.artifact-id }}
+          path: ${{ runner.temp }}/maintenance-patch
+      - name: ⚙️ Apply maintenance patch to a scratch index
+        env:
+          PATCH: ${{ runner.temp }}/maintenance-patch/maintenance.patch
+        run: |
+          set -euo pipefail
+          export GIT_INDEX_FILE="$RUNNER_TEMP/maintenance.index"
+          git read-tree HEAD
+          git apply --cached --verbose "$PATCH"
+      - name: 🔍 Check patch paths and modes
+        env:
+          ALLOWED_PATHS: ${{ inputs.allowed-paths }}
+          GIT_INDEX_FILE: ${{ runner.temp }}/maintenance.index
+        run: |
+          set -euo pipefail
+          patterns=()
+          while IFS= read -r pattern; do
+            if [[ -n "$pattern" ]]; then
+              patterns+=("$pattern")
+            fi
+          done <<<"$ALLOWED_PATHS"
+          if ((${#patterns[@]} == 0)); then
+            echo "::error::allowed-paths lists no pattern" >&2
+            exit 1
+          fi
+          git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/maintenance-raw"
+          count=0
+          while IFS= read -r -d '' metadata && IFS= read -r -d '' path; do
+            read -ra fields <<<"$metadata"
+            old_mode=${fields[0]#:}
+            new_mode=${fields[1]}
+            case "${fields[4]}" in
+            A)
+              expected_old=000000
+              expected_new=100644
+              ;;
+            M)
+              expected_old=100644
+              expected_new=100644
+              ;;
+            D)
+              expected_old=100644
+              expected_new=000000
+              ;;
+            *)
+              echo "::error::unexpected maintenance path status ${fields[4]} for $path" >&2
+              exit 1
+              ;;
+            esac
+            matched=false
+            for pattern in "${patterns[@]}"; do
+              case "$path" in
+              $pattern)
+                matched=true
+                ;;
+              esac
+            done
+            if [[ "$matched" != true ]]; then
+              echo "::error::unexpected maintenance path: $path" >&2
+              exit 1
+            fi
+            if [[ "$old_mode" != "$expected_old" || "$new_mode" != "$expected_new" ]]; then
+              echo "::error::unexpected maintenance file mode for $path: $old_mode to $new_mode" >&2
+              exit 1
+            fi
+            count=$((count + 1))
+          done <"$RUNNER_TEMP/maintenance-raw"
+          if ((count == 0)); then
+            echo "::error::maintenance patch changes no paths" >&2
+            exit 1
+          fi
+          echo "Maintenance patch paths: $count allowed, each a regular non-executable file or a deletion"
+      - id: digest
+        name: ⚙️ Record the validated patch digest
+        env:
+          PATCH: ${{ runner.temp }}/maintenance-patch/maintenance.patch
+        run: echo "sha256=$(sha256sum "$PATCH" | cut -d ' ' -f 1)" >>"$GITHUB_OUTPUT"
+  open:
+    name: 🔀 Open maintenance pull request
+    needs: validate
+    if: needs.validate.result == 'success'
+    runs-on: ubuntu-26.04
+    environment: release-auth
+    permissions:
+      contents: read
+    outputs:
+      number: ${{ steps.pull-request.outputs.number }}
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 📩 Download maintenance patch
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ inputs.artifact-id }}
+          path: ${{ runner.temp }}/maintenance-patch
+      - name: 🔍 Verify the validated patch digest
+        env:
+          EXPECTED_SHA256: ${{ needs.validate.outputs.patch-sha256 }}
+          PATCH: ${{ runner.temp }}/maintenance-patch/maintenance.patch
+        run: printf '%s  %s\n' "$EXPECTED_SHA256" "$PATCH" | sha256sum --check --status
+      - name: 🔒 Apply maintenance patch
+        env:
+          PATCH: ${{ runner.temp }}/maintenance-patch/maintenance.patch
+        run: git apply --index --verbose "$PATCH"
+      - name: 🔍 Check patch paths and modes
+        env:
+          ALLOWED_PATHS: ${{ inputs.allowed-paths }}
+        run: |
+          set -euo pipefail
+          patterns=()
+          while IFS= read -r pattern; do
+            if [[ -n "$pattern" ]]; then
+              patterns+=("$pattern")
+            fi
+          done <<<"$ALLOWED_PATHS"
+          if ((${#patterns[@]} == 0)); then
+            echo "::error::allowed-paths lists no pattern" >&2
+            exit 1
+          fi
+          git diff --cached --raw --no-renames -z >"$RUNNER_TEMP/maintenance-raw"
+          count=0
+          while IFS= read -r -d '' metadata && IFS= read -r -d '' path; do
+            read -ra fields <<<"$metadata"
+            old_mode=${fields[0]#:}
+            new_mode=${fields[1]}
+            case "${fields[4]}" in
+            A)
+              expected_old=000000
+              expected_new=100644
+              ;;
+            M)
+              expected_old=100644
+              expected_new=100644
+              ;;
+            D)
+              expected_old=100644
+              expected_new=000000
+              ;;
+            *)
+              echo "::error::unexpected maintenance path status ${fields[4]} for $path" >&2
+              exit 1
+              ;;
+            esac
+            matched=false
+            for pattern in "${patterns[@]}"; do
+              case "$path" in
+              $pattern)
+                matched=true
+                ;;
+              esac
+            done
+            if [[ "$matched" != true ]]; then
+              echo "::error::unexpected maintenance path: $path" >&2
+              exit 1
+            fi
+            if [[ "$old_mode" != "$expected_old" || "$new_mode" != "$expected_new" ]]; then
+              echo "::error::unexpected maintenance file mode for $path: $old_mode to $new_mode" >&2
+              exit 1
+            fi
+            count=$((count + 1))
+          done <"$RUNNER_TEMP/maintenance-raw"
+          if ((count == 0)); then
+            echo "::error::maintenance patch changes no paths" >&2
+            exit 1
+          fi
+          echo "Maintenance patch paths: $count allowed, each a regular non-executable file or a deletion"
+      - name: 🏷️ Commit maintenance change
+        env:
+          TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "$TITLE"
+      - name: ⚙️ Select the current repository
+        id: repository
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=${REPOSITORY#*/}" >>"$GITHUB_OUTPUT"
+      - name: 🔑 Create release App token
+        id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.repository.outputs.name }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: ⬆️ Push maintenance branch
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git --hostname github.com --force
+          echo "Pushing $BRANCH, replacing any earlier maintenance commit (force with lease)"
+          git push --force-with-lease origin "HEAD:refs/heads/$BRANCH"
+      - name: 📝 Write maintenance pull request body
+        env:
+          BODY: ${{ inputs.body }}
+        run: printf '%s\n' "$BODY" >"$RUNNER_TEMP/pull-request.md"
+      - name: 🔀 Write maintenance pull request
+        id: pull-request
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          BASE: ${{ inputs.base }}
+          BRANCH: ${{ inputs.branch }}
+          LABELS: ${{ inputs.labels }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+          owner=${GITHUB_REPOSITORY%%/*}
+          number=$(
+            gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open \
+              -f head="$owner:$BRANCH" -f base="$BASE" |
+              jq -r --arg repository "$GITHUB_REPOSITORY" --arg branch "$BRANCH" --arg base "$BASE" '
+                [.[] | select(.head.repo.full_name == $repository and .head.ref == $branch and .base.ref == $base)] |
+                if length == 0 then ""
+                elif length == 1 then .[0].number
+                else error("multiple maintenance pull requests") end
+              '
+          )
+          labels=()
+          while IFS= read -r label; do
+            if [[ -n "$label" ]]; then
+              labels+=("$label")
+            fi
+          done <<<"$LABELS"
+          label_args=()
+          for label in "${labels[@]}"; do
+            label_args+=(--label "$label")
+          done
+          if [[ -n "$number" ]]; then
+            echo "Maintenance pull request: #$number is open, updating it"
+            edit_args=(--title "$TITLE" --body-file "$RUNNER_TEMP/pull-request.md")
+            for label in "${labels[@]}"; do
+              edit_args+=(--add-label "$label")
+            done
+            gh pr edit "$number" "${edit_args[@]}"
+          else
+            echo "Maintenance pull request: none open, opening one from $BRANCH to $BASE"
+            url=$(
+              gh pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" \
+                --body-file "$RUNNER_TEMP/pull-request.md" "${label_args[@]}"
+            )
+            number=${url##*/}
+          fi
+          echo "number=$number" >>"$GITHUB_OUTPUT"

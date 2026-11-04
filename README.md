@@ -697,6 +697,67 @@ rerun the tag workflow: the keyless stage check must skip Marketplace upload bef
 Marketplace rejected the update, resolve the rejection and prepare a new release tag. A 404 alone does not authorize
 another upload of the same tag.
 
+## Open a maintenance pull request
+
+`open-maintenance-pr.yaml` opens or updates one pull request from a patch that a read-only job of the caller uploaded.
+The caller uploads the patch as an artifact named `maintenance-patch` and passes its artifact ID. The reusable workflow
+runs two jobs. `validate` applies the patch to a scratch index and leaves the checkout unchanged, then checks that every
+changed path matches `allowed-paths` and that each change is a regular non-executable file or a deletion. `open` is the
+only job that mints the App token. It runs in the `release-auth` environment, verifies the patch digest that `validate`
+recorded, checks the paths and modes again, commits, and force-pushes `branch` with a lease. It then edits the open pull
+request from `branch` into `base`, or opens one.
+
+```yaml
+jobs:
+  generate:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      # ... produce the changes in the working tree, then write $RUNNER_TEMP/maintenance.patch
+      - id: upload
+        uses: actions/upload-artifact@UPLOAD_SHA
+        with:
+          name: maintenance-patch
+          path: ${{ runner.temp }}/maintenance.patch
+          if-no-files-found: error
+  open:
+    needs: generate
+    permissions:
+      contents: read
+    uses: tox-dev/github-workflows/.github/workflows/open-maintenance-pr.yaml@SHA
+    with:
+      artifact-id: ${{ needs.generate.outputs.artifact-id }}
+      allowed-paths: |
+        docs/*.md
+        site/static/diagrams/*.svg
+      branch: automation/update-diagrams
+      title: Update diagrams
+      body: Regenerate the diagrams from the scheduled scan.
+      labels: skip news
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+```
+
+- `artifact-id` **(required)**: ID of the `maintenance-patch` artifact from the same workflow run.
+- `allowed-paths` **(required)**: Newline-separated shell glob patterns. A pattern is an exact path or a glob. Dots are
+  literal, and `*` also matches `/`.
+- `branch` **(required)**: Branch that holds the maintenance commit. A later run force-pushes it with a lease, replacing
+  the earlier commit.
+- `base`: Branch the pull request targets; default `main`.
+- `title` **(required)**: Pull request title, also the commit subject.
+- `body`: Pull request body.
+- `labels`: Newline-separated labels to add. Each label must already exist in the repository.
+
+The caller grants `contents: read` to its job and passes `RELEASE_APP_PRIVATE_KEY`. The App needs Contents and Pull
+requests write access on this repository only, as for `upgrade-release-tools`. Repository hooks and the caller's own
+generation run in the read-only job, before the artifact exists. The reusable workflow never runs project code.
+
+**Output:** `number`, the pull request number. **Remote effect:** One force-pushed commit on `branch` and one pull
+request into `base`. An open pull request with the same branch is updated; two open pull requests on one branch fail.
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's

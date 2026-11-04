@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import ssl
 import subprocess
@@ -10,7 +11,7 @@ import tomllib
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from textwrap import dedent
-from typing import Final
+from typing import Any, Final
 
 import certifi
 import coverage
@@ -21,6 +22,7 @@ from pytest_httpserver import HTTPServer
 from werkzeug.wrappers import Request, Response
 
 CALLER: Final = Path(__file__).parent / "fixtures/caller"
+WORKFLOWS: Final = Path(__file__).resolve().parents[1] / ".github/workflows"
 
 
 @pytest.fixture
@@ -482,8 +484,74 @@ def _expression(
     raise ValueError(f"unsupported GitHub step environment: {expression}")  # pragma: no cover - new syntax only
 
 
+def workflow_step(workflow: str, job: str, name: str) -> dict[str, Any]:
+    steps = yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"][job]["steps"]
+    return next(step for step in steps if step.get("name") == name)
+
+
+def run_workflow_step(
+    workflow: str,
+    job: str,
+    name: str,
+    *,
+    cwd: Path,
+    runner_temp: Path,
+    values: Mapping[str, str],
+    env: Mapping[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+    """Run one named step's ``run:`` block the way Actions does, expanding ``${{ ... }}`` from ``values``."""
+    step = workflow_step(workflow, job, name)
+    script = runner_temp / "step.sh"
+    script.write_text(step["run"])
+    output = runner_temp / "output"
+    output.unlink(missing_ok=True)
+    expand = {"runner.temp": str(runner_temp), "github.repository": "tox-dev/fixture", **values}
+    step_env = {
+        variable: re.sub(r"\$\{\{\s*(.+?)\s*\}\}", lambda match: expand[match.group(1)], str(value))
+        for variable, value in (step.get("env") or {}).items()
+    }
+    environment = {name: os.environ[name] for name in ("HOME", "LANG", "PATH") if name in os.environ}
+    environment |= {
+        "RUNNER_TEMP": str(runner_temp),
+        "GITHUB_OUTPUT": str(output),
+        "GITHUB_REPOSITORY": "tox-dev/fixture",
+    }
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+        cwd=cwd,
+        env={**environment, **step_env, **(env or {})},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result, read_outputs(output)
+
+
+def read_outputs(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    outputs: dict[str, str] = {}
+    lines = path.read_text().splitlines()
+    index = 0
+    while index < len(lines):
+        if "<<" in lines[index]:
+            name, delimiter = lines[index].split("<<", 1)
+            end = lines.index(delimiter, index + 1)
+            outputs[name] = "\n".join(lines[index + 1 : end])
+            index = end + 1
+        else:
+            name, _, value = lines[index].partition("=")
+            outputs[name] = value
+            index += 1
+    return outputs
+
+
 __all__ = [
     "CALLER",
+    "WORKFLOWS",
     "action",
+    "read_outputs",
     "run",
+    "run_workflow_step",
+    "workflow_step",
 ]
