@@ -122,6 +122,24 @@ def test_refresh_check_rejects_stale_lock(
     assert "regenerated Nab lock differs from the committed lock" in result.stderr
 
 
+def test_refresh_check_rejects_expired_exception_before_locking(
+    lock_project: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    project = lock_project / "pyproject.toml"
+    project.write_text(
+        project.read_text()
+        + "# expires 2000-01-01\n[tool.nab.packages.six]\nuploaded-prior-to = 2026-10-01T00:00:00Z\n"
+    )
+    run(lock_project, "git", "add", ".")
+    run(lock_project, "git", "commit", "-m", "Add an expired exception")
+
+    result = action(lock_project, tmp_path, action_scripts, "refresh-release-lock", version="", MODE="check")
+
+    assert result.returncode != 0
+    assert "packages.six uploaded-prior-to exception expired on 2000-01-01" in result.stderr
+    assert not (tmp_path / "lock-tools").exists()
+
+
 def test_refresh_writes_patch_for_stale_lock(
     lock_project: Path, nab_executable: Path, tmp_path: Path, action_scripts: Path
 ) -> None:

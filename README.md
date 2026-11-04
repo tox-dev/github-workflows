@@ -854,6 +854,26 @@ jobs:
 `render-release-notes` takes the same `package` input directly. Its `previous` input still defaults to `auto`, so
 callers need no separate `select-previous-tag` step.
 
+## Expire cutoff exceptions
+
+A `[tool.nab]` exception that admits one package past the cutoff, `packages.<name>.uploaded-prior-to`, carries its
+expiry date in a comment directly above the package table header or dotted key:
+
+```toml
+# expires 2026-11-09
+[tool.nab.packages.release-creator]
+uploaded-prior-to = 2026-11-02T21:45:00Z
+```
+
+Nab rejects unknown keys in a package table, so the date cannot sit beside the value. The date is the last day the
+exception is valid. `refresh-release-lock` in `check` mode fails when an exception has no such comment, a malformed
+date, or a date that has passed, and names the package. `validate-news` runs that check when a pull request changes
+`pyproject.toml`, a `pylock*.toml`, or `nab.toml`. A standalone `nab.toml` is checked the same way. An exception in
+`[[tool.nab.package-rules]]` is rejected, since the check does not read those tables; move it to a package table.
+
+The check runs only when release inputs change or the caller runs `check` mode, so an expired exception can remain until
+one of those happens.
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's
