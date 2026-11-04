@@ -73,6 +73,8 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
+      - name: 📅 Check cutoff exception expiry
+        uses: $/check-nab-exceptions
       - name: 🔒 Refresh release lock
         id: lock
         uses: $/refresh-release-lock

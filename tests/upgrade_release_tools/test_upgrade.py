@@ -205,3 +205,14 @@ def refresh_script(scripts: Path, name: str) -> Path:
     steps = yaml.safe_load((source / "refresh-release-lock/action.yml").read_text())["runs"]["steps"]
     index = next(index for index, step in enumerate(steps) if step.get("id") == name)
     return scripts / f"refresh-release-lock-{index}.sh"
+
+
+def test_upgrade_checks_cutoff_exceptions_before_refreshing_the_lock() -> None:
+    source = Path(__file__).resolve().parents[2]
+    steps = yaml.safe_load((source / ".github/workflows/upgrade-release-tools.yaml").read_text())["jobs"][
+        "generate-lock"
+    ]["steps"]
+    names = [step["name"] for step in steps]
+
+    assert steps[names.index("📅 Check cutoff exception expiry")]["uses"] == "$/check-nab-exceptions"
+    assert names.index("📅 Check cutoff exception expiry") < names.index("🔒 Refresh release lock")

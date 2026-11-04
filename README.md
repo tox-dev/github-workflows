@@ -866,13 +866,24 @@ uploaded-prior-to = 2026-11-02T21:45:00Z
 ```
 
 Nab rejects unknown keys in a package table, so the date cannot sit beside the value. The date is the last day the
-exception is valid. `refresh-release-lock` in `check` mode fails when an exception has no such comment, a malformed
-date, or a date that has passed, and names the package. `validate-news` runs that check when a pull request changes
-`pyproject.toml`, a `pylock*.toml`, or `nab.toml`. A standalone `nab.toml` is checked the same way. An exception in
-`[[tool.nab.package-rules]]` is rejected, since the check does not read those tables; move it to a package table.
+exception is valid. The check fails when an exception has no such comment, a malformed date, or a date that has passed,
+and names the package. A standalone `nab.toml` is checked the same way. An exception in `[[tool.nab.package-rules]]` is
+rejected, since the check does not read those tables; move it to a package table.
 
-The check runs only when release inputs change or the caller runs `check` mode, so an expired exception can remain until
-one of those happens.
+The check runs in three places:
+
+- `upgrade-release-tools.yaml`, before it refreshes the lock. Every caller's scheduled run therefore fails on an expired
+  or undated exception, even when no release input changed.
+
+- `refresh-release-lock` in `check` mode, which `validate-news` calls when a pull request changes `pyproject.toml`, a
+  `pylock*.toml`, or `nab.toml`.
+
+- The `check-nab-exceptions` Action on its own. It reads `pyproject.toml` and `nab.toml` from the checkout and takes no
+  inputs:
+
+  ```yaml
+  - uses: tox-dev/github-workflows/check-nab-exceptions@SHA
+  ```
 
 ## Test a caller
 
