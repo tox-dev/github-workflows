@@ -722,6 +722,70 @@ gate:
 
 **Output:** No named output. **Remote effect:** None. The Action reads only the `needs` JSON and needs no checkout.
 
+## Check a tox library
+
+`check.yaml` is a reusable workflow for a Python library tested with tox. It runs one job per `include` row, installs
+tox with uv under the `exclude-newer` cutoff, sets up each tox environment with `--notest`, then runs it with
+`--skip-pkg-install`. It ends with its own gate over the rows. The caller keeps a gate of its own, as below, so the
+required check name stays in the caller. Pin it to a release commit SHA.
+
+```yaml
+name: 🧪 check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: ["main"]
+    tags-ignore: ["**"]
+permissions: {}
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    name: 🧪 Test
+    uses: tox-dev/github-workflows/.github/workflows/check.yaml@SHA
+    permissions:
+      contents: read
+    with:
+      include: |
+        [
+          {"env": "3.15"},
+          {"env": "3.15t", "python": "3.15t"},
+          {"env": "3.14", "python": "3.14"},
+          {"env": "type"},
+          {"env": "pkg_meta"}
+        ]
+  gate:
+    name: 🚦 Required checks pass
+    if: ${{ !cancelled() }}
+    needs: [test]
+    runs-on: ubuntu-26.04
+    permissions: {}
+    steps:
+      - uses: tox-dev/github-workflows/required-checks@SHA
+        with:
+          needs: ${{ toJSON(needs) }}
+```
+
+- `include` **(required)**: JSON array of matrix rows. Each row needs `env`, the tox environment. `python` is a uv
+  interpreter the job installs before tox runs, such as `3.15t`; leave it out for the runner's Python. `os` overrides
+  the runner for that row.
+- `os`: Runner for rows without `os`; default `ubuntu-26.04`.
+- `apt-packages`: Space-separated Ubuntu packages installed on Linux jobs before tox, such as `graphviz`.
+- `tox-install`: Arguments to `uv tool install` that put tox and its plugins on `PATH`; default `tox --with tox-uv`. A
+  project that is tox-uv itself passes `tox --with .`.
+- `exclude-newer` and `exclude-newer-package`: The cutoff for the tox install, as in the Actions above; default
+  `7 days`. The tox environments themselves install fresh dependencies.
+- `pytest-addopts`: `PYTEST_ADDOPTS` for the test run; default `-vv --durations=20`.
+- `diff-against`: `DIFF_AGAINST` for the test run, a Git revision; default `HEAD`.
+- `coverage`: `true` uploads each job's `.tox/.coverage.*` as an artifact named for its runner and row, kept three days.
+  A caller job merges them with `actions/download-artifact` using the pattern `.coverage.*` and runs its coverage
+  environment.
+
+The check run names are `🧪 Test / 🧪 <env> on <os>` and the gate's name is unchanged. The job runs project code, so the
+caller grants it `contents: read` only.
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's

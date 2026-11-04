@@ -1,0 +1,126 @@
+name: Check
+on:
+  workflow_call:
+    inputs:
+      include:
+        description: JSON array of matrix rows; each has env, and optionally python and os
+        type: string
+        required: true
+      os:
+        description: Runner for rows without an os
+        type: string
+        default: ubuntu-26.04
+      apt-packages:
+        description: Space-separated Ubuntu packages installed on Linux jobs before tox runs
+        type: string
+        default: ""
+      tox-install:
+        description: Arguments to uv tool install that put tox and its plugins on PATH
+        type: string
+        default: tox --with tox-uv
+      exclude-newer:
+        description: Upload cutoff for the tox install, a timestamp or a duration
+        type: string
+        default: 7 days
+      exclude-newer-package:
+        description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+        type: string
+        default: ""
+      pytest-addopts:
+        description: PYTEST_ADDOPTS for the test run
+        type: string
+        default: "-vv --durations=20"
+      diff-against:
+        description: DIFF_AGAINST for the test run, a Git revision the tests compare with
+        type: string
+        default: HEAD
+      coverage:
+        description: Upload each job's .tox/.coverage.* data as an artifact for a caller job to merge
+        type: boolean
+        default: false
+permissions: {}
+jobs:
+  test:
+    name: 🧪 ${{ matrix.env }} on ${{ matrix.os || inputs.os }}
+    runs-on: ${{ matrix.os || inputs.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.include) }}
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📦 Install apt packages
+        if: ${{ inputs.apt-packages != '' && runner.os == 'Linux' }}
+        shell: bash
+        env:
+          APT_PACKAGES: ${{ inputs.apt-packages }}
+        run: |
+          set -euo pipefail
+          read -ra packages <<<"$APT_PACKAGES"
+          sudo apt-get update
+          sudo apt-get install -y "${packages[@]}"
+      - name: 📦 Install tox
+        shell: bash
+        env:
+          TOX_INSTALL: ${{ inputs.tox-install }}
+          EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
+          EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
+        run: |
+          set -euo pipefail
+          read -ra spec <<<"$TOX_INSTALL"
+          options=(--exclude-newer "$EXCLUDE_NEWER")
+          while IFS= read -r line; do
+            if [[ -n "$line" ]]; then options+=(--exclude-newer-package "$line"); fi
+          done <<<"$EXCLUDE_NEWER_PACKAGE"
+          echo "Installing ${spec[*]} with uploads older than $EXCLUDE_NEWER"
+          uv tool install --python-preference only-managed --python 3.15 "${options[@]}" "${spec[@]}"
+      - name: 🐍 Install Python
+        if: ${{ matrix.python }}
+        shell: bash
+        env:
+          PYTHON: ${{ matrix.python }}
+        run: uv python install --python-preference only-managed "$PYTHON"
+      - name: 📦 Set up test suite
+        shell: bash
+        env:
+          MATRIX_ENV: ${{ matrix.env }}
+        run: tox run -vv --notest --skip-missing-interpreters false -e "$MATRIX_ENV"
+      - name: 🧪 Run test suite
+        shell: bash
+        env:
+          MATRIX_ENV: ${{ matrix.env }}
+          PYTEST_ADDOPTS: ${{ inputs.pytest-addopts }}
+          DIFF_AGAINST: ${{ inputs.diff-against }}
+        run: tox run --skip-pkg-install -e "$MATRIX_ENV"
+      - name: 📤 Upload coverage data
+        if: ${{ inputs.coverage }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          include-hidden-files: true
+          name: .coverage.${{ matrix.os || inputs.os }}.${{ matrix.env }}
+          path: .tox/.coverage.*
+          if-no-files-found: error
+          retention-days: 3
+  gate:
+    name: 🚦 Required checks pass
+    if: ${{ !cancelled() }}
+    needs: [test]
+    runs-on: ubuntu-26.04
+    permissions: {}
+    steps:
+      - name: 🚦 Require all needed jobs to pass
+        uses: $/required-checks
+        with:
+          needs: ${{ toJSON(needs) }}
