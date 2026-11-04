@@ -1,0 +1,12 @@
+name: Check cutoff exception expiry
+description: Fail when a Nab cutoff exception has no expiry comment or has passed its expiry
+runs:
+  using: composite
+  steps:
+    - name: 📅 Check cutoff exception expiry
+      shell: bash
+      run: |
+        set -euo pipefail
+        files=(pyproject.toml)
+        if [[ -f nab.toml ]]; then files+=(nab.toml); fi
+        python3 "$GITHUB_ACTION_PATH/../tools/check_nab_exceptions.py" "${files[@]}"

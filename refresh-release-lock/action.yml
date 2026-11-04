@@ -37,12 +37,7 @@ runs:
   steps:
     - name: 📅 Check cutoff exception expiry
       if: inputs.mode == 'check'
-      shell: bash
-      run: |
-        set -euo pipefail
-        files=(pyproject.toml)
-        if [[ -f nab.toml ]]; then files+=(nab.toml); fi
-        python3 "$GITHUB_ACTION_PATH/../tools/check_nab_exceptions.py" "${files[@]}"
+      uses: $/check-nab-exceptions
     - name: 📦 Install Nab
       shell: bash
       env:

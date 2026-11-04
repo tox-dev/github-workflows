@@ -68,6 +68,7 @@ def action_scripts(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "select-previous-tag",
         "validate-news",
         "refresh-release-lock",
+        "check-nab-exceptions",
         "install-locked-tools",
         "export-build-constraints",
         "build-python-distribution",
