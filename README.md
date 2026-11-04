@@ -697,6 +697,31 @@ rerun the tag workflow: the keyless stage check must skip Marketplace upload bef
 Marketplace rejected the update, resolve the rejection and prepare a new release tag. A 404 alone does not authorize
 another upload of the same tag.
 
+## Require needed jobs
+
+`required-checks` fails unless every job in the `needs` context succeeded. Its one input is `toJSON(needs)`. Keep the
+caller's gate job, its name, and `if: ${{ !cancelled() }}`, because the name is the required status check. The Action
+replaces the `jq` expression each gate repeats.
+
+```yaml
+gate:
+  name: 🚦 Required checks pass
+  if: ${{ !cancelled() }}
+  needs: [test, type]
+  runs-on: ubuntu-26.04
+  permissions: {}
+  steps:
+    - uses: tox-dev/github-workflows/required-checks@SHA
+      with:
+        needs: ${{ toJSON(needs) }}
+```
+
+- `needs` **(required)**: The `needs` context as `toJSON(needs)`.
+- `allow-skipped`: Newline-separated job IDs that may end skipped, such as a job that runs on one interpreter only. Each
+  ID must also appear in `needs`; a typo fails the Action and names the typo. A listed job that succeeded passes too.
+
+**Output:** No named output. **Remote effect:** None. The Action reads only the `needs` JSON and needs no checkout.
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's

@@ -1,0 +1,31 @@
+name: Require needed jobs
+description: Fail unless every needed job succeeded, except the jobs named in allow-skipped, which may be skipped
+inputs:
+  needs:
+    description: The needs context, passed as toJSON(needs)
+    required: true
+  allow-skipped:
+    description: Newline-separated job IDs that may end skipped
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: 🚦 Require all needed jobs to pass
+      shell: bash
+      env:
+        NEEDS_JSON: ${{ inputs.needs }}
+        ALLOW_SKIPPED: ${{ inputs.allow-skipped }}
+      run: |
+        set -euo pipefail
+        jq -r 'to_entries[] | "Job \(.key): \(.value.result)"' <<<"$NEEDS_JSON"
+        skipped=$(jq -cn --arg list "$ALLOW_SKIPPED" '$list | split("\n") | map(select(length > 0))')
+        # Without this check, a typo fails the gate without naming allow-skipped.
+        if ! jq -e --argjson skipped "$skipped" '($skipped - keys) == []' <<<"$NEEDS_JSON" >/dev/null; then
+          echo "::error::allow-skipped names a job that is not in needs: $ALLOW_SKIPPED" >&2
+          exit 1
+        fi
+        jq -e --argjson skipped "$skipped" '
+          all(to_entries[];
+            .value.result == "success" or (.value.result == "skipped" and (.key | IN($skipped[])))
+          )
+        ' <<<"$NEEDS_JSON"
