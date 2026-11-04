@@ -697,6 +697,30 @@ rerun the tag workflow: the keyless stage check must skip Marketplace upload bef
 Marketplace rejected the update, resolve the rejection and prepare a new release tag. A 404 alone does not authorize
 another upload of the same tag.
 
+## Check a JetBrains plugin
+
+`jetbrains-plugin-check.yaml` builds the plugin ZIP, records its SHA256, runs `verifyPlugin` for each `verify-matrix`
+entry, and runs the Xvfb UI tests. Its `gate` job requires all of them. Lint and unit tests stay in the caller. The
+workflow needs no secret and holds `contents: read`.
+
+```yaml
+jobs:
+  plugin:
+    uses: tox-dev/github-workflows/.github/workflows/jetbrains-plugin-check.yaml@SHA
+    permissions:
+      contents: read
+```
+
+- `plugin-version`: written to `pluginVersion` before the build, with a leading `v` removed. Empty keeps the committed
+  value. A release caller passes `${{ github.ref_name }}`.
+- `verify-matrix`: JSON array of `{label, ide, version}` objects. The default verifies `PY` only. Add an entry with
+  `version: 263-EAP-SNAPSHOT` to catch platform APIs the next release removes.
+- `ui-test-timeout`: seconds to wait for the test IDE to answer on port 8082. Default `300`.
+
+The `build` job exports `archive-sha256`, `archive-name`, and `artifact-id` for `sign-jetbrains-plugin`. It selects
+exactly one ZIP that matches the version, and it keeps Gradle's cache off because the ZIP feeds a signed release. The
+`unsigned-plugin` artifact is retained for 30 days. UI-test reports upload on failure for 14 days.
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's

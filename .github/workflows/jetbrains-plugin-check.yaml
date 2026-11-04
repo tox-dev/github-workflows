@@ -1,0 +1,201 @@
+name: 🧩 JetBrains plugin check
+on:
+  workflow_call:
+    inputs:
+      plugin-version:
+        description: Version written to gradle.properties before the build, such as a release tag; empty keeps the committed pluginVersion
+        required: false
+        type: string
+        default: ""
+      verify-matrix:
+        description: JSON array of objects with label, ide, and version keys; each entry runs verifyPlugin against that IDE
+        required: false
+        type: string
+        default: '[{"label":"PY","ide":"PY","version":""}]'
+      ui-test-timeout:
+        description: Seconds to wait for the test IDE to answer on port 8082 before the UI tests start
+        required: false
+        type: number
+        default: 300
+    outputs:
+      archive-sha256:
+        description: SHA256 of the unsigned plugin ZIP, checked again by the signing job
+        value: ${{ jobs.build.outputs.archive-sha256 }}
+      archive-name:
+        description: File name of the unsigned plugin ZIP
+        value: ${{ jobs.build.outputs.archive-name }}
+      artifact-id:
+        description: ID of the unsigned-plugin artifact, downloaded by the signing job
+        value: ${{ jobs.build.outputs.artifact-id }}
+permissions: {}
+jobs:
+  build:
+    name: 🏗️ Build unsigned plugin
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      archive-sha256: ${{ steps.archive.outputs.sha256 }}
+      archive-name: ${{ steps.archive.outputs.name }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: 🧽 Free disk space
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          tool-cache: false
+          large-packages: false
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🧰 Set up mise (JDKs)
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          cache: false
+      # The build feeds the signed release, so Gradle's cache stays off to keep a cached artifact out of it.
+      - name: ☕ Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0 # zizmor: ignore[cache-poisoning]
+        with:
+          cache-disabled: true
+      - name: 🏷️ Set plugin version
+        if: ${{ inputs.plugin-version != '' }}
+        env:
+          PLUGIN_VERSION: ${{ inputs.plugin-version }}
+        run: |
+          set -euo pipefail
+          sed -i "s/^pluginVersion=.*/pluginVersion=${PLUGIN_VERSION#v}/" gradle.properties
+          grep -Fxq "pluginVersion=${PLUGIN_VERSION#v}" gradle.properties
+      - name: 🏗️ Build plugin ZIP
+        run: ./gradlew --console=plain buildPlugin
+      - name: ⚙️ Record unsigned ZIP digest
+        id: archive
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^pluginVersion=//p' gradle.properties)
+          shopt -s nullglob
+          archives=(build/distributions/*-"$version".zip)
+          if ((${#archives[@]} != 1)); then
+            echo "::error::expected one plugin ZIP for version $version, found ${#archives[@]}" >&2
+            exit 1
+          fi
+          read -r digest _ < <(sha256sum "${archives[0]}")
+          echo "name=${archives[0]##*/}" >>"$GITHUB_OUTPUT"
+          echo "sha256=$digest" >>"$GITHUB_OUTPUT"
+      - name: 📤 Upload unsigned plugin
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-plugin
+          path: build/distributions/${{ steps.archive.outputs.name }}
+          if-no-files-found: error
+          retention-days: 30
+  verify:
+    name: 🔍 Verify (${{ matrix.label }})
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.verify-matrix) }}
+    steps:
+      - name: 🧽 Free disk space
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          tool-cache: false
+          large-packages: false
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🧰 Set up mise (JDKs)
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - name: ☕ Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: 💾 Cache verifier IDEs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pluginVerifier/ides
+          key: plugin-verifier-ides-${{ matrix.ide }}-${{ matrix.version }}-${{ hashFiles('gradle.properties') }}
+      - name: 🔍 Run verification
+        env:
+          IDE: ${{ matrix.ide }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          args=(verifyPlugin "-PverifyIde=$IDE")
+          if [[ -n "$VERSION" ]]; then args+=("-PverifyVersion=$VERSION"); fi
+          ./gradlew --console=plain "${args[@]}"
+      - name: 📤 Upload results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pluginVerifier-result-${{ matrix.label }}
+          path: ${{ github.workspace }}/build/reports/pluginVerifier
+          if-no-files-found: ignore
+  ui-test:
+    name: 🧪 UI tests
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - name: 🧽 Free disk space
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          tool-cache: false
+          large-packages: false
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🧰 Set up mise (JDKs)
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - name: ☕ Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: 🏗️ Build test IDE sandbox
+        run: ./gradlew --console=plain buildPlugin compileTestKotlin
+      - name: 🧪 Run UI tests
+        env:
+          UI_TEST_TIMEOUT: ${{ inputs.ui-test-timeout }}
+        run: |
+          set -euo pipefail
+          export DISPLAY=:99.0
+          Xvfb :99 -screen 0 1920x1080x24 &
+          xvfb_pid=$!
+          ./gradlew --console=plain runIdeForUiTests &
+          ide_pid=$!
+          trap 'kill "$xvfb_pid" "$ide_pid" 2>/dev/null' EXIT
+          echo "Waiting up to $UI_TEST_TIMEOUT seconds for the IDE..."
+          if ! timeout "$UI_TEST_TIMEOUT" bash -c 'until curl -s http://127.0.0.1:8082 >/dev/null 2>&1; do sleep 2; done'; then
+            echo "::error::IDE did not answer on port 8082 within $UI_TEST_TIMEOUT seconds" >&2
+            exit 1
+          fi
+          echo "IDE is ready"
+          ./gradlew --console=plain uiTest
+      - name: 📤 Upload UI test artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-test-failure
+          path: |
+            build/reports/
+            build/idea-sandbox/**/log/idea.log
+          if-no-files-found: ignore
+          retention-days: 14
+  gate:
+    name: 🚦 Required checks pass
+    if: ${{ !cancelled() }}
+    needs: [build, verify, ui-test]
+    runs-on: ubuntu-26.04
+    permissions: {}
+    steps:
+      - name: 🚦 Require all needed jobs to pass
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "Job \(.key): \(.value.result)"' <<<"$NEEDS_JSON"
+          jq -e 'all(to_entries[]; .value.result == "success")' <<<"$NEEDS_JSON"

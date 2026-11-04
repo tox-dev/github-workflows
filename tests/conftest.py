@@ -355,6 +355,27 @@ def _run_action(
     return subprocess.CompletedProcess(command, 0, "".join(stdout), "".join(stderr)), outputs
 
 
+def workflow_step(
+    workflow: str,
+    job: str,
+    name: str,
+    cwd: Path,
+    environment: Mapping[str, str],
+) -> subprocess.CompletedProcess[str]:
+    steps = yaml.safe_load((Path(__file__).resolve().parents[1] / ".github/workflows" / workflow).read_text())["jobs"][
+        job
+    ]["steps"]
+    script = next(step["run"] for step in steps if step.get("name") == name)
+    return subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+        cwd=cwd,
+        env=_safe_environment() | dict(environment),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 def run(directory: Path, *command: str) -> subprocess.CompletedProcess[str]:
     environment = _safe_environment()
     result = subprocess.run(
@@ -486,4 +507,5 @@ __all__ = [
     "CALLER",
     "action",
     "run",
+    "workflow_step",
 ]
