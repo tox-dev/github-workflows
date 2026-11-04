@@ -1,0 +1,114 @@
+name: 📕 Build LaTeX to Pages
+on:
+  workflow_call:
+    inputs:
+      root-file:
+        description: Root TeX file that latexmk compiles; its PDF keeps the base name and is served at the Pages root
+        required: false
+        type: string
+        default: main.tex
+permissions: {}
+concurrency:
+  group: latex-pages-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  build:
+    name: 📕 Compile LaTeX document
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      pdf-name: ${{ steps.pdf.outputs.name }}
+      pdf-sha256: ${{ steps.pdf.outputs.sha256 }}
+    steps:
+      - name: 🛎️ Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🕰️ Pin the build clock to the commit
+        id: epoch
+        run: echo "epoch=$(git log -1 --format=%ct)" >>"$GITHUB_OUTPUT"
+      - name: 📕 Compile LaTeX document
+        uses: xu-cheng/latex-action@6549dc21effb2730855a1281407ecfcececc6c1b # 4.1.0
+        with:
+          root_file: ${{ inputs.root-file }}
+          # The action runs latexmk in a container that only forwards its own env, so step env: never reaches pdflatex.
+          pre_compile: export SOURCE_DATE_EPOCH=${{ steps.epoch.outputs.epoch }} FORCE_SOURCE_DATE=1
+      - name: 🔎 Record PDF name and digest
+        id: pdf
+        env:
+          ROOT_FILE: ${{ inputs.root-file }}
+        run: |
+          set -euo pipefail
+          pdf="${ROOT_FILE%.tex}.pdf"
+          test -f "$pdf"
+          read -r digest _ < <(sha256sum "$pdf")
+          printf 'path=%s\nname=%s\nsha256=%s\n' "$pdf" "${pdf##*/}" "$digest" >>"$GITHUB_OUTPUT"
+      - name: 📤 Upload PDF
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: latex-pdf
+          path: ${{ steps.pdf.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30
+  deploy:
+    name: 🚀 Deploy to GitHub Pages
+    needs: build
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    environment:
+      name: release
+      url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ needs.build.outputs.pdf-name }}
+    permissions:
+      contents: write
+      pages: read
+    steps:
+      - name: 🛎️ Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 📩 Download PDF
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: built
+      - name: 🔍 Check downloaded PDF digest
+        env:
+          PDF_NAME: ${{ needs.build.outputs.pdf-name }}
+          PDF_SHA256: ${{ needs.build.outputs.pdf-sha256 }}
+        run: |
+          set -euo pipefail
+          echo "$PDF_SHA256  built/$PDF_NAME" | sha256sum --check
+      - name: 🚀 Deploy 🚀
+        uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
+        with:
+          folder: built
+          single-commit: true
+      - name: 🔍 Verify published PDF
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ needs.build.outputs.pdf-name }}
+          PDF_SHA256: ${{ needs.build.outputs.pdf-sha256 }}
+        run: |
+          set -euo pipefail
+          head=$(gh api "repos/$GITHUB_REPOSITORY/branches/gh-pages" --jq .commit.sha)
+          for i in $(seq 1 80); do
+            sleep 15
+            build=$(gh api "repos/$GITHUB_REPOSITORY/pages/builds/latest" --jq '"\(.commit) \(.status)"') || build=unknown
+            if [[ "$build" != "$head built" ]]; then
+              echo "Pages build is '$build', waiting for '$head built'"
+              continue
+            fi
+            got=$(curl -fsSL --retry 3 "$URL?run=$GITHUB_RUN_ID-$i" | sha256sum | cut -d' ' -f1) || continue
+            if [[ "$got" == "$PDF_SHA256" ]]; then
+              echo "Pages serves the freshly built PDF, SHA256 $got"
+              exit 0
+            fi
+            echo "Pages serves SHA256 $got, expected $PDF_SHA256"
+          done
+          echo "::error::$URL did not serve the freshly built PDF within 20 minutes; is GitHub Pages enabled for gh-pages?" >&2
+          exit 1

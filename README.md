@@ -827,6 +827,34 @@ jobs:
       files-regex: '(^|/)pyproject\.toml$'
 ```
 
+## Build a LaTeX document to GitHub Pages
+
+`latex-to-pages.yaml` compiles `root-file` with latexmk, pins `SOURCE_DATE_EPOCH` to the checked-out commit time, and
+uploads the PDF as the `latex-pdf` artifact. On `main` it deploys to `gh-pages` in the `release` environment, then polls
+the Pages build for up to 20 minutes until the served PDF has the built SHA256. GitHub Pages must be enabled for
+`gh-pages`. The PDF is served at `https://<owner>.github.io/<repo>/<name>.pdf`, where `<name>` is the root file's base
+name.
+
+```yaml
+name: Build LaTeX document
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+  schedule:
+    - cron: "0 8 * * *"
+permissions: {}
+jobs:
+  pdf:
+    uses: tox-dev/github-workflows/.github/workflows/latex-to-pages.yaml@SHA
+    permissions:
+      contents: write
+      pages: read
+    with:
+      root-file: main.tex
+```
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's
