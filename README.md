@@ -721,6 +721,40 @@ The `build` job exports `archive-sha256`, `archive-name`, and `artifact-id` for 
 exactly one ZIP that matches the version, and it keeps Gradle's cache off because the ZIP feeds a signed release. The
 `unsigned-plugin` artifact is retained for 30 days. UI-test reports upload on failure for 14 days.
 
+## Stage and verify a JetBrains Marketplace release
+
+`stage-jetbrains-marketplace` checks a signed ZIP with `release-creator marketplace`. In `mode: stage`, before upload,
+it outputs `publish` (`true` when no public version matches) and `channel`. In `mode: verify`, after the version is
+public, it compares the public member bytes and outputs nothing. Install `release-creator` from the caller's locked
+release tools first.
+
+The channel is the tag suffix before the first dot: `v1.2.3-beta.1` gives `beta`, and `v1.2.3` gives an empty Stable
+channel. Pass `channel` to `publish-jetbrains-marketplace`.
+
+```yaml
+  marketplace-check:
+    needs: sign
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.stage.outputs.publish }}
+      channel: ${{ steps.stage.outputs.channel }}
+    steps:
+      - uses: actions/download-artifact@DOWNLOAD_SHA
+        with:
+          artifact-ids: ${{ needs.sign.outputs.artifact-id }}
+          path: dist
+      - id: stage
+        uses: tox-dev/github-workflows/stage-jetbrains-marketplace@SHA
+        with:
+          archive: dist/Plugin-1.2.3-signed.zip
+          sha256: ${{ needs.sign.outputs.sha256 }}
+          plugin-id: com.github.toxdev.fish
+          version: ${{ github.ref_name }}
+          mode: stage
+```
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's

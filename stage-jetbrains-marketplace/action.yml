@@ -1,0 +1,72 @@
+name: Stage or verify JetBrains Marketplace plugin
+description: Compare a signed ZIP with the Marketplace before upload, or with the public version after it
+inputs:
+  archive:
+    description: Signed plugin ZIP recorded by the signing job
+    required: true
+  sha256:
+    description: SHA256 recorded by the signing job before artifact upload
+    required: true
+  plugin-id:
+    description: JetBrains plugin XML ID, such as com.github.toxdev.fish
+    required: true
+  version:
+    description: Release tag, such as v1.2.3 or v1.2.3-beta.1; the v prefix is removed
+    required: true
+  mode:
+    description: stage compares before upload and emits publish; verify compares the public version after upload
+    default: stage
+outputs:
+  publish:
+    description: true when stage finds no public version and the upload should run; empty in verify mode
+    value: ${{ steps.stage.outputs.publish }}
+  channel:
+    description: Marketplace channel from the tag suffix, such as beta; empty selects Stable
+    value: ${{ steps.channel.outputs.name }}
+runs:
+  using: composite
+  steps:
+    - name: 🔍 Verify signed ZIP digest
+      shell: bash
+      env:
+        ARCHIVE: ${{ inputs.archive }}
+        EXPECTED_SHA: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        read -r actual _ < <(sha256sum "$ARCHIVE")
+        if [[ "$actual" != "$EXPECTED_SHA" ]]; then
+          echo "::error::signed ZIP ${ARCHIVE##*/} has SHA256 $actual, the signing job recorded $EXPECTED_SHA" >&2
+          exit 1
+        fi
+        echo "Signed ZIP ${ARCHIVE##*/}: SHA256 matches the signing job"
+    - name: ⚙️ Select Marketplace channel
+      id: channel
+      shell: bash
+      env:
+        TAG: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        version="${TAG#v}"
+        channel="${version#*-}"
+        if [[ "$channel" == "$version" ]]; then channel=''; fi
+        echo "name=${channel%%.*}" >>"$GITHUB_OUTPUT"
+    - name: 🔍 Compare Marketplace version
+      id: stage
+      shell: bash
+      env:
+        ARCHIVE: ${{ inputs.archive }}
+        PLUGIN_ID: ${{ inputs.plugin-id }}
+        VERSION: ${{ inputs.version }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        case "$MODE" in
+        stage | verify) ;;
+        *)
+          echo "::error::mode must be stage or verify, got $MODE" >&2
+          exit 1
+          ;;
+        esac
+        args=(marketplace --plugin-id "$PLUGIN_ID" --version "${VERSION#v}" --archive "$ARCHIVE" --mode "$MODE")
+        if [[ "$MODE" == stage ]]; then args+=(--github-output "$GITHUB_OUTPUT"); fi
+        release-creator "${args[@]}"
