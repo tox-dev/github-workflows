@@ -1,0 +1,223 @@
+name: 📦 Update Python dependencies
+on:
+  workflow_call:
+    inputs:
+      files:
+        description: Newline-separated bump-deps-index groups; each line is one run over its space-separated files
+        type: string
+        required: true
+      cooldown:
+        description: Upload age a bumped release needs, such as 7 days; 0 days turns the cooldown off
+        type: string
+        default: 7 days
+      expedite:
+        description: Whitespace-separated package names whose newest release skips the cooldown for this run
+        type: string
+        default: ""
+      kind:
+        description: app cools every bump; library is reserved until bump-deps-index scopes cutoffs by section
+        type: string
+        default: app
+      allowed-paths:
+        description: Newline-separated globs for files a repository hook regenerates, besides pylock.toml and bumped files
+        type: string
+        default: ""
+      branch:
+        description: Branch that holds the dependency commit
+        type: string
+        default: update-python-dependencies
+      title:
+        description: Pull request title, also the commit subject
+        type: string
+        default: Update Python dependencies
+      body:
+        description: Pull request body
+        type: string
+        default: Update dependency floors and the lock from the scheduled scan.
+      labels:
+        description: Newline-separated labels to add to the pull request
+        type: string
+        default: ""
+    secrets:
+      RELEASE_APP_PRIVATE_KEY:
+        description: Repo-only release App key
+        required: true
+permissions: {}
+jobs:
+  generate:
+    name: 📦 Bump Python dependencies
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.patch.outputs.changed }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      allowed-paths: ${{ steps.inputs.outputs.allowed-paths }}
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📦 Install locked release tools
+        uses: $/install-locked-tools
+        with:
+          groups: release-prepare
+          venv: ${{ runner.temp }}/release-tools
+      - id: inputs
+        name: ⚙️ Validate inputs and set the cutoffs
+        env:
+          ALLOWED_EXTRA: ${{ inputs.allowed-paths }}
+          COOLDOWN: ${{ inputs.cooldown }}
+          EXPEDITE: ${{ inputs.expedite }}
+          FILES: ${{ inputs.files }}
+          KIND: ${{ inputs.kind }}
+        run: |
+          set -euo pipefail
+          case "$KIND" in
+          app) ;;
+          library)
+            echo "::error::kind library needs bump-deps-index cutoffs per dependency section, which it does not have; use kind app" >&2
+            exit 1
+            ;;
+          *)
+            echo "::error::kind must be app or library, not $KIND" >&2
+            exit 1
+            ;;
+          esac
+          if [[ ! "$COOLDOWN" =~ ^[0-9]{1,4}\ days?$ ]]; then
+            echo "::error::cooldown must be N days, such as 7 days or 0 days, not '$COOLDOWN'" >&2
+            exit 1
+          fi
+          if ((${COOLDOWN%% *} == 0)); then
+            cutoff=none
+            echo 'Bump cooldown: off (cooldown 0 days), bumps take the newest release'
+          else
+            cutoff=$(date --utc --date="$COOLDOWN ago" '+%Y-%m-%dT%H:%M:%SZ')
+            echo "Bump cooldown: $COOLDOWN, releases uploaded before $cutoff"
+          fi
+          tool_cutoff=$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')
+          : >"$RUNNER_TEMP/expedite"
+          names=()
+          while IFS= read -r line; do
+            read -ra words <<<"$line"
+            names+=("${words[@]}")
+          done <<<"$EXPEDITE"
+          for name in "${names[@]}"; do
+            if [[ ! "$name" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$ ]]; then
+              echo "::error::expedite entry '$name' is not a package name" >&2
+              exit 1
+            fi
+            printf '%s\n' "$name" >>"$RUNNER_TEMP/expedite"
+          done
+          if ((${#names[@]})); then
+            echo "Expedited past the cooldown for this run: ${names[*]}"
+          fi
+          : >"$RUNNER_TEMP/file-groups"
+          bumped=()
+          while IFS= read -r group; do
+            if [[ -z "$group" ]]; then
+              continue
+            fi
+            read -ra words <<<"$group"
+            for word in "${words[@]}"; do
+              if [[ ! "$word" =~ ^[A-Za-z0-9_.][A-Za-z0-9._/-]*$ || "$word" == *..* ]]; then
+                echo "::error::files entry '$word' is not a plain relative path" >&2
+                exit 1
+              fi
+              bumped+=("$word")
+            done
+            printf '%s\n' "$group" >>"$RUNNER_TEMP/file-groups"
+          done <<<"$FILES"
+          if ((${#bumped[@]} == 0)); then
+            echo "::error::files lists no dependency file" >&2
+            exit 1
+          fi
+          printf 'cutoff=%s\n' "$cutoff" >>"$GITHUB_OUTPUT"
+          printf 'tool-cutoff=%s\n' "$tool_cutoff" >>"$GITHUB_OUTPUT"
+          {
+            echo 'allowed-paths<<ALLOWED_PATHS_EOF'
+            printf '%s\n' pylock.toml "${bumped[@]}" "$ALLOWED_EXTRA"
+            echo 'ALLOWED_PATHS_EOF'
+          } >>"$GITHUB_OUTPUT"
+      - name: 📦 Bump dependency floors
+        env:
+          CUTOFF: ${{ steps.inputs.outputs.cutoff }}
+          TOOL_CUTOFF: ${{ steps.inputs.outputs.tool-cutoff }}
+          UV_NO_CONFIG: "1"
+        run: |
+          set -euo pipefail
+          # The tool itself is tooling, so its install always waits out the seven-day cooldown.
+          bump=(uvx --exclude-newer "$TOOL_CUTOFF" 'bump-deps-index>=1.18.0')
+          args=()
+          if [[ "$CUTOFF" == none ]]; then
+            args+=(--no-exclude-newer)
+          else
+            args+=(--exclude-newer "$CUTOFF")
+          fi
+          while IFS= read -r name; do
+            if [[ -n "$name" ]]; then
+              args+=(--exclude-newer-package "$name=false")
+            fi
+          done <"$RUNNER_TEMP/expedite"
+          while IFS= read -r group; do
+            read -ra files <<<"$group"
+            echo "Bumping ${files[*]}"
+            "${bump[@]}" "${args[@]}" --file "${files[@]}"
+          done <"$RUNNER_TEMP/file-groups"
+      - name: 🔒 Refresh release lock
+        uses: $/refresh-release-lock
+      - name: 🧹 Run repository hooks
+        continue-on-error: true
+        uses: $/cooled-prek
+        with:
+          args: run --all-files
+      - name: 🧹 Confirm repository hooks are stable
+        uses: $/cooled-prek
+        with:
+          args: run --all-files
+      - id: patch
+        name: 📝 Write maintenance patch
+        run: |
+          set -euo pipefail
+          git add --all
+          if git diff --cached --quiet; then
+            echo 'changed=false' >>"$GITHUB_OUTPUT"
+            echo 'Maintenance patch skipped: no tracked file changed'
+            exit 0
+          fi
+          git diff --cached --binary --no-ext-diff --no-renames >"$RUNNER_TEMP/maintenance.patch"
+          echo 'changed=true' >>"$GITHUB_OUTPUT"
+          echo "Maintenance patch -> $RUNNER_TEMP/maintenance.patch:"
+          git diff --cached --stat
+      - id: upload
+        name: 📤 Upload maintenance patch
+        if: steps.patch.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: maintenance-patch
+          path: ${{ runner.temp }}/maintenance.patch
+          if-no-files-found: error
+          retention-days: 1
+  open:
+    name: 🔀 Open dependency pull request
+    needs: generate
+    if: needs.generate.outputs.changed == 'true'
+    permissions:
+      contents: read
+    uses: $/.github/workflows/open-maintenance-pr.yaml
+    with:
+      artifact-id: ${{ needs.generate.outputs.artifact-id }}
+      allowed-paths: ${{ needs.generate.outputs.allowed-paths }}
+      branch: ${{ inputs.branch }}
+      title: ${{ inputs.title }}
+      body: ${{ inputs.body }}
+      labels: ${{ inputs.labels }}
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}

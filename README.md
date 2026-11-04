@@ -758,6 +758,65 @@ generation run in the read-only job, before the artifact exists. The reusable wo
 **Output:** `number`, the pull request number. **Remote effect:** One force-pushed commit on `branch` and one pull
 request into `base`. An open pull request with the same branch is updated; two open pull requests on one branch fail.
 
+## Update Python dependencies
+
+`update-python-dependencies.yaml` bumps the direct requirements in the files you name, regenerates `pylock.toml`, runs
+the repository's hooks, and opens a dependency pull request. It is the Python dependency workflow for applications:
+every bumped floor waits out the cooldown, and so does every locked release.
+
+```yaml
+name: Update Python dependencies
+on:
+  workflow_dispatch:
+    inputs:
+      cooldown:
+        description: Upload age a bumped release needs, such as 7 days; 0 days turns the cooldown off
+        type: string
+        default: 7 days
+      expedite:
+        description: Space-separated packages whose newest release skips the cooldown for this run
+        type: string
+        default: ""
+  schedule:
+    - cron: 0 8 * * 2
+permissions: {}
+jobs:
+  update:
+    permissions:
+      contents: read
+    uses: tox-dev/github-workflows/.github/workflows/update-python-dependencies.yaml@SHA
+    with:
+      files: |
+        pyproject.toml tox.toml
+      cooldown: ${{ inputs.cooldown || '7 days' }}
+      expedite: ${{ inputs.expedite || '' }}
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+```
+
+- `files` **(required)**: Newline-separated groups. Each line is one `bump-deps-index --file` run over its
+  space-separated paths, so a file that needs a different cutoff belongs in its own run. Paths are plain relative paths.
+- `cooldown`: Upload age a bumped release needs; `7 days` by default, `N days` only. `0 days` turns the bump cooldown
+  off for the run. The bootstrap of `bump-deps-index` itself always waits seven days.
+- `expedite`: Whitespace-separated package names. Each one takes its newest release for this run, past the cooldown. It
+  changes only the bump. The lock still follows the cutoff in the caller's `[tool.nab]` table, so a locked package needs
+  a committed `[tool.nab.packages.NAME]` exception, which the next run keeps.
+- `kind`: `app` (default) cools every bump. `library` is refused: it would keep direct and test floors fresh while still
+  cooling tooling, and `bump-deps-index` cannot yet apply a cutoff to one dependency section.
+- `allowed-paths`: Newline-separated glob patterns for files that a repository hook rewrites, such as a generated
+  README. `pylock.toml` and every path in `files` are always allowed.
+- `branch`, `title`, `body`, `labels`: Passed to `open-maintenance-pr`. Defaults: `update-python-dependencies`,
+  `Update Python dependencies`, and no labels.
+
+The Action installs the locked release tools from the caller's `release-prepare` group, so the caller's `pylock.toml`
+needs that group. It runs `refresh-release-lock` to upgrade the lock with Nab, then `cooled-prek` twice: the first run
+may rewrite files, and the second confirms the result is stable. Put a repository's own formatting, README generation,
+and other steps in its prek hooks. Besides the locked release tools, it installs Nab and `bump-deps-index`, both from
+PyPI under the cooldown.
+
+**Output:** No named output. **Remote effect:** Through `open-maintenance-pr`, one dependency pull request into `main`,
+or none when nothing changed.
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's
