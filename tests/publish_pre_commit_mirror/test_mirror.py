@@ -3,11 +3,10 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Final
+from typing import Final
 
 import pytest
-import yaml
-from conftest import run, workflow_step
+from conftest import JsonObject, at, load_yaml, mapping, run, step, steps, text, workflow_step
 
 WORKFLOW: Final[str] = "publish-pre-commit-mirror.yaml"
 ROOT: Final = Path(__file__).resolve().parents[2]
@@ -20,12 +19,12 @@ exit "${statuses[count]}"
 """
 
 
-def _workflow() -> dict[str, Any]:
-    return yaml.load((ROOT / ".github/workflows" / WORKFLOW).read_text(), Loader=yaml.BaseLoader)
+def _workflow() -> JsonObject:
+    return load_yaml(ROOT / ".github/workflows" / WORKFLOW)
 
 
-def _step(name: str) -> dict[str, Any]:
-    return next(step for step in _workflow()["jobs"]["mirror"]["steps"] if step.get("name") == name)
+def _step(name: str) -> JsonObject:
+    return step(_workflow(), "mirror", name)
 
 
 @pytest.fixture
@@ -150,7 +149,7 @@ def test_push_step_publishes_branch_and_tag_together(tmp_path: Path) -> None:
 
 
 def test_push_is_atomic_and_never_forces() -> None:
-    push = _step("🚀 Push mirror commit and tag")["run"]
+    push = text(_step("🚀 Push mirror commit and tag")["run"])
     assert "--atomic" in push
     assert "--force" not in push
     assert " -f " not in push
@@ -159,21 +158,22 @@ def test_push_is_atomic_and_never_forces() -> None:
 def test_checkout_uses_default_credentials_without_token_in_remote() -> None:
     checkout = _step("📥 Check out repository")
     assert checkout["with"] == {"persist-credentials": "true"}
-    text = (ROOT / ".github/workflows" / WORKFLOW).read_text()
-    assert "set-url" not in text
-    assert "x-access-token" not in text
+    workflow_text = (ROOT / ".github/workflows" / WORKFLOW).read_text()
+    assert "set-url" not in workflow_text
+    assert "x-access-token" not in workflow_text
 
 
 def test_runs_pin_tools_and_never_interpolate_outputs() -> None:
-    text = (ROOT / ".github/workflows" / WORKFLOW).read_text()
-    assert "pre-commit-mirror-maker==1.14.0" in text
-    assert "prek==0.5.5" in text
-    assert 'version: "0.13.7"' in text
-    for job in _workflow()["jobs"].values():
-        for step in job["steps"]:
-            script = step.get("run", "")
-            assert "${{" not in script, step.get("name")
-            assert "|| true" not in script, step.get("name")
+    workflow_text = (ROOT / ".github/workflows" / WORKFLOW).read_text()
+    assert "pre-commit-mirror-maker==1.14.0" in workflow_text
+    assert "prek==0.5.5" in workflow_text
+    assert 'version: "0.13.7"' in workflow_text
+    workflow = _workflow()
+    for job in mapping(at(workflow, "jobs")):
+        for item in steps(workflow, job):
+            script = text(item.get("run", ""))
+            assert "${{" not in script, item.get("name")
+            assert "|| true" not in script, item.get("name")
 
 
 def test_concurrency_queues_mirror_runs() -> None:

@@ -4,11 +4,10 @@ import hashlib
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Final
+from typing import Final
 
 import pytest
-import yaml
-from conftest import workflow_step
+from conftest import JsonObject, at, load_yaml, mapping, step, steps, text, workflow_step
 
 WORKFLOW: Final[str] = "latex-to-pages.yaml"
 ROOT: Final = Path(__file__).resolve().parents[2]
@@ -23,12 +22,12 @@ CURL_STUB: Final[str] = '#!/usr/bin/env bash\ncat "$SERVED_FILE"\n'
 NOOP_STUB: Final[str] = "#!/usr/bin/env bash\nexit 0\n"
 
 
-def _workflow() -> dict[str, Any]:
-    return yaml.load((ROOT / ".github/workflows" / WORKFLOW).read_text(), Loader=yaml.BaseLoader)
+def _workflow() -> JsonObject:
+    return load_yaml(ROOT / ".github/workflows" / WORKFLOW)
 
 
-def _step(job: str, name: str) -> dict[str, Any]:
-    return next(step for step in _workflow()["jobs"][job]["steps"] if step.get("name") == name)
+def _step(job: str, name: str) -> JsonObject:
+    return step(_workflow(), job, name)
 
 
 @pytest.fixture
@@ -45,22 +44,25 @@ def stubs(tmp_path: Path) -> Path:
 def test_top_level_grants_nothing_and_each_job_holds_only_its_scope() -> None:
     workflow = _workflow()
     assert workflow["permissions"] == {}
-    assert workflow["jobs"]["build"]["permissions"] == {"contents": "read"}
-    assert workflow["jobs"]["deploy"]["permissions"] == {"contents": "write", "pages": "read"}
+    assert at(workflow, "jobs", "build", "permissions") == {"contents": "read"}
+    assert at(workflow, "jobs", "deploy", "permissions") == {"contents": "write", "pages": "read"}
 
 
 def test_build_pins_clock_and_bounds_runtime() -> None:
-    build = _workflow()["jobs"]["build"]
-    assert build["timeout-minutes"] == "20"
+    assert at(_workflow(), "jobs", "build", "timeout-minutes") == "20"
     compile_step = _step("build", "📕 Compile LaTeX document")
-    assert "SOURCE_DATE_EPOCH=${{ steps.epoch.outputs.epoch }}" in compile_step["with"]["pre_compile"]
-    assert _workflow()["jobs"]["deploy"]["timeout-minutes"] == "30"
+    pre_compile = text(mapping(compile_step["with"])["pre_compile"])
+    assert "SOURCE_DATE_EPOCH=${{ steps.epoch.outputs.epoch }}" in pre_compile
+    assert at(_workflow(), "jobs", "deploy", "timeout-minutes") == "30"
 
 
 def test_checkouts_keep_credentials_out_of_the_workspace() -> None:
-    for job in _workflow()["jobs"].values():
-        checkout = next(step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
-        assert checkout["with"] == {"persist-credentials": "false"}
+    workflow = _workflow()
+    for job in mapping(at(workflow, "jobs")):
+        checkouts = [
+            item for item in steps(workflow, job) if text(item.get("uses", "")).startswith("actions/checkout@")
+        ]
+        assert [item["with"] for item in checkouts] == [{"persist-credentials": "false"}]
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,7 @@ import tomllib
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from textwrap import dedent
-from typing import Final
+from typing import Final, TypeIs
 
 import certifi
 import coverage
@@ -357,6 +357,63 @@ def _run_action(
     return subprocess.CompletedProcess(command, 0, "".join(stdout), "".join(stderr)), outputs
 
 
+type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+type JsonObject = dict[str, JsonValue]
+
+
+def is_json(value: object) -> TypeIs[JsonValue]:
+    if isinstance(value, list):
+        return all(is_json(item) for item in value)
+    if isinstance(value, dict):
+        return is_json_object(value)
+    return value is None or isinstance(value, str | int | float | bool)
+
+
+def is_json_object(value: object) -> TypeIs[JsonObject]:
+    return isinstance(value, dict) and all(isinstance(key, str) and is_json(item) for key, item in value.items())
+
+
+def load_yaml(path: Path) -> JsonObject:
+    document = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    if not is_json_object(document):
+        msg = f"{path} is not a YAML mapping"
+        raise TypeError(msg)
+    return document
+
+
+def mapping(value: JsonValue) -> JsonObject:
+    if not is_json_object(value):
+        msg = f"expected a mapping, got {value!r}"
+        raise TypeError(msg)
+    return value
+
+
+def text(value: JsonValue) -> str:
+    if not isinstance(value, str):
+        msg = f"expected text, got {value!r}"
+        raise TypeError(msg)
+    return value
+
+
+def at(document: JsonObject, *keys: str) -> JsonValue:
+    value: JsonValue = document
+    for key in keys:
+        value = mapping(value)[key]
+    return value
+
+
+def steps(document: JsonObject, job: str) -> list[JsonObject]:
+    value = at(document, "jobs", job, "steps")
+    if not isinstance(value, list):
+        msg = f"{job} has no step list"
+        raise TypeError(msg)
+    return [mapping(item) for item in value]
+
+
+def step(document: JsonObject, job: str, name: str) -> JsonObject:
+    return next(item for item in steps(document, job) if item.get("name") == name)
+
+
 def workflow_step(
     workflow: str,
     job: str,
@@ -364,10 +421,9 @@ def workflow_step(
     cwd: Path,
     environment: Mapping[str, str],
 ) -> subprocess.CompletedProcess[str]:
-    steps = yaml.safe_load((Path(__file__).resolve().parents[1] / ".github/workflows" / workflow).read_text())["jobs"][
-        job
-    ]["steps"]
-    script = next(step["run"] for step in steps if step.get("name") == name)
+    script = text(
+        step(load_yaml(Path(__file__).resolve().parents[1] / ".github/workflows" / workflow), job, name)["run"]
+    )
     return subprocess.run(
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
         cwd=cwd,
@@ -508,6 +564,12 @@ def _expression(
 __all__ = [
     "CALLER",
     "action",
+    "at",
+    "load_yaml",
+    "mapping",
     "run",
+    "step",
+    "steps",
+    "text",
     "workflow_step",
 ]
