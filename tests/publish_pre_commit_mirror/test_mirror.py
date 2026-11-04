@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 from typing import Any, Final
 
@@ -80,20 +81,6 @@ def _repository(tmp_path: Path) -> Path:
     return clone
 
 
-def test_commit_step_records_version_only_for_changes(tmp_path: Path) -> None:
-    clone = _repository(tmp_path)
-    output = tmp_path / "output"
-    unchanged = workflow_step(WORKFLOW, "mirror", "🔄 Commit mirror changes", clone, {"GITHUB_OUTPUT": str(output)})
-    assert unchanged.returncode == 0, unchanged.stderr
-    assert not output.exists()
-
-    (clone / ".version").write_text("1.0.1\n")
-    changed = workflow_step(WORKFLOW, "mirror", "🔄 Commit mirror changes", clone, {"GITHUB_OUTPUT": str(output)})
-    assert changed.returncode == 0, changed.stderr
-    assert output.read_text() == "version=1.0.1\n"
-    assert run(clone, "git", "log", "-1", "--format=%s").stdout.strip() == "Mirror: 1.0.1"
-
-
 def _remote_with_tag(tmp_path: Path) -> tuple[Path, Path]:
     remote = tmp_path / "remote.git"
     run(tmp_path, "git", "init", "-q", "--bare", str(remote))
@@ -104,23 +91,51 @@ def _remote_with_tag(tmp_path: Path) -> tuple[Path, Path]:
     return remote, clone
 
 
-@pytest.mark.parametrize(
-    ("version", "accepted"),
-    [
-        pytest.param("1.0.0", False, id="published-tag"),
-        pytest.param("1.0.1", True, id="new-tag"),
-    ],
-)
-def test_tag_check_refuses_to_move_a_published_tag(tmp_path: Path, version: str, accepted: bool) -> None:
+def _commit_step(clone: Path, output: Path) -> subprocess.CompletedProcess[str]:
+    return workflow_step(WORKFLOW, "mirror", "🔄 Commit mirror changes", clone, {"GITHUB_OUTPUT": str(output)})
+
+
+def test_commit_step_commits_an_unpublished_version(tmp_path: Path) -> None:
     _, clone = _remote_with_tag(tmp_path)
-    result = workflow_step(
-        WORKFLOW,
-        "mirror",
-        "🔍 Check the release tag is new",
-        clone,
-        {"VERSION": version},
-    )
-    assert (result.returncode == 0) is accepted, result.stderr
+    output = tmp_path / "output"
+    (clone / ".version").write_text("1.0.1\n")
+    result = _commit_step(clone, output)
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == "version=1.0.1\n"
+    assert run(clone, "git", "log", "-1", "--format=%s").stdout.strip() == "Mirror: 1.0.1"
+
+
+def test_commit_step_skips_when_regeneration_changes_nothing(tmp_path: Path) -> None:
+    clone = _repository(tmp_path)
+    output = tmp_path / "output"
+    result = _commit_step(clone, output)
+    assert result.returncode == 0, result.stderr
+    assert not output.exists()
+
+
+def test_commit_step_is_a_noop_when_the_published_tree_matches(tmp_path: Path) -> None:
+    _, clone = _remote_with_tag(tmp_path)
+    head = run(clone, "git", "rev-parse", "HEAD").stdout.strip()
+    (clone / "README.md").write_text("diverged\n")
+    run(clone, "git", "commit", "-q", "-am", "Diverge")
+    (clone / "README.md").write_text('rev: "v0.0.0"\n')
+    output = tmp_path / "output"
+    result = _commit_step(clone, output)
+    assert result.returncode == 0, result.stderr
+    assert "already published with identical mirror content" in result.stdout
+    assert not output.exists()
+    assert run(clone, "git", "rev-parse", "HEAD").stdout.strip() != head
+    assert run(clone, "git", "rev-list", "--count", "HEAD").stdout.strip() == "2"
+
+
+def test_commit_step_fails_when_the_published_tree_differs(tmp_path: Path) -> None:
+    _, clone = _remote_with_tag(tmp_path)
+    head = run(clone, "git", "rev-parse", "HEAD").stdout.strip()
+    (clone / "README.md").write_text('rev: "v9.9.9"\n')
+    result = _commit_step(clone, tmp_path / "output")
+    assert result.returncode != 0
+    assert "published with a different mirror tree" in result.stderr
+    assert run(clone, "git", "rev-parse", "HEAD").stdout.strip() == head
 
 
 def test_push_step_publishes_branch_and_tag_together(tmp_path: Path) -> None:
@@ -169,5 +184,5 @@ def test_concurrency_queues_mirror_runs() -> None:
 
 
 def test_release_steps_run_only_on_main_pushes() -> None:
-    for name in ("🔍 Check the release tag is new", "🚀 Push mirror commit and tag", "🎉 Create GitHub release"):
+    for name in ("🚀 Push mirror commit and tag", "🎉 Create GitHub release"):
         assert _step(name)["if"] == "${{ github.ref == 'refs/heads/main' && steps.commit.outputs.version != '' }}"

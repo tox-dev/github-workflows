@@ -803,8 +803,9 @@ the branch and creates the `v<version>` tag, then a GitHub release is created.
 
 - Formatting runs twice. The first run may rewrite files and exit 1; the second run must pass on the rewritten tree. Any
   other exit status fails the job.
-- A tag that already exists on origin fails the run. A published tag is never moved, because a moved tag changes the rev
-  users have pinned. Bump the package version to publish new content.
+- A version whose tag already exists on origin is a no-op when the regenerated tree matches the tag, so the daily run
+  succeeds with a notice. A different tree fails the run and names both trees. A published tag is never moved, because a
+  moved tag changes the rev users have pinned; bump the package version to publish new content.
 - The job runs the repository's pre-commit hooks while it holds `contents: write`. Trigger it on pushes to `main`,
   schedules, and manual dispatches, not on `pull_request`, so no pull request's hook code runs with that token.
 

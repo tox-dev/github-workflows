@@ -75,29 +75,30 @@ jobs:
             exit 0
           fi
           version=$(cat .version)
-          git -c user.name='Github Actions' \
-            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-            commit -m "Mirror: $version"
-          echo "version=$version" >>"$GITHUB_OUTPUT"
-      - name: 🔍 Check the release tag is new
-        if: ${{ github.ref == 'refs/heads/main' && steps.commit.outputs.version != '' }}
-        env:
-          VERSION: ${{ steps.commit.outputs.version }}
-        run: |
-          set -euo pipefail
           status=0
-          git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null || status=$?
+          git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null || status=$?
           case "$status" in
           0)
-            echo "::error::tag v$VERSION already exists; a moved tag would change the rev users have pinned, bump the package version" >&2
-            exit 1
+            git fetch --quiet --no-tags origin "refs/tags/v$version:refs/tags/v$version"
+            published=$(git rev-parse "v$version^{tree}")
+            regenerated=$(git write-tree)
+            if [[ "$published" != "$regenerated" ]]; then
+              echo "::error::v$version is published with a different mirror tree ($published), the regenerated tree is $regenerated; bump the package version to publish new content" >&2
+              exit 1
+            fi
+            echo "::notice::v$version is already published with identical mirror content, nothing to push"
+            exit 0
             ;;
-          2) echo "Tag v$VERSION is new" ;;
+          2) ;;
           *)
             echo "::error::could not read tags from origin, git exited with $status" >&2
             exit "$status"
             ;;
           esac
+          git -c user.name='Github Actions' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "Mirror: $version"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
       - name: 🚀 Push mirror commit and tag
         if: ${{ github.ref == 'refs/heads/main' && steps.commit.outputs.version != '' }}
         env:
