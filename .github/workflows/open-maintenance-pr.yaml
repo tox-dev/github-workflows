@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       artifact-id:
-        description: ID of the maintenance-patch artifact the caller uploaded in the same run
+        description: ID of the maintenance patch artifact the caller uploaded in the same run
         type: string
         required: true
       allowed-paths:
