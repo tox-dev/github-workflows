@@ -1,5 +1,9 @@
 name: Validate release patch
 description: Apply the release patch downloaded to $RUNNER_TEMP/release-patch and check its paths and file modes
+inputs:
+  allowed-paths:
+    description: Newline-separated glob patterns for the only paths the patch may change, in place of the Towncrier configuration
+    default: ""
 runs:
   using: composite
   steps:
@@ -8,8 +12,10 @@ runs:
       run: git apply --index --verbose "$RUNNER_TEMP/release-patch/release.patch"
     - name: ⚙️ Read Towncrier configuration
       id: config
+      if: inputs.allowed-paths == ''
       uses: $/read-towncrier-config
     - name: 🔍 Check release patch paths
+      if: inputs.allowed-paths == ''
       shell: bash
       env:
         CHANGELOG: ${{ steps.config.outputs.changelog }}
@@ -36,6 +42,40 @@ runs:
           removed=$((removed + 1))
         done <"$RUNNER_TEMP/release-paths"
         echo "Release patch paths: $(plural "$removed" fragment) removed from $FRAGMENTS"
+    - name: 🔍 Check release patch paths against the allowlist
+      if: inputs.allowed-paths != ''
+      shell: bash
+      env:
+        ALLOWED_PATHS: ${{ inputs.allowed-paths }}
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
+        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
+        patterns=()
+        while IFS= read -r pattern; do
+          if [[ -n "$pattern" ]]; then
+            patterns+=("$pattern")
+          fi
+        done <<<"$ALLOWED_PATHS"
+        git diff --cached --name-status --no-renames -z >"$RUNNER_TEMP/release-paths"
+        count=0
+        while IFS= read -r -d '' status && IFS= read -r -d '' path; do
+          echo "Release patch path: $status $path"
+          matched=false
+          for pattern in "${patterns[@]}"; do
+            # shellcheck disable=SC2053 # The patterns are globs, matched on purpose.
+            if [[ "$path" == $pattern ]]; then
+              matched=true
+              break
+            fi
+          done
+          if [[ "$matched" != true ]]; then
+            echo "::error::unexpected release path: $path" >&2
+            exit 1
+          fi
+          count=$((count + 1))
+        done <"$RUNNER_TEMP/release-paths"
+        echo "Release patch paths: $(plural "$count" path) within the allowlist"
     - name: 🔍 Check release patch file modes
       shell: bash
       run: |

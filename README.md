@@ -406,7 +406,10 @@ needs no release tools.
 
 **Output:** No named output. **Working-tree effect:** Applies and stages the patch. The Action reads the changelog path
 and fragment directory from committed Towncrier configuration. Only the changelog and direct fragment deletions may
-appear in the patch, as regular files. An unexpected path or mode fails the job.
+appear in the patch, as regular files. An unexpected path or mode fails the job. Set `allowed-paths` to newline-separated
+glob patterns to replace that path rule: the patch may then change only the matching paths, and the Towncrier
+configuration is not read. The [release-creator preparation](#prepare-release-creator-release) sets it.
+
 
 ## Commit and tag release
 

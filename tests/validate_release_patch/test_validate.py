@@ -189,3 +189,46 @@ def test_validate_rejects_removed_changelog(repository: Path, tmp_path: Path, ac
     result = action(repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0")
     assert result.returncode != 0
     assert "unexpected release path" in result.stderr
+
+
+def _patch(repository: Path, tmp_path: Path) -> None:
+    (tmp_path / "release.patch").write_text(run(repository, "git", "diff", "HEAD", "--binary").stdout)
+    run(repository, "git", "reset", "--hard", "HEAD")
+
+
+def test_allowlist_accepts_listed_paths_only(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    (repository / "pyproject.toml").write_text((repository / "pyproject.toml").read_text() + "\n# changed\n")
+    (repository / "changelog.d/+feature.feature.md").unlink()
+    _patch(repository, tmp_path)
+    result = action(
+        repository,
+        tmp_path,
+        action_scripts,
+        "validate-release-patch",
+        version="0.2.0",
+        ALLOWED_PATHS="pyproject.toml\nchangelog.d/*",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "within the allowlist" in result.stdout
+    assert "changelog.d/+feature.feature.md" in run(repository, "git", "diff", "--cached", "--name-only").stdout
+
+
+def test_allowlist_rejects_unlisted_path(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    (repository / "pyproject.toml").write_text((repository / "pyproject.toml").read_text() + "\n# changed\n")
+    _patch(repository, tmp_path)
+    result = action(
+        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0", ALLOWED_PATHS="CHANGELOG.md"
+    )
+    assert result.returncode != 0
+    assert "unexpected release path: pyproject.toml" in result.stderr
+
+
+def test_allowlist_rejects_executable_mode(repository: Path, tmp_path: Path, action_scripts: Path) -> None:
+    script = repository / "pyproject.toml"
+    script.chmod(0o755)
+    _patch(repository, tmp_path)
+    result = action(
+        repository, tmp_path, action_scripts, "validate-release-patch", version="0.2.0", ALLOWED_PATHS="pyproject.toml"
+    )
+    assert result.returncode != 0
+    assert "unexpected release file mode" in result.stderr
