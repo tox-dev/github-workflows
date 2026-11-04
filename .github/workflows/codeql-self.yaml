@@ -1,0 +1,22 @@
+name: 🛡️ CodeQL
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 9 * * 2"
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: codeql-${{ github.ref }}-${{ github.run_attempt > 1 && github.run_id || 'current' }}
+  cancel-in-progress: ${{ github.run_attempt == 1 }}
+jobs:
+  analyze:
+    name: 🛡️ Analyze
+    uses: $/.github/workflows/codeql.yaml
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      languages: '["actions","python"]'
+      paths-ignore: '["tests"]'

@@ -1,15 +1,28 @@
-name: 🛡️ CodeQL
+name: CodeQL
 on:
-  push:
-    branches: [main]
-  pull_request:
-  schedule:
-    - cron: "0 9 * * 2"
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      languages:
+        description: JSON array of CodeQL languages; each language gets its own analysis job
+        type: string
+        default: '["actions","python"]'
+      paths-ignore:
+        description: JSON array of path patterns CodeQL skips, written to its configuration
+        type: string
+        default: "[]"
+      queries:
+        description: Query suite or comma-separated query list for CodeQL init
+        type: string
+        default: security-extended
+      config-file:
+        description: Repository path to a CodeQL configuration file; when set, paths-ignore has no effect
+        type: string
+        default: ""
+      build-mode:
+        description: CodeQL build mode for each language, such as none or autobuild
+        type: string
+        default: none
 permissions: {}
-concurrency:
-  group: codeql-${{ github.ref }}-${{ github.run_attempt > 1 && github.run_id || 'current' }}
-  cancel-in-progress: ${{ github.run_attempt == 1 }}
 jobs:
   analyze:
     name: 🛡️ Analyze ${{ matrix.language }}
@@ -20,22 +33,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [actions, python]
+        language: ${{ fromJSON(inputs.languages) }}
     steps:
       - name: 📥 Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: 🛡️ Initialize CodeQL
-        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: ${{ matrix.language }}
-          build-mode: none
-          queries: security-extended
-          config: |
-            paths-ignore:
-              - tests
+          build-mode: ${{ inputs.build-mode }}
+          queries: ${{ inputs.queries }}
+          config-file: ${{ inputs.config-file }}
+          config: "${{ inputs.config-file == '' && format('paths-ignore: {0}', inputs.paths-ignore) || '' }}"
       - name: 🛡️ Analyze
-        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           category: "/language:${{ matrix.language }}"

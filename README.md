@@ -786,6 +786,47 @@ jobs:
 The check run names are `🧪 Test / 🧪 <env> on <os>` and the gate's name is unchanged. The job runs project code, so the
 caller grants it `contents: read` only.
 
+## Analyze with CodeQL
+
+`codeql.yaml` is a reusable CodeQL workflow. It has one analysis job per language and no triggers, so the caller keeps
+its schedule, branches, and pull request events. The caller grants `security-events: write`, because the analysis
+uploads results to code scanning.
+
+```yaml
+name: 🛡️ CodeQL
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 9 * * 2"
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: codeql-${{ github.ref }}-${{ github.run_attempt > 1 && github.run_id || 'current' }}
+  cancel-in-progress: ${{ github.run_attempt == 1 }}
+jobs:
+  analyze:
+    name: 🛡️ Analyze
+    uses: tox-dev/github-workflows/.github/workflows/codeql.yaml@SHA
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      languages: '["actions","python"]'
+      paths-ignore: '["tests"]'
+```
+
+- `languages`: JSON array of CodeQL languages, one job each; default `["actions","python"]`.
+- `paths-ignore`: JSON array of paths CodeQL skips, written to its configuration; default `[]`.
+- `queries`: Query suite or comma-separated query list; default `security-extended`.
+- `config-file`: Repository path to a CodeQL configuration file. Use it instead of `paths-ignore`, which has no effect
+  when this is set; the file lists its own paths.
+- `build-mode`: `none` (default), `autobuild`, or `manual`, for each language.
+
+Each check run is named `🛡️ Analyze / 🛡️ Analyze <language>`, not `🛡️ Analyze <language>`. A ruleset that requires the
+old name must require the new one. The workflow pins CodeQL Action v4.39.1 for both the init and analyze steps.
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's
