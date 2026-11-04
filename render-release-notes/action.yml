@@ -16,6 +16,9 @@ inputs:
   previous:
     description: Previous tag, or auto to calculate it from Git history
     default: auto
+  package:
+    description: Package section of a shared Markdown changelog, such as pyproject-fmt; empty for one package
+    default: ""
 runs:
   using: composite
   steps:
@@ -47,6 +50,7 @@ runs:
         ARTIFACT_URL: ${{ inputs.artifact-url }}
         ARTIFACT_LABEL: ${{ inputs.artifact-label }}
         PREVIOUS: ${{ steps.previous.outputs.previous }}
+        PACKAGE: ${{ inputs.package }}
       run: |
         set -euo pipefail
         # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
@@ -54,6 +58,9 @@ runs:
         args=(--changelog "$CHANGELOG" --tag "$TAG" --repository "$GITHUB_REPOSITORY")
         if [[ -n "$PREVIOUS" ]]; then
           args+=(--previous "$PREVIOUS")
+        fi
+        if [[ -n "$PACKAGE" ]]; then
+          args+=(--package "$PACKAGE")
         fi
         mapfile -t urls < <(grep -v '^[[:space:]]*$' <<<"$ARTIFACT_URL" || true)
         mapfile -t labels < <(grep -v '^[[:space:]]*$' <<<"$ARTIFACT_LABEL" || true)

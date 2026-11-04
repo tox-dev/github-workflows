@@ -1,0 +1,72 @@
+name: Render GitHub Release notes
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to render, such as 1.2.3 or pyproject-fmt/1.2.3
+        required: true
+        type: string
+      changelog:
+        description: Tracked changelog path; empty reads the path from the committed Towncrier configuration
+        default: ""
+        type: string
+      artifact-url:
+        description: Published ecosystem release URL, one per line for several packages
+        default: ""
+        type: string
+      artifact-label:
+        description: Link text for each artifact-url line, in the same order; default PyPI release
+        default: ""
+        type: string
+      package:
+        description: Package section of a shared Markdown changelog; empty for one package
+        default: ""
+        type: string
+    outputs:
+      artifact-id:
+        description: Artifact ID of the rendered GitHub Release notes
+        value: ${{ jobs.notes.outputs.artifact-id }}
+permissions: {}
+jobs:
+  notes:
+    name: 📝 Render GitHub Release notes
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - id: towncrier
+        name: ⚙️ Read Towncrier configuration
+        uses: $/read-towncrier-config
+      - name: 📦 Install locked release tools
+        uses: $/install-locked-tools
+        with:
+          groups: release-notes
+          venv: ${{ runner.temp }}/release-tools
+      - name: 📝 Render release notes
+        uses: $/render-release-notes
+        with:
+          tag: ${{ inputs.tag }}
+          changelog: ${{ inputs.changelog || steps.towncrier.outputs.changelog }}
+          artifact-url: ${{ inputs.artifact-url }}
+          artifact-label: ${{ inputs.artifact-label }}
+          package: ${{ inputs.package }}
+      - name: 📤 Upload release notes
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: github-release-notes-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
