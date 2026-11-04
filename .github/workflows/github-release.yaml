@@ -1,0 +1,75 @@
+name: Publish GitHub Release
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: PyPI project name
+        required: true
+        type: string
+      version:
+        description: PyPI release version, without a package prefix from the tag
+        required: true
+        type: string
+      tag:
+        description: Release tag, such as 1.2.3 or pyproject-fmt/1.2.3
+        required: true
+        type: string
+      artifact-pattern:
+        description: Name pattern of the distribution artifacts the publisher uploaded
+        required: true
+        type: string
+      notes-artifact-id:
+        description: Artifact ID of the rendered GitHub Release notes
+        required: true
+        type: string
+      title-prefix:
+        description: Text before the tag in the GitHub Release title, such as v
+        default: ""
+        type: string
+      assets-directory:
+        description: Directory of extra GitHub Release assets; dist attaches the distributions
+        default: ""
+        type: string
+permissions: {}
+jobs:
+  github-release:
+    name: 🚀 Publish GitHub Release
+    runs-on: ubuntu-26.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: 🐍 Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: 📩 Download distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ${{ inputs.artifact-pattern }}
+          path: dist
+          merge-multiple: true
+      - name: 📩 Download release notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ inputs.notes-artifact-id }}
+          path: ${{ runner.temp }}
+      - name: 🔍 Verify PyPI artifacts
+        uses: $/reconcile-pypi-artifacts
+        with:
+          project: ${{ inputs.project }}
+          version: ${{ inputs.version }}
+          dist: dist
+      - name: 🚀 Publish GitHub release
+        uses: $/publish-github-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          tag: ${{ inputs.tag }}
+          commit: ${{ github.sha }}
+          title: ${{ inputs.title-prefix }}${{ inputs.tag }}
+          notes-file: ${{ runner.temp }}/release-notes.md
+          assets-directory: ${{ inputs.assets-directory }}

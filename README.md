@@ -697,6 +697,163 @@ rerun the tag workflow: the keyless stage check must skip Marketplace upload bef
 Marketplace rejected the update, resolve the rejection and prepare a new release tag. A 404 alone does not authorize
 another upload of the same tag.
 
+## Render release notes and publish the GitHub Release
+
+`release-notes.yaml` renders the GitHub Release body in a read-only job. `github-release.yaml` checks the PyPI files,
+then creates the GitHub Release in a job that runs in the caller's `release` environment with `contents: write`. Both
+are reusable workflows. The caller keeps the PyPI upload job, because PyPI trusted publishing cannot run in a reusable
+workflow.
+
+`release-notes.yaml` takes these inputs and returns one output:
+
+- `tag` **(required)**: release tag, such as `1.2.3` or `pyproject-fmt/1.2.3`.
+- `changelog`: tracked changelog path. Empty reads `filename` from the committed Towncrier configuration.
+- `artifact-url` and `artifact-label`: passed to `render-release-notes`.
+- `package`: package section of a shared Markdown changelog. The previous tag is then the one before the tag in the same
+  package namespace.
+- Output `artifact-id`: the upload ID of the `github-release-notes-<run attempt>` artifact.
+
+`github-release.yaml` takes these inputs:
+
+- `project` and `version` **(required)**: PyPI project and version that `reconcile-pypi-artifacts` compares with the
+  build.
+- `tag` **(required)**: Git tag the release targets. The release commit is the workflow's `github.sha`.
+- `artifact-pattern` **(required)**: artifact name pattern of the distributions the PyPI publisher uploaded. The
+  workflow downloads them into `dist`.
+- `notes-artifact-id` **(required)**: the `artifact-id` output of `release-notes.yaml`.
+- `title-prefix`: text before the tag in the title, such as `v`. Empty by default.
+- `assets-directory`: directory of extra assets. The workflow's only downloaded directory is `dist`, so set `dist` to
+  attach the distributions. Empty attaches nothing.
+
+The caller's release-notes job needs `contents: read`. The release job needs `contents: write` and runs after the PyPI
+job. The `release` environment must exist in the caller and allow the tag ref. The examples below pin `SHA` to the
+commit of this repository.
+
+The pytest-print release workflow:
+
+```yaml
+name: 🚀 Release to PyPI
+on:
+  push:
+    tags: ["*"]
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: 🏗️ Build
+    uses: tox-dev/github-workflows/.github/workflows/validate-python-release.yaml@SHA
+    permissions:
+      contents: read
+  notes:
+    name: 📝 Render GitHub Release notes
+    uses: tox-dev/github-workflows/.github/workflows/release-notes.yaml@SHA
+    permissions:
+      contents: read
+    with:
+      tag: ${{ github.ref_name }}
+      artifact-url: https://pypi.org/project/pytest-print/${{ github.ref_name }}/
+  pypi:
+    name: 🚀 Publish to PyPI
+    needs: build
+    runs-on: ubuntu-26.04
+    environment:
+      name: release
+      url: https://pypi.org/project/pytest-print/${{ github.ref_name }}
+    permissions:
+      id-token: write
+    steps:
+      - name: 📩 Download distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.distributions-artifact-id }}
+          path: dist/
+      - name: 🚀 Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist
+          attestations: true
+  github-release:
+    name: 🚀 Publish GitHub Release
+    needs: [build, pypi, notes]
+    uses: tox-dev/github-workflows/.github/workflows/github-release.yaml@SHA
+    permissions:
+      contents: write
+    with:
+      project: pytest-print
+      version: ${{ github.ref_name }}
+      tag: ${{ github.ref_name }}
+      artifact-pattern: python-package-distributions
+      notes-artifact-id: ${{ needs.notes.outputs.artifact-id }}
+```
+
+A repository with a shared changelog, such as toml-fmt, sets `package` per package. Its build job is a reusable workflow
+of the repository itself, which exposes `version` as an output:
+
+```yaml
+name: 🚀 pyproject-fmt
+on:
+  push:
+    tags: ["pyproject-fmt/*"]
+permissions: {}
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: 🏗️ Build distributions
+    uses: ./.github/workflows/pyproject_fmt_build.yaml
+    permissions:
+      contents: read
+      pull-requests: read
+  notes:
+    name: 📝 Render GitHub Release notes
+    uses: tox-dev/github-workflows/.github/workflows/release-notes.yaml@SHA
+    permissions:
+      contents: read
+    with:
+      tag: ${{ github.ref_name }}
+      package: pyproject-fmt
+      artifact-url: https://pypi.org/project/pyproject-fmt/${{ replace(github.ref_name, 'pyproject-fmt/', '') }}/
+  pypi:
+    name: 🚀 Publish to PyPI
+    needs: build
+    runs-on: ubuntu-26.04
+    environment:
+      name: release
+      url: https://pypi.org/project/pyproject-fmt/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - name: 📩 Download distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: pyproject-fmt-wheels-*
+          path: dist
+          merge-multiple: true
+      - name: 🚀 Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist
+  github-release:
+    name: 🚀 Publish GitHub Release
+    needs: [build, pypi, notes]
+    uses: tox-dev/github-workflows/.github/workflows/github-release.yaml@SHA
+    permissions:
+      contents: write
+    with:
+      project: pyproject-fmt
+      version: ${{ needs.build.outputs.version }}
+      tag: ${{ github.ref_name }}
+      artifact-pattern: pyproject-fmt-wheels-*
+      notes-artifact-id: ${{ needs.notes.outputs.artifact-id }}
+```
+
+`render-release-notes` takes the same `package` input directly. Its `previous` input still defaults to `auto`, so
+callers need no separate `select-previous-tag` step.
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's
