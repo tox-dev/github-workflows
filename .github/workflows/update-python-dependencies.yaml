@@ -234,7 +234,17 @@ jobs:
       - name: ⏳ Wait for prek hooks
         wait: install-hooks
       - name: 📑 Stage dependency changes
-        run: git add --all
+        run: |
+          set -euo pipefail
+          while read -r lock; do
+            # Nab stamps created-at on every run; a lock that differs only there carries no dependency change.
+            real=$(git diff -U0 --no-color -- "$lock" | grep -cvE '^(\+\+\+|---|@@|diff |index )|^[-+]created-at = |^ ' || true)
+            if [[ "$real" == 0 ]]; then
+              git checkout -- "$lock"
+              echo "Lock change dropped: only created-at moved in $lock"
+            fi
+          done < <(git diff --name-only -- '*pylock*.toml')
+          git add --all
       - id: hooks
         name: 🧹 Run repository hooks
         continue-on-error: true

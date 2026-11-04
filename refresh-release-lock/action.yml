@@ -162,6 +162,17 @@ runs:
         else
           echo 'Secondary lock skipped: additional-lock input is empty'
         fi
+        if [[ "$MODE" != check ]]; then
+          for lock in "${paths[@]}"; do
+            git diff --quiet -- "$lock" && continue
+            # Nab stamps created-at on every run; a lock that differs only there carries no dependency change.
+            real=$(git diff -U0 --no-color -- "$lock" | grep -cvE '^(\+\+\+|---|@@|diff |index )|^[-+]created-at = |^ ' || true)
+            if [[ "$real" == 0 ]]; then
+              git checkout -- "$lock"
+              echo "Lock change dropped: only created-at moved in $lock"
+            fi
+          done
+        fi
         if [[ "$MODE" == check ]]; then
           if ! git diff --exit-code -- "${paths[@]}"; then
             echo "::error::regenerated locks differ from the checkout: ${paths[*]}" >&2
