@@ -755,6 +755,46 @@ channel. Pass `channel` to `publish-jetbrains-marketplace`.
           mode: stage
 ```
 
+## Prepare the JetBrains post-release version
+
+`prepare-jetbrains-post-release` runs in a keyless job after a release. It requires a plain `X.Y.Z` tag, writes the next
+`X.Y.(Z+1)-dev` version to the version file, and writes `paths.tsv`, `body.md`, and `candidate.bundle` to `output-dir`.
+The writer job uploads those files with the App token from the `release-auth` environment, and passes them to
+`publish-post-release-pr`. The composite does not touch the App token: it reads the App's public user ID with
+`github-token` to author the commit.
+
+```yaml
+  post-release-prepare:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      base-commit: ${{ steps.change.outputs.base-commit }}
+      candidate-commit: ${{ steps.change.outputs.candidate-commit }}
+      branch: ${{ steps.change.outputs.branch }}
+      next-version: ${{ steps.change.outputs.next-version }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@CHECKOUT_SHA
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - id: change
+        uses: tox-dev/github-workflows/prepare-jetbrains-post-release@SHA
+        with:
+          tag: ${{ github.ref_name }}
+          app-slug: tox-dev-jetbrains-fish-release
+          github-token: ${{ github.token }}
+          output-dir: ${{ runner.temp }}/post-release
+      - id: upload
+        uses: actions/upload-artifact@UPLOAD_SHA
+        with:
+          name: post-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/post-release/*
+          if-no-files-found: error
+```
+
 ## Test a caller
 
 The [Actions test suite](tests) executes each inline `run:` block in temporary Git repositories. Test a caller's

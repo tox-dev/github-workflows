@@ -1,0 +1,83 @@
+name: Prepare JetBrains post-release version bump
+description: Commit the next development version without an App token, for publish-post-release-pr to reconcile
+inputs:
+  tag:
+    description: Released tag, such as v1.2.3; the next version is the patch after it
+    required: true
+  version-file:
+    description: File with the pluginVersion key
+    default: gradle.properties
+  output-dir:
+    description: Directory that receives paths.tsv, body.md, and candidate.bundle for the artifact upload
+    required: true
+  app-slug:
+    description: Slug of the release App whose bot identity authors the commit
+    required: true
+  github-token:
+    description: Token that reads the App's public user ID
+    required: true
+outputs:
+  base-commit:
+    description: Commit the candidate builds on, passed to publish-post-release-pr
+    value: ${{ steps.change.outputs.base-commit }}
+  candidate-commit:
+    description: Candidate commit, empty when the version already matches
+    value: ${{ steps.change.outputs.candidate-commit }}
+  branch:
+    description: Branch name for the post-release pull request
+    value: ${{ steps.version.outputs.branch }}
+  next-version:
+    description: Development version written to the version file
+    value: ${{ steps.version.outputs.next-version }}
+runs:
+  using: composite
+  steps:
+    - name: 🏷️ Select the next version
+      id: version
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        version="${TAG#v}"
+        if [[ ! "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          echo "::error::tag $TAG is not a plain X.Y.Z release, so no next version is derived" >&2
+          exit 1
+        fi
+        echo "next-version=${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))-dev" >>"$GITHUB_OUTPUT"
+        echo "branch=post-release-$TAG" >>"$GITHUB_OUTPUT"
+    - name: ⚙️ Resolve the release App author
+      shell: bash
+      env:
+        APP_SLUG: ${{ inputs.app-slug }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        app_user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+        git config user.name "${APP_SLUG}[bot]"
+        git config user.email "${app_user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+    - name: 🏷️ Prepare the exact version change
+      id: change
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        VERSION_FILE: ${{ inputs.version-file }}
+        NEXT_VERSION: ${{ steps.version.outputs.next-version }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$OUTPUT_DIR"
+        base_commit=$(git rev-parse HEAD)
+        sed -i "s/^pluginVersion=.*/pluginVersion=$NEXT_VERSION/" "$VERSION_FILE"
+        git add "$VERSION_FILE"
+        printf '%s\t%s\n' "$VERSION_FILE" "$(git rev-parse ":$VERSION_FILE")" >"$OUTPUT_DIR/paths.tsv"
+        printf 'Set the next development version after %s.\n' "$TAG" >"$OUTPUT_DIR/body.md"
+        candidate_commit=
+        if ! git diff --cached --quiet; then
+          git commit -m "Bump version to $NEXT_VERSION after $TAG"
+          candidate_commit=$(git rev-parse HEAD)
+          git branch release-candidate HEAD
+          git bundle create "$OUTPUT_DIR/candidate.bundle" refs/heads/release-candidate
+        fi
+        echo "base-commit=$base_commit" >>"$GITHUB_OUTPUT"
+        echo "candidate-commit=$candidate_commit" >>"$GITHUB_OUTPUT"
