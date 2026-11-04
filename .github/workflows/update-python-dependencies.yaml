@@ -15,9 +15,21 @@ on:
         type: string
         default: ""
       kind:
-        description: app cools every bump; library is reserved until bump-deps-index scopes cutoffs by section
+        description: app cools every bump; library keeps the fresh-groups dependencies fresh and cools the rest
         type: string
         default: app
+      fresh-groups:
+        description: Space-separated dependency groups that kind library keeps fresh; ignored for app
+        type: string
+        default: project test
+      exclude-newer:
+        description: Upload cutoff for the bump-deps-index install from PyPI
+        type: string
+        default: 7 days
+      exclude-newer-package:
+        description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+        type: string
+        default: ""
       allowed-paths:
         description: Newline-separated globs for files a repository hook regenerates, besides pylock.toml and bumped files
         type: string
@@ -42,6 +54,9 @@ on:
       RELEASE_APP_PRIVATE_KEY:
         description: Repo-only release App key
         required: true
+env:
+  # The bump-deps-index release with --exclude-newer-group and --exclude-newer-package.
+  BUMP_DEPS_INDEX: bump-deps-index>=1.19
 permissions: {}
 jobs:
   generate:
@@ -77,15 +92,12 @@ jobs:
           COOLDOWN: ${{ inputs.cooldown }}
           EXPEDITE: ${{ inputs.expedite }}
           FILES: ${{ inputs.files }}
+          FRESH_GROUPS: ${{ inputs.fresh-groups }}
           KIND: ${{ inputs.kind }}
         run: |
           set -euo pipefail
           case "$KIND" in
-          app) ;;
-          library)
-            echo "::error::kind library needs bump-deps-index cutoffs per dependency section, which it does not have; use kind app" >&2
-            exit 1
-            ;;
+          app | library) ;;
           *)
             echo "::error::kind must be app or library, not $KIND" >&2
             exit 1
@@ -102,7 +114,6 @@ jobs:
             cutoff=$(date --utc --date="$COOLDOWN ago" '+%Y-%m-%dT%H:%M:%SZ')
             echo "Bump cooldown: $COOLDOWN, releases uploaded before $cutoff"
           fi
-          tool_cutoff=$(date --utc --date='7 days ago' '+%Y-%m-%dT%H:%M:%SZ')
           : >"$RUNNER_TEMP/expedite"
           names=()
           while IFS= read -r line; do
@@ -118,6 +129,27 @@ jobs:
           done
           if ((${#names[@]})); then
             echo "Expedited past the cooldown for this run: ${names[*]}"
+          fi
+          : >"$RUNNER_TEMP/fresh-groups"
+          fresh=()
+          while IFS= read -r line; do
+            read -ra words <<<"$line"
+            fresh+=("${words[@]}")
+          done <<<"$FRESH_GROUPS"
+          for group in "${fresh[@]}"; do
+            if [[ ! "$group" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$ ]]; then
+              echo "::error::fresh-groups entry '$group' is not a dependency group name" >&2
+              exit 1
+            fi
+          done
+          if [[ "$KIND" == library ]]; then
+            if ((${#fresh[@]})); then
+              printf '%s\n' "${fresh[@]}" >>"$RUNNER_TEMP/fresh-groups"
+              echo "Kept fresh past the cooldown (kind library): ${fresh[*]}; other groups stay cooled"
+            else
+              echo "::error::kind library needs at least one fresh-groups entry" >&2
+              exit 1
+            fi
           fi
           : >"$RUNNER_TEMP/file-groups"
           bumped=()
@@ -140,7 +172,6 @@ jobs:
             exit 1
           fi
           printf 'cutoff=%s\n' "$cutoff" >>"$GITHUB_OUTPUT"
-          printf 'tool-cutoff=%s\n' "$tool_cutoff" >>"$GITHUB_OUTPUT"
           {
             echo 'allowed-paths<<ALLOWED_PATHS_EOF'
             printf '%s\n' pylock.toml "${bumped[@]}" "$ALLOWED_EXTRA"
@@ -149,12 +180,18 @@ jobs:
       - name: 📦 Bump dependency floors
         env:
           CUTOFF: ${{ steps.inputs.outputs.cutoff }}
-          TOOL_CUTOFF: ${{ steps.inputs.outputs.tool-cutoff }}
+          EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
+          EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
           UV_NO_CONFIG: "1"
         run: |
           set -euo pipefail
-          # The tool itself is tooling, so its install always waits out the seven-day cooldown.
-          bump=(uvx --exclude-newer "$TOOL_CUTOFF" 'bump-deps-index>=1.18.0')
+          bump=(uvx --exclude-newer "$EXCLUDE_NEWER")
+          while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+              bump+=(--exclude-newer-package "$line")
+            fi
+          done <<<"$EXCLUDE_NEWER_PACKAGE"
+          bump+=("$BUMP_DEPS_INDEX")
           args=()
           if [[ "$CUTOFF" == none ]]; then
             args+=(--no-exclude-newer)
@@ -166,6 +203,11 @@ jobs:
               args+=(--exclude-newer-package "$name=false")
             fi
           done <"$RUNNER_TEMP/expedite"
+          while IFS= read -r group; do
+            if [[ -n "$group" ]]; then
+              args+=(--exclude-newer-group "$group=false")
+            fi
+          done <"$RUNNER_TEMP/fresh-groups"
           while IFS= read -r group; do
             read -ra files <<<"$group"
             echo "Bumping ${files[*]}"

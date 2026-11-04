@@ -761,8 +761,9 @@ request into `base`. An open pull request with the same branch is updated; two o
 ## Update Python dependencies
 
 `update-python-dependencies.yaml` bumps the direct requirements in the files you name, regenerates `pylock.toml`, runs
-the repository's hooks, and opens a dependency pull request. It is the Python dependency workflow for applications:
-every bumped floor waits out the cooldown, and so does every locked release.
+the repository's hooks, and opens a dependency pull request. With `kind: app` (default) every bumped floor waits out the
+cooldown, and so does every locked release. With `kind: library`, the groups in `fresh-groups` take their newest release
+at once, and every other group waits.
 
 ```yaml
 name: Update Python dependencies
@@ -797,12 +798,20 @@ jobs:
 - `files` **(required)**: Newline-separated groups. Each line is one `bump-deps-index --file` run over its
   space-separated paths, so a file that needs a different cutoff belongs in its own run. Paths are plain relative paths.
 - `cooldown`: Upload age a bumped release needs; `7 days` by default, `N days` only. `0 days` turns the bump cooldown
-  off for the run. The bootstrap of `bump-deps-index` itself always waits seven days.
+  off for the run.
 - `expedite`: Whitespace-separated package names. Each one takes its newest release for this run, past the cooldown. It
   changes only the bump. The lock still follows the cutoff in the caller's `[tool.nab]` table, so a locked package needs
   a committed `[tool.nab.packages.NAME]` exception, which the next run keeps.
-- `kind`: `app` (default) cools every bump. `library` is refused: it would keep direct and test floors fresh while still
-  cooling tooling, and `bump-deps-index` cannot yet apply a cutoff to one dependency section.
+- `kind`: `app` (default) cools every bump. `library` keeps the `fresh-groups` dependencies fresh, passing
+  `--exclude-newer-group GROUP=false` for each, and cools the rest. Its tooling groups, the build backend, and the hooks
+  stay cooled.
+- `fresh-groups`: Space-separated dependency groups for `kind: library`, default `project test`. `project` is the
+  `[project]` runtime dependencies and extras. The group names are validated, and the list is ignored for `app`.
+- `exclude-newer` and `exclude-newer-package`: The upload cutoff for the `bump-deps-index` install from PyPI, `7 days`
+  by default, and newline-separated `name=date` overrides for it. The tool itself is tooling, so the default keeps it
+  cooled. A dated package override is the gw-level exception for a tool release that is younger than the cutoff.
+- The `bump-deps-index` requirement is the `BUMP_DEPS_INDEX` constant in the workflow `env`. It must name a release with
+  `--exclude-newer-group` and `--exclude-newer-package`.
 - `allowed-paths`: Newline-separated glob patterns for files that a repository hook rewrites, such as a generated
   README. `pylock.toml` and every path in `files` are always allowed.
 - `branch`, `title`, `body`, `labels`: Passed to `open-maintenance-pr`. Defaults: `update-python-dependencies`,
@@ -811,8 +820,8 @@ jobs:
 The Action installs the locked release tools from the caller's `release-prepare` group, so the caller's `pylock.toml`
 needs that group. It runs `refresh-release-lock` to upgrade the lock with Nab, then `cooled-prek` twice: the first run
 may rewrite files, and the second confirms the result is stable. Put a repository's own formatting, README generation,
-and other steps in its prek hooks. Besides the locked release tools, it installs Nab and `bump-deps-index`, both from
-PyPI under the cooldown.
+and other steps in its prek hooks. Besides the locked release tools, it installs Nab from PyPI under the seven-day
+cutoff and `bump-deps-index` under `exclude-newer`.
 
 **Output:** No named output. **Remote effect:** Through `open-maintenance-pr`, one dependency pull request into `main`,
 or none when nothing changed.
