@@ -672,6 +672,10 @@ on:
         options: [auto, major, minor, patch]
         default: auto
   workflow_call:
+    inputs:
+      dry-run:
+        type: boolean
+        required: true
 jobs:
   prepare:
     uses: >-
@@ -681,7 +685,7 @@ jobs:
       pull-requests: read
     with:
       bump: ${{ inputs.bump || 'auto' }}
-      dry-run: ${{ github.event_name != 'workflow_dispatch' }}
+      dry-run: ${{ inputs.dry-run == true }}
     secrets:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 ```
@@ -694,11 +698,15 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    with:
+      dry-run: true
   gate:
     needs: [release, test]
 ```
 
-`prepare-release-creator.yaml` takes the same `dry-run` input.
+Pass `dry-run` explicitly rather than deriving it from `github.event_name`: a called workflow sees its caller's event,
+so a manually dispatched check workflow would otherwise prepare a real release. `prepare-release-creator.yaml` takes the
+same `dry-run` input.
 
 ## Read Towncrier configuration
 
