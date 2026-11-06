@@ -651,6 +651,55 @@ The `push` job refuses `pull_request`, `pull_request_target`, `workflow_run`, `i
 callers. Its first step fails with an error that names the event, before the patch is downloaded and before the App
 token exists. Trigger the caller on `push`, `schedule`, `workflow_dispatch`, or `release`.
 
+### Dry run on pull requests
+
+A release assembles under rules a pull request's own checks never apply: hooks install with packages from the last seven
+days held back, fragments link to their pull requests, and the changelog builds and formats. A pull request that breaks
+any of these merges green and fails the next release. `dry-run: true` runs `assemble` alone and skips `push`, so the
+pull request fails instead. A dry run needs no App key and uses its own concurrency group per ref, so it never queues
+behind a real release.
+
+Make the caller's prepare workflow callable and run it from the workflow that holds the required gate, so the dry run
+uses the same inputs as the release:
+
+```yaml
+# prepare-release.yaml
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        type: choice
+        options: [auto, major, minor, patch]
+        default: auto
+  workflow_call:
+jobs:
+  prepare:
+    uses: >-
+      tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@SHA
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      bump: ${{ inputs.bump || 'auto' }}
+      dry-run: ${{ github.event_name != 'workflow_dispatch' }}
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+```
+
+```yaml
+# check.yaml
+jobs:
+  release:
+    uses: ./.github/workflows/prepare-release.yaml
+    permissions:
+      contents: read
+      pull-requests: read
+  gate:
+    needs: [release, test]
+```
+
+`prepare-release-creator.yaml` takes the same `dry-run` input.
+
 ## Read Towncrier configuration
 
 `read-towncrier-config` reads `towncrier.toml` or `pyproject.toml` from the checkout's committed `HEAD`, so an untrusted
@@ -816,7 +865,7 @@ Simplint's single-package release uses unprefixed tags and no package scope:
 - `cargo-set-version`: run `cargo set-version` with the number before assembly; default `false`.
   `cargo-set-version-args` holds the arguments before the number, such as `-p {package}`. Cargo and cargo-edit install
   only when this is set.
-- `annotated`, `release-auth-deployment`, `exclude-newer`, and `exclude-newer-package` match
+- `annotated`, `release-auth-deployment`, `exclude-newer`, `exclude-newer-package`, and `dry-run` match
   `prepare-towncrier-release`.
 
 The caller keeps the `release-auth` environment with `RELEASE_APP_PRIVATE_KEY` and the `RELEASE_APP_CLIENT_ID` variable.

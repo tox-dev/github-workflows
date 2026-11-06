@@ -30,13 +30,18 @@ on:
         description: Newline-separated name=date cutoffs that override exclude-newer for single packages
         type: string
         default: ""
+      dry-run:
+        description: Assemble the release without pushing, so a pull request fails when merging it would break the release
+        type: boolean
+        default: false
     secrets:
       RELEASE_APP_PRIVATE_KEY:
-        description: Key held by the caller's release-auth environment
-        required: true
+        description: Key held by the caller's release-auth environment, unused in a dry run
+        required: false
 permissions: {}
 concurrency:
-  group: prepare-release-${{ github.repository }}
+  # A dry run must not queue behind, or hold up, a real release of the repository.
+  group: prepare-release-${{ github.repository }}${{ inputs.dry-run && format('-dry-run-{0}', github.ref) || '' }}
   cancel-in-progress: false
 jobs:
   assemble:
@@ -99,6 +104,7 @@ jobs:
   push:
     name: ⬆️ Push release commit and tag
     needs: assemble
+    if: ${{ !inputs.dry-run }}
     runs-on: ubuntu-26.04
     environment:
       name: release-auth
