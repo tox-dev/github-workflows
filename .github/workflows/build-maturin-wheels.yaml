@@ -125,6 +125,7 @@ jobs:
           python-version: "3.15"
           enable-cache: false
           activate-environment: true
+          ignore-empty-workdir: true
       - name: ⏳ Wait for source
         wait: download
       - name: 🏗️ Build wheels
@@ -171,6 +172,7 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
+          ignore-empty-workdir: true
       - name: ⏳ Wait for source
         wait: download
       - name: 📦 Export locked build constraints
