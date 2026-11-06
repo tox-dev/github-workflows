@@ -3,8 +3,8 @@
 A release here is two workflows in the caller repository joined by a tag. A maintainer dispatches the prepare workflow;
 it builds the changelog from the news fragments and pushes one release commit plus its tag. The tag starts the caller's
 publish workflow, which builds the distributions, uploads them to the package index, and creates the GitHub Release.
-Every pull request runs the preparation as a dry run first, so a change that would break the next release fails its own
-checks instead.
+With the dry run wired into the gate, every pull request runs the preparation first, so a change that would break the
+next release fails its own checks instead.
 
 The split keeps keys away from project code. Jobs that run hooks, build the changelog, or build packages hold read-only
 tokens. Only two kinds of job hold a credential, and neither runs project code: the push job mints a short-lived App
@@ -54,8 +54,8 @@ GitHub Releases.
 - **Immutable releases.** Enable them before using
   [`publish-github-release`](release-publish.md#publish-github-release).
 - **Lock groups.** The caller's `pylock.toml` needs `release-prepare` (release-creator, Towncrier, prek) for
-  preparation, `release-notes` (release-creator) for notes, `release-news` (Towncrier) for the news check, and `build`
-  for build constraints. See [locked tools](locked-tools.md).
+  preparation, `release-notes` (release-creator) for notes, `release-news` (release-creator, Towncrier) for the news
+  check, and `build` for build constraints. See [locked tools](locked-tools.md).
 - **Towncrier configuration.** Committed in `towncrier.toml` or `[tool.towncrier]`, naming the changelog and fragment
   directory, and a `mdformat` (Markdown) or `docstrfmt` (reStructuredText) prek hook to format it.
 

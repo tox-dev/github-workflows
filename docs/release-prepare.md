@@ -18,8 +18,9 @@ Behaviour shared by both workflows:
 - Real releases of one repository are serialized and never cancelled. A [dry run](#dry-run-on-pull-requests) uses its
   own concurrency group per ref, so it never queues behind a real release or holds one up.
 - `assemble` checks out the full history at `github.sha`, installs the caller's locked `release-prepare` group
-  (release-creator, Towncrier, and prek), and starts `prek install-hooks` in the background while it builds the
-  changelog. It needs `contents: read` and `pull-requests: read` to resolve pull request authors.
+  (release-creator, Towncrier, and prek). It does not install the repository's hooks up front: when it formats the
+  changelog, prek installs only that formatter's hook, under the seven-day cutoff, so a hook the release never runs
+  cannot fail it. It needs `contents: read` and `pull-requests: read` to resolve pull request authors.
 - `push` checks out with `fetch-depth: 1`. Every job uses `persist-credentials: false`.
 - `push` refuses `pull_request`, `pull_request_target`, `workflow_run`, `issue_comment`, and `merge_group` callers. Its
   first step fails with an error naming the event, before the patch is downloaded and before the App token exists.
@@ -67,10 +68,10 @@ changelog and fragment deletions.
 
 ## Dry run on pull requests
 
-A release assembles under rules a pull request's own checks never apply: hooks install with packages from the last seven
-days held back, fragments link to their pull requests, and the changelog builds and formats. A pull request that breaks
-any of these merges green and fails the next release. `dry-run: true` runs `assemble` alone and skips `push`, so the
-pull request fails instead.
+A release assembles under rules that a pull request's own checks do not cover: the changelog formatter's hook installs
+with packages from the last seven days held back, fragments link to their pull requests, and the changelog builds and
+formats. A pull request that breaks any of these merges green and fails the next release. `dry-run: true` runs
+`assemble` alone and skips `push`, so the pull request fails instead.
 
 Make the caller's prepare workflow callable, as in [Release flow](release.md#caller-files), and call it from the
 workflow that holds the required gate, so the dry run uses the same inputs as the release:
@@ -79,7 +80,7 @@ workflow that holds the required gate, so the dry run uses the same inputs as th
 # .github/workflows/check.yaml
 jobs:
   release:
-    uses: $/.github/workflows/prepare-release.yaml
+    uses: ./.github/workflows/prepare-release.yaml # zizmor: ignore[self-repository] actionlint rejects the $/ form
     permissions:
       contents: read
       pull-requests: read
@@ -88,6 +89,12 @@ jobs:
   gate:
     needs: [release, test]
 ```
+
+The caller can reference its own workflow two ways. `$/.github/workflows/prepare-release.yaml` is what this repository
+and some callers use, but actionlint (v1.7.12 and its current main branch) rejects the `$/` form.
+`./.github/workflows/...` passes actionlint, and zizmor's `self-repository` audit flags it, hence the inline ignore in
+the example. A repository that runs actionlint uses the `./` form with that comment, as tox-dev/tox-gh does; one that
+runs only zizmor may use `$/`.
 
 Pitfall: pass `dry-run` explicitly rather than deriving it from `github.event_name`. A called workflow sees its caller's
 event, so a manually dispatched check workflow would otherwise prepare a real release. `prepare-release-creator.yaml`
@@ -202,13 +209,13 @@ release-creator, Towncrier, and prek on `PATH`, and uses `github.token` to look 
       bump: ${{ inputs.bump }}
 ```
 
-| Input              | Default | Purpose                                                                                                                                                                                                                    |
-| ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bump`             | `auto`  | `auto`, `major`, `minor`, or `patch`, passed to `release-creator tags --next`. `auto` decides from the pending fragments. The caller's dispatch form decides which choices to expose.                                      |
-| `tag-prefix`       | empty   | `v` when tags are spelled `v1.2.3`. Version comparison still includes unprefixed numeric tags in history. It does not set the changelog heading prefix.                                                                    |
-| `changelog-prefix` | empty   | Towncrier writes `1.2.3` even when the tag is `v1.2.3`; set `v` for headings spelled `v1.2.3`.                                                                                                                             |
-| `version`          | empty   | Explicit version for a caller with its own selector; takes precedence over `bump`.                                                                                                                                         |
-| `phase`            | `all`   | `all` runs everything. The reusable workflow runs `build` (select the version, link authors, build the changelog) while hooks install, then `finalize` (format, write the patch) with the `version` that `build` selected. |
+| Input              | Default | Purpose                                                                                                                                                                                                |
+| ------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bump`             | `auto`  | `auto`, `major`, `minor`, or `patch`, passed to `release-creator tags --next`. `auto` decides from the pending fragments. The caller's dispatch form decides which choices to expose.                  |
+| `tag-prefix`       | empty   | `v` when tags are spelled `v1.2.3`. Version comparison still includes unprefixed numeric tags in history. It does not set the changelog heading prefix.                                                |
+| `changelog-prefix` | empty   | Towncrier writes `1.2.3` even when the tag is `v1.2.3`; set `v` for headings spelled `v1.2.3`.                                                                                                         |
+| `version`          | empty   | Explicit version for a caller with its own selector; takes precedence over `bump`.                                                                                                                     |
+| `phase`            | `all`   | `all` runs everything. The reusable workflow runs `build` (select the version, link authors, build the changelog), then `finalize` (format, write the patch) with the `version` that `build` selected. |
 
 Output: `version`, the selected tag string; expose it as a job output so the writer job can pass it to `commit-and-tag`.
 Working-tree effect: Towncrier rewrites the changelog and consumes the fragments; the patch records those changes.

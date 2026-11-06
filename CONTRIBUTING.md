@@ -28,8 +28,13 @@ blocks from each composite Action and execute them in temporary Git repositories
 ## Change an Action
 
 Keep its `action.yml` inputs and step behavior in sync with its page under [docs](docs/), and its row in the
-[README](README.md) catalog. Test rejected inputs and inspect the patch and rendered notes when changing release output.
-Add a failure case when changing input validation.
+[README](README.md) catalog. `tests/docs/test_reference.py` fails when a workflow or Action is missing from the catalog,
+or when its docs section does not name one of its inputs, outputs, or secrets in backticks. The test checks names only;
+defaults, descriptions, and behaviour still need a manual check against the YAML. A new error message belongs in
+[Troubleshooting](docs/troubleshooting.md).
+
+Test rejected inputs and inspect the patch and rendered notes when changing release output. Add a failure case when
+changing input validation.
 
 The release preparation and Python build steps must work without a write token. Keep custom build and publisher steps in
 the caller. Do not add a secret to an Action input when a short-lived, repository-scoped token is sufficient.

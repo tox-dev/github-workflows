@@ -13,7 +13,8 @@ Everything around it is shared:
 | Upload to PyPI                  | caller job with `pypa/gh-action-pypi-publish`                  | `id-token: write`, `release` |
 | Verify PyPI, create the Release | [`github-release.yaml`](#github-releaseyaml)                   | `contents: write`, `release` |
 
-Order matters: the GitHub Release job depends on the PyPI job, so a Release never announces files PyPI does not have.
+The GitHub Release job depends on the PyPI job and checks PyPI's files first, so a Release does not announce files PyPI
+lacks.
 
 ## A complete tag workflow
 
@@ -390,7 +391,7 @@ Use `mode: stage` for a repository that must upload GitHub assets before PyPI: s
 then call again with `mode: publish` and the same `assets-directory`. The draft stays private until the second call
 succeeds.
 
-Retry behaviour, so a rerun is always safe:
+How reruns behave:
 
 - A retry resumes the existing draft and updates its title, notes, and prerelease flag. A published Release causes no
   write and is left as it is; a Release with a different asset set fails.

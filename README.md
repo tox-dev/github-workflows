@@ -3,39 +3,41 @@
 Reusable workflows and composite Actions shared by the tox-dev repositories. They run tox and CodeQL, check pull request
 news, rehearse and prepare releases, push App-authored release commits and tags, publish GitHub Releases, JetBrains
 plugins, pre-commit mirrors and LaTeX PDFs, and keep dependencies current. Each repository keeps its own dispatch form,
-publisher, GitHub environments, and required check names; the shared pieces carry the parts that are the same everywhere
-and the security checks that are easy to get wrong.
+publisher, GitHub environments, and required check names; the shared pieces hold the steps every repository repeats and
+the checks that guard its keys.
 
 Two rules run through all of them:
 
 - **Keys stay away from project code.** Jobs that run hooks, tests, or builds hold read-only tokens. A writer job gets
-  the App key or `contents: write`, checks the patch or artifact it was handed, runs no project code, and refuses
-  `pull_request`, `pull_request_target`, `workflow_run`, `issue_comment`, and `merge_group` triggers.
+  the App key or `contents: write`, checks the patch or artifact it was handed, and refuses `pull_request`,
+  `pull_request_target`, `workflow_run`, `issue_comment`, and `merge_group` triggers. Writer jobs run no project code,
+  except the pre-commit mirror, which runs the repository's hooks and refuses those triggers for that reason.
 - **Tools arrive cooled.** Release tools install hash-checked from the caller's `pylock.toml`; tools the Actions need
-  for themselves install from PyPI only once a release is seven days old. See
+  for themselves install from PyPI only once a release is seven days old, by default. See
   [Locked tools and cutoffs](docs/locked-tools.md).
 
 ## What is here
 
-Reusable workflows, called with `uses: tox-dev/github-workflows/.github/workflows/<file>@SHA`:
+Reusable workflows, called with `uses: tox-dev/github-workflows/.github/workflows/<file>@SHA`. The caller job must grant
+at least the listed permissions; "App key" means it also passes the `RELEASE_APP_PRIVATE_KEY` secret.
 
-| Workflow                          | Purpose                                                                        | Docs                                                                                       |
-| --------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `check.yaml`                      | Run tox environments, one job per row, with a gate.                            | [PR checks](docs/pr-checks.md#run-tox-environments-checkyaml)                              |
-| `prepare-towncrier-release.yaml`  | Build the Towncrier changelog, push the release commit and tag; or dry run.    | [Prepare](docs/release-prepare.md#prepare-towncrier-releaseyaml)                           |
-| `prepare-release-creator.yaml`    | Same for multi-package or Rust repositories with a caller-assembled changelog. | [Prepare](docs/release-prepare.md#prepare-release-creatoryaml)                             |
-| `validate-python-release.yaml`    | Build a wheel and sdist from the tag against locked build constraints.         | [Publish](docs/release-publish.md#validate-python-releaseyaml)                             |
-| `build-maturin-wheels.yaml`       | Build maturin wheels for a matrix, plus the sdist.                             | [Publish](docs/release-publish.md#build-maturin-wheelsyaml)                                |
-| `release-notes.yaml`              | Render the GitHub Release body from the changelog.                             | [Publish](docs/release-publish.md#release-notesyaml)                                       |
-| `github-release.yaml`             | Verify the PyPI files, then publish the GitHub Release.                        | [Publish](docs/release-publish.md#github-releaseyaml)                                      |
-| `upgrade-release-tools.yaml`      | Refresh `pylock.toml` and open a pull request.                                 | [Maintenance](docs/maintenance.md#refresh-the-release-lock-upgrade-release-toolsyaml)      |
-| `update-python-dependencies.yaml` | Bump dependency floors, relock, and open a pull request.                       | [Maintenance](docs/maintenance.md#bump-dependency-floors-update-python-dependenciesyaml)   |
-| `open-maintenance-pr.yaml`        | Turn a patch from a read-only job into one pull request.                       | [Maintenance](docs/maintenance.md#open-a-maintenance-pull-request-open-maintenance-pryaml) |
-| `codeql.yaml`                     | CodeQL analysis, one job per language.                                         | [Security](docs/security-scanning.md#codeql-codeqlyaml)                                    |
-| `scorecard.yaml`                  | OpenSSF Scorecard analysis, published and uploaded to code scanning.           | [Security](docs/security-scanning.md#openssf-scorecard-scorecardyaml)                      |
-| `jetbrains-plugin-check.yaml`     | Build, verify, and UI-test a JetBrains plugin.                                 | [JetBrains](docs/jetbrains.md#check-a-plugin-jetbrains-plugin-checkyaml)                   |
-| `publish-pre-commit-mirror.yaml`  | Mirror a Python package's hook as a pre-commit repository.                     | [pre-commit mirror](docs/pre-commit-mirror.md)                                             |
-| `latex-to-pages.yaml`             | Compile a LaTeX document and deploy the PDF to GitHub Pages.                   | [LaTeX](docs/latex-pages.md)                                                               |
+| Workflow                          | Purpose                                                                        | Caller grants                                    | Docs                                                                                       |
+| --------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `check.yaml`                      | Run tox environments, one job per row, with a gate.                            | `contents: read`                                 | [PR checks](docs/pr-checks.md#run-tox-environments-checkyaml)                              |
+| `prepare-towncrier-release.yaml`  | Build the Towncrier changelog, push the release commit and tag; or dry run.    | `contents: read`, `pull-requests: read`; App key | [Prepare](docs/release-prepare.md#prepare-towncrier-releaseyaml)                           |
+| `prepare-release-creator.yaml`    | Same for multi-package or Rust repositories with a caller-assembled changelog. | `contents: read`, `pull-requests: read`; App key | [Prepare](docs/release-prepare.md#prepare-release-creatoryaml)                             |
+| `validate-python-release.yaml`    | Build a wheel and sdist from the tag against locked build constraints.         | `contents: read`                                 | [Publish](docs/release-publish.md#validate-python-releaseyaml)                             |
+| `build-maturin-wheels.yaml`       | Build maturin wheels for a matrix, plus the sdist.                             | `contents: read`                                 | [Publish](docs/release-publish.md#build-maturin-wheelsyaml)                                |
+| `release-notes.yaml`              | Render the GitHub Release body from the changelog.                             | `contents: read`                                 | [Publish](docs/release-publish.md#release-notesyaml)                                       |
+| `github-release.yaml`             | Verify the PyPI files, then publish the GitHub Release.                        | `contents: write`                                | [Publish](docs/release-publish.md#github-releaseyaml)                                      |
+| `upgrade-release-tools.yaml`      | Refresh `pylock.toml` and open a pull request.                                 | `contents: read`; App key                        | [Maintenance](docs/maintenance.md#refresh-the-release-lock-upgrade-release-toolsyaml)      |
+| `update-python-dependencies.yaml` | Bump dependency floors, relock, and open a pull request.                       | `contents: read`; App key                        | [Maintenance](docs/maintenance.md#bump-dependency-floors-update-python-dependenciesyaml)   |
+| `open-maintenance-pr.yaml`        | Turn a patch from a read-only job into one pull request.                       | `contents: read`; App key                        | [Maintenance](docs/maintenance.md#open-a-maintenance-pull-request-open-maintenance-pryaml) |
+| `codeql.yaml`                     | CodeQL analysis, one job per language.                                         | `contents: read`, `security-events: write`       | [Security](docs/security-scanning.md#codeql-codeqlyaml)                                    |
+| `scorecard.yaml`                  | OpenSSF Scorecard analysis, published and uploaded to code scanning.           | eight scopes, listed on its page                 | [Security](docs/security-scanning.md#openssf-scorecard-scorecardyaml)                      |
+| `jetbrains-plugin-check.yaml`     | Build, verify, and UI-test a JetBrains plugin.                                 | `contents: read`                                 | [JetBrains](docs/jetbrains.md#check-a-plugin-jetbrains-plugin-checkyaml)                   |
+| `publish-pre-commit-mirror.yaml`  | Mirror a Python package's hook as a pre-commit repository.                     | `contents: write`                                | [pre-commit mirror](docs/pre-commit-mirror.md)                                             |
+| `latex-to-pages.yaml`             | Compile a LaTeX document and deploy the PDF to GitHub Pages.                   | `contents: write`, `pages: read`                 | [LaTeX](docs/latex-pages.md)                                                               |
 
 Composite Actions, called with `uses: tox-dev/github-workflows/<name>@SHA`:
 
@@ -94,7 +96,7 @@ jobs:
         [{"env": "3.15"}, {"env": "3.14", "python": "3.14"}, {"env": "type"}, {"env": "pkg_meta"}]
   release:
     name: 🏷️ Release dry run
-    uses: $/.github/workflows/prepare-release.yaml
+    uses: ./.github/workflows/prepare-release.yaml # zizmor: ignore[self-repository] actionlint rejects the $/ form
     permissions:
       contents: read
       pull-requests: read
@@ -111,6 +113,10 @@ jobs:
         with:
           needs: ${{ toJSON(needs) }}
 ```
+
+The release job references the caller's own workflow with `./` so that actionlint accepts it; a repository that does not
+run actionlint can write `$/.github/workflows/prepare-release.yaml` instead, see
+[Dry run on pull requests](docs/release-prepare.md#dry-run-on-pull-requests).
 
 `.github/workflows/prepare-release.yaml` is dispatched by hand to release, and called by the gate as a dry run:
 
@@ -155,15 +161,37 @@ Require two checks in the `main` ruleset: the gate (`🚦 Required checks pass`)
 
 ## Versioning and pinning
 
-Releases are tagged `X.Y.Z` (no `v`) and listed in the [changelog](CHANGELOG.md). Pin every workflow and Action from
-this repository to the full commit SHA of a release tag, with the version in a trailing comment:
+Releases are tagged `X.Y.Z` with no `v` prefix and no moving major tag such as `v6`. Each is listed in the
+[changelog](CHANGELOG.md). Pin every workflow and Action from this repository to the full commit SHA of a release tag,
+with the version in a trailing comment:
 
 ```yaml
 uses: tox-dev/github-workflows/.github/workflows/check.yaml@2a3b863f4563ce9891d2cee1ed381b6f82654836 # 6.6.0
 ```
 
-`SHA` in the examples means that commit. Pin all pieces to the same release: a reusable workflow runs the Actions from
-its own commit, so mixing pins mixes versions. Read the changelog's "Breaking changes" sections before moving a pin.
+A full SHA is the only reference GitHub cannot move, as its
+[security guidance for third-party actions](https://docs.github.com/en/actions/reference/security/secure-use#using-third-party-actions)
+explains. `SHA` in the examples means that commit. Pin every piece to the same release: a reusable workflow runs the
+Actions from its own commit, so mixed pins mix versions.
+
+Before moving a pin across releases, read each "Breaking changes" section you skip:
+[6.0.0](CHANGELOG.md#release-6-0-0-breaking-changes), [5.0.0](CHANGELOG.md#release-5-0-0-breaking-changes),
+[4.0.0](CHANGELOG.md#release-4-0-0-breaking-changes), [3.0.1](CHANGELOG.md#release-3-0-1-breaking-changes),
+[3.0.0](CHANGELOG.md#release-3-0-0-breaking-changes), [2.0.0](CHANGELOG.md#release-2-0-0-breaking-changes), and
+[1.0.0](CHANGELOG.md#release-1-0-0-breaking-changes). Most breaking changes ship in a major release, but 3.0.1 shows
+that a patch release can carry one too.
+
+## What stays in your repository
+
+The shared pieces leave these to each caller on purpose:
+
+- **PyPI upload.** Trusted publishing does not work from a reusable workflow, so the upload job lives in the caller's
+  tag workflow.
+- **Project-specific build steps**, such as PGO, README generation, or vendoring, beyond the documented pre- and
+  post-build commands.
+- **Required check names, triggers, and schedules.** Callers name their gate and schedule their own runs.
+- **Cutoff exceptions.** The caller adds and removes `[tool.nab]` exceptions; the shared checks only enforce their
+  expiry dates.
 
 ## Documentation
 
@@ -174,5 +202,6 @@ its own commit, so mixing pins mixes versions. Read the changelog's "Breaking ch
 - [Locked tools and cutoffs](docs/locked-tools.md): the caller's lock, cutoffs, exceptions, and prek.
 - [Security scanning](docs/security-scanning.md), [JetBrains plugins](docs/jetbrains.md),
   [pre-commit mirror](docs/pre-commit-mirror.md), and [LaTeX to Pages](docs/latex-pages.md).
+- [Troubleshooting](docs/troubleshooting.md): error messages from the job logs and what to do about each.
 
 See [Contributing](CONTRIBUTING.md) for local checks and news fragments.

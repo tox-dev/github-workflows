@@ -55,8 +55,9 @@ analyze steps.
 ## OpenSSF Scorecard: `scorecard.yaml`
 
 Runs `ossf/scorecard-action` v2.5.0, publishes the results to the Scorecard API (which feeds the public badge), and
-uploads the SARIF file to code scanning with the CodeQL Action. It takes no inputs and no secrets. Publishing only works
-for public repositories.
+uploads the SARIF file to code scanning with the CodeQL Action. It takes no inputs and no secrets. The action is
+[free for public repositories](https://github.com/ossf/scorecard-action#scorecards-github-action); a private repository
+needs GitHub Advanced Security.
 
 The caller must grant every permission the job requests; each comment says which Scorecard check needs it:
 
@@ -90,3 +91,16 @@ jobs:
 
 The `branch_protection_rule` trigger rescores the repository when its branch protection changes. A fork that should not
 publish can guard the job with `if: github.repository == 'owner/name'`.
+
+The Scorecard API rejects published results from a workflow that breaks its
+[workflow restrictions](https://github.com/ossf/scorecard-action#workflow-restrictions), and the step only logs a
+warning, so the badge stops updating while the run stays green. The reusable job already meets the job-level rules: it
+runs only approved actions, has no `run` steps, env, defaults, containers, or services, and uses a GitHub-hosted Ubuntu
+runner. The caller workflow must keep the global rules:
+
+- no top-level `env` or `defaults`;
+- no workflow-level write permissions, so keep `permissions: {}` at the top;
+- no other job in the same workflow with `id-token: write`.
+
+A repository with classic branch protection should consider moving to rulesets, which the Branch-Protection check can
+read without an admin token.

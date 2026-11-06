@@ -1,7 +1,7 @@
 # Pull request checks
 
 A typical repository requires two checks on `main`: one gate job in its check workflow, and the news fragment job in a
-separate news workflow. Everything else, tests, type checks, and the release dry run, feeds the gate.
+separate news workflow. Everything else feeds the gate: tests, type checks, and the release dry run.
 
 | Piece                                                                          | Kind              | Role                                                                  |
 | ------------------------------------------------------------------------------ | ----------------- | --------------------------------------------------------------------- |
@@ -79,13 +79,15 @@ gate, not that one. The test jobs run project code, so grant them `contents: rea
 ## Release dry run
 
 Add the caller's prepare workflow as a job with `dry-run: true` and list it in the gate's `needs`. The pull request then
-fails when merging it would break the next release, for example a hook bumped to a release younger than the seven-day
-cutoff. Setup and pitfalls are in [Prepare and tag a release](release-prepare.md#dry-run-on-pull-requests).
+fails when merging it would break the next release, for example a changelog formatter hook bumped to a release younger
+than the seven-day cutoff, or a fragment the changelog build rejects. Keeping every other hook installable under the
+cutoff is a job for the pull request's own formatting check. Setup and pitfalls are in
+[Prepare and tag a release](release-prepare.md#dry-run-on-pull-requests).
 
 ```yaml
   release:
     name: 🏷️ Release dry run
-    uses: $/.github/workflows/prepare-release.yaml
+    uses: ./.github/workflows/prepare-release.yaml # zizmor: ignore[self-repository] actionlint rejects the $/ form
     permissions:
       contents: read
       pull-requests: read

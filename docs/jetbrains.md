@@ -135,8 +135,9 @@ channel. Pass `channel` to `publish-jetbrains-marketplace`.
           mode: stage
 ```
 
-Inputs `archive`, `sha256`, `plugin-id`, and `version` are required. `plugin-id` here is the plugin's XML ID, such as
-`com.github.toxdev.fish`; `version` is the release tag, its `v` prefix removed. A digest mismatch fails.
+Inputs `archive`, `sha256`, `plugin-id`, and `version` are required; `mode` is `stage` (default) or `verify`.
+`plugin-id` here is the plugin's XML ID, such as `com.github.toxdev.fish`; `version` is the release tag, its `v` prefix
+removed. A digest mismatch fails.
 
 ## Publish: `publish-jetbrains-marketplace`
 
