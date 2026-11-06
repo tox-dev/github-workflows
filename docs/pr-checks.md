@@ -76,6 +76,35 @@ Check names are `<caller job name> / 🧪 <env> on <os>`; with the example's `�
 `🧪 Test / 🧪 3.15 on ubuntu-26.04`. The reusable gate shows up as `🧪 Test / 🚦 Required checks pass`; require the caller's
 gate, not that one. The test jobs run project code, so grant them `contents: read` only.
 
+## Run hooks under the cooldown: `cooled-hooks.yaml`
+
+pre-commit.ci and a contributor's machine build hook environments from the newest releases. The scheduled maintenance
+pull requests and release preparation build them with packages from the last seven days held back. A hook bumped to a
+release younger than that, or one that rewrites files when its environment is built fresh, passes the pull request and
+then fails those scheduled jobs. This workflow runs every hook over the whole tree the way they do, so the pull request
+fails instead.
+
+```yaml
+  hooks:
+    name: 🧹 Hooks under the cooldown
+    uses: tox-dev/github-workflows/.github/workflows/cooled-hooks.yaml@SHA # 6.7.0
+    permissions:
+      contents: read
+  gate:
+    name: 🚦 Required checks pass
+    if: ${{ !cancelled() }}
+    needs: [test, hooks]
+```
+
+| Input                   | Default  | Meaning                                                                                |
+| ----------------------- | -------- | -------------------------------------------------------------------------------------- |
+| `exclude-newer`         | `7 days` | Upload cutoff for the lock reader that installs the caller's locked `release-prepare`. |
+| `exclude-newer-package` | empty    | Newline-separated `name=date` cutoffs that override `exclude-newer` for one package.   |
+
+prek comes from the caller's `release-prepare` lock group. Hook environments read cutoff exceptions from `[tool.nab]` in
+`pyproject.toml`, as [`cooled-prek`](locked-tools.md#run-prek-under-the-cutoff-cooled-prek) describes. The prek cache is
+keyed on `.pre-commit-config.yaml` and `pyproject.toml`, so a changed hook or exception rebuilds its environment.
+
 ## Release dry run
 
 Add the caller's prepare workflow as a job with `dry-run: true` and list it in the gate's `needs`. The pull request then
