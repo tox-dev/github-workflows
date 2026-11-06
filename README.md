@@ -586,8 +586,8 @@ these examples means that commit.
 
 Assembly needs release history to select a tag. The writer can check out the source commit with `fetch-depth: 1`. All
 jobs use `persist-credentials: false`. Assembly installs the caller's locked release tools and needs `contents: read`
-and `pull-requests: read` to resolve PR authors. It starts `prek install-hooks` while building the changelog, then waits
-for the hooks before formatting and uploading the patch. The writer uses the `release-auth` environment with
+and `pull-requests: read` to resolve PR authors. It installs only the changelog formatter's hook, when it formats, so a
+hook the release never runs cannot fail it. The writer uses the `release-auth` environment with
 `RELEASE_APP_PRIVATE_KEY` and `RELEASE_APP_CLIENT_ID`. Restrict that environment to `main`. Install the App on this
 repository only, with Contents write and Metadata read, and grant the necessary branch and tag ruleset bypass.
 
@@ -653,11 +653,11 @@ token exists. Trigger the caller on `push`, `schedule`, `workflow_dispatch`, or 
 
 ### Dry run on pull requests
 
-A release assembles under rules a pull request's own checks never apply: hooks install with packages from the last seven
-days held back, fragments link to their pull requests, and the changelog builds and formats. A pull request that breaks
-any of these merges green and fails the next release. `dry-run: true` runs `assemble` alone and skips `push`, so the
-pull request fails instead. A dry run needs no App key and uses its own concurrency group per ref, so it never queues
-behind a real release.
+A release assembles under rules a pull request's own checks never apply: the changelog formatter's hook installs with
+packages from the last seven days held back, fragments link to their pull requests, and the changelog builds and
+formats. A pull request that breaks any of these merges green and fails the next release. `dry-run: true` runs
+`assemble` alone and skips `push`, so the pull request fails instead. A dry run needs no App key and uses its own
+concurrency group per ref, so it never queues behind a real release.
 
 Make the caller's prepare workflow callable and run it from the workflow that holds the required gate, so the dry run
 uses the same inputs as the release:
@@ -747,8 +747,8 @@ formatting must all succeed.
   whose release headings use `v1.2.3`.
 - `version`: Explicit version for a caller with its own version selector. It takes precedence over `bump`.
 - `phase`: `all` (default) runs the complete Action. The reusable workflow uses `build` to select the version, link
-  authors, and build the changelog while hooks install; it then uses `finalize` to format, render, and write the patch.
-  Pass the version selected by `build` to `finalize`.
+  authors, and build the changelog; it then uses `finalize` to format, render, and write the patch. Pass the version
+  selected by `build` to `finalize`.
 
 The committed `tool.towncrier` configuration gives the `filename` and `directory`. `docstrfmt` formats a `.rst`
 changelog and `mdformat` any other; the formatter must be a configured `prek` hook. The Action writes the patch at

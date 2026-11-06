@@ -106,12 +106,6 @@ jobs:
         with:
           crate: cargo-edit
           version: 0.13.13
-      - name: 🧹 Install prek hooks
-        id: hooks
-        uses: $/cooled-prek
-        with:
-          args: install-hooks
-        background: true
       - name: 🏷️ Select release version
         id: version
         env:
@@ -203,8 +197,6 @@ jobs:
             args+=(--package "$PACKAGE")
           fi
           release-creator contributors "${args[@]}"
-      - name: ⏳ Wait for prek hooks
-        wait: hooks
       - name: 🧹 Format changelog
         id: format
         continue-on-error: true

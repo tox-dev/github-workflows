@@ -5,6 +5,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 from conftest import action
 
@@ -31,14 +32,13 @@ def test_no_hook_run_bypasses_cooled_prek() -> None:
     assert not commands, commands
 
 
-def test_prepare_hook_install_uses_cooled_prek() -> None:
+@pytest.mark.parametrize("name", ["prepare-towncrier-release.yaml", "prepare-release-creator.yaml"])
+def test_prepare_installs_no_hook_it_does_not_run(name: str) -> None:
     workflow = yaml.load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/prepare-towncrier-release.yaml").read_text(),
-        Loader=yaml.BaseLoader,
+        (Path(__file__).resolve().parents[2] / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader
     )
-    step = next(step for step in workflow["jobs"]["assemble"]["steps"] if step.get("id") == "hooks")
 
-    assert (step["uses"], step["with"]) == ("$/cooled-prek", {"args": "install-hooks"})
+    assert "install-hooks" not in str(workflow["jobs"]["assemble"]["steps"])
 
 
 def test_cooled_prek_action_passes_each_argument(tmp_path: Path, action_scripts: Path) -> None:

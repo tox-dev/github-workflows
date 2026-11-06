@@ -73,12 +73,6 @@ jobs:
           venv: .venv
           exclude-newer: ${{ inputs.exclude-newer }}
           exclude-newer-package: ${{ inputs.exclude-newer-package }}
-      - name: 🧹 Install prek hooks
-        id: hooks
-        uses: $/cooled-prek
-        with:
-          args: install-hooks
-        background: true
       - id: prepare
         name: 📝 Build changelog
         uses: $/prepare-towncrier
@@ -87,8 +81,6 @@ jobs:
           tag-prefix: ${{ inputs.tag-prefix }}
           changelog-prefix: ${{ inputs.changelog-prefix }}
           phase: build
-      - name: ⏳ Wait for prek hooks
-        wait: hooks
       - name: 📝 Finalize release patch
         uses: $/prepare-towncrier
         with:
