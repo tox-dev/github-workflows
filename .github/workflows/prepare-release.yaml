@@ -8,6 +8,12 @@ on:
         type: choice
         options: [auto, major, minor, patch]
         default: auto
+  workflow_call:
+    inputs:
+      dry-run:
+        description: Assemble the release without pushing, for the pull request gate
+        type: boolean
+        required: true
 permissions: {}
 jobs:
   prepare:
@@ -17,7 +23,8 @@ jobs:
       contents: read
       pull-requests: read
     with:
-      bump: ${{ inputs.bump }}
+      bump: ${{ inputs.bump || 'auto' }}
+      dry-run: ${{ inputs.dry-run == true }}
       # Temporary: release-creator 4.3.2 is younger than seven days. Delete after 2026-11-06.
       exclude-newer-package: release-creator=2026-10-30T15:13:19Z
     secrets:

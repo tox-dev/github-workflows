@@ -66,7 +66,7 @@ def test_gate_is_used_by_ci_and_needs_its_jobs() -> None:
     ci = load_yaml(WORKFLOWS / "ci.yaml")
     gate = steps(ci, "gate")[-1]
 
-    assert at(ci, "jobs", "gate", "needs") == ["check", "shell", "test", "type"]
+    assert at(ci, "jobs", "gate", "needs") == ["check", "shell", "test", "type", "release"]
     assert at(ci, "jobs", "gate", "if") == "${{ !cancelled() }}"
     assert gate["uses"] == "$/required-checks"
     assert gate["with"] == {"needs": "${{ toJSON(needs) }}"}

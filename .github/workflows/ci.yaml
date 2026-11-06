@@ -134,10 +134,18 @@ jobs:
         env:
           EXCLUDE_NEWER: 7 days
         run: uvx --exclude-newer "$EXCLUDE_NEWER" --with tox-uv tox run -e type
+  release:
+    name: 🏷️ Release dry run
+    uses: $/.github/workflows/prepare-release.yaml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      dry-run: true
   gate:
     name: 🚦 Required checks pass
     if: ${{ !cancelled() }}
-    needs: [check, shell, test, type]
+    needs: [check, shell, test, type, release]
     runs-on: ubuntu-26.04
     permissions: {}
     steps:

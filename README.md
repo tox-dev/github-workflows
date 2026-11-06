@@ -694,7 +694,7 @@ jobs:
 # check.yaml
 jobs:
   release:
-    uses: ./.github/workflows/prepare-release.yaml
+    uses: $/.github/workflows/prepare-release.yaml
     permissions:
       contents: read
       pull-requests: read
