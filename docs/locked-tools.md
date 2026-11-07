@@ -93,10 +93,15 @@ configurations, which no guard checks.
 
 Input `args` **(required)**: whitespace-separated prek arguments, such as `install-hooks`. prek must be on `PATH`.
 
-A package with a `packages.<name>.uploaded-prior-to` exception in `pyproject.toml`'s `[tool.nab]` is admitted up to that
-date in hook environments too. So a hook dependency pinned to a release newer than the cutoff, such as `sphinx` for
-`docstrfmt`, needs the same temporary exception the release lock uses; delete it once the release is a week old.
-Pitfall: hook environments read exceptions only from `pyproject.toml`, not from a standalone `nab.toml`.
+A Python hook's exact pin, `name==version`, admits that release up to its upload time while it is younger than the
+cutoff, so a hook bumped to a release younger than seven days installs. The pin comes from the hook's
+`additional_dependencies` or from its repository's install requirements at the hook's `rev`: `install_requires` in
+`setup.py` or `setup.cfg`, or `[project].dependencies` in `pyproject.toml`. Dev, test, and extra requirements are not
+read. Once the release is a week old, nothing is written and the normal cutoff applies. A newer release of the pinned
+package, uploaded after the pinned one, stays blocked in every hook environment. The pinned release's dependencies and
+any ranges stay cooled. A pin and a `packages.<name>.uploaded-prior-to` exception for the same package: the later date
+wins. `cooled-prek` fetches the hook repository and looks the pinned release up on PyPI; a failed fetch or lookup fails
+the run. Pitfall: hook environments read exceptions only from `pyproject.toml`, not from a standalone `nab.toml`.
 
 ## Install locked tools: `install-locked-tools`
 

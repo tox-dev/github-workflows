@@ -7,7 +7,7 @@ on:
         type: string
         default: 7 days
       exclude-newer-package:
-        description: Newline-separated name=date cutoffs that override exclude-newer for single packages
+        description: Newline-separated name=date cutoffs for single locked tools; hook environments ignore them
         type: string
         default: ""
 permissions: {}

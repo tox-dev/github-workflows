@@ -96,14 +96,16 @@ fails instead.
     needs: [test, hooks]
 ```
 
-| Input                   | Default  | Meaning                                                                                |
-| ----------------------- | -------- | -------------------------------------------------------------------------------------- |
-| `exclude-newer`         | `7 days` | Upload cutoff for the lock reader that installs the caller's locked `release-prepare`. |
-| `exclude-newer-package` | empty    | Newline-separated `name=date` cutoffs that override `exclude-newer` for one package.   |
+| Input                   | Default  | Meaning                                                                                   |
+| ----------------------- | -------- | ----------------------------------------------------------------------------------------- |
+| `exclude-newer`         | `7 days` | Upload cutoff for the lock reader that installs the caller's locked `release-prepare`.    |
+| `exclude-newer-package` | empty    | Newline-separated `name=date` cutoffs for one locked tool; hook environments ignore them. |
 
 prek comes from the caller's `release-prepare` lock group. Hook environments read cutoff exceptions from `[tool.nab]` in
-`pyproject.toml`, as [`cooled-prek`](locked-tools.md#run-prek-under-the-cutoff-cooled-prek) describes. The prek cache is
-keyed on `.pre-commit-config.yaml` and `pyproject.toml`, so a changed hook or exception rebuilds its environment.
+`pyproject.toml`, and an exact hook pin admits its release while younger than the cutoff, as
+[`cooled-prek`](locked-tools.md#run-prek-under-the-cutoff-cooled-prek) describes. The `exclude-newer-package` input only
+reaches the locked release tools, never the hook environments. The prek cache is keyed on `.pre-commit-config.yaml` and
+`pyproject.toml`, so a changed hook or exception rebuilds its environment.
 
 ## Release dry run
 

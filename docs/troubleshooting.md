@@ -60,10 +60,13 @@ Run `nab lock --all-groups --all-extras` with the Nab version the lock records, 
 The lock's `[tool.nab] created-at` is missing, has no time zone, or lies ahead of the runner's clock. Regenerate the
 lock.
 
-**A hook fails to install during a release or maintenance run, with uv finding no matching version.** The hook pins a
-release younger than seven days, and [`cooled-prek`](locked-tools.md#run-prek-under-the-cutoff-cooled-prek) builds hook
-environments under that cutoff. Wait for the release to age, or add a dated `[tool.nab.packages.<name>]` exception in
-`pyproject.toml`; hook environments ignore exceptions in `nab.toml`.
+**A hook fails to install during a release or maintenance run, with uv finding no matching version.** A package the hook
+resolves to a release younger than seven days is not exactly pinned, and
+[`cooled-prek`](locked-tools.md#run-prek-under-the-cutoff-cooled-prek) builds hook environments under that cutoff. An
+exact pin (`name==version` in `additional_dependencies` or the hook repository's install requirements) admits its
+release while that release is younger than the cutoff, so this is a range, a transitive dependency, or a release newer
+than the pin. Wait for the release to age, or add a dated `[tool.nab.packages.<name>]` exception in `pyproject.toml`;
+hook environments ignore exceptions in `nab.toml`.
 
 ## Release preparation
 
