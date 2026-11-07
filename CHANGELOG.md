@@ -2,6 +2,18 @@
 
 <!-- towncrier release notes start -->
 
+<a name="release-6-7-2"></a>
+
+## 6.7.2 (2026-11-07)
+
+<a name="release-6-7-2-fixed"></a>
+
+### Fixed
+
+- `cooled-prek` admits a hook's exact pinned release up to its upload time while that release is younger than the
+  seven-day cutoff, so a hook bumped to a release younger than that installs instead of failing `cooled-hooks.yaml`
+  ([#59](https://github.com/tox-dev/github-workflows/pull/59)) by [@gaborbernat](https://github.com/gaborbernat).
+
 <a name="release-6-7-1"></a>
 
 ## 6.7.1 (2026-11-06)
