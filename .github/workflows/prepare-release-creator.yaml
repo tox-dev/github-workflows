@@ -77,13 +77,13 @@ jobs:
       release-paths: ${{ steps.version.outputs.release-paths }}
     steps:
       - name: 📥 Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.sha }}
       - name: 🐍 Install uv and Python
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
@@ -97,12 +97,12 @@ jobs:
           exclude-newer-package: ${{ inputs.exclude-newer-package }}
       - name: 🦀 Install Rust toolchain
         if: ${{ inputs.cargo-set-version }}
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
         with:
           cache: false
       - name: 🦀 Install cargo-edit
         if: ${{ inputs.cargo-set-version }}
-        uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3.5.0
+        uses: baptiste0928/cargo-install@v3.5.0
         with:
           crate: cargo-edit
           version: 0.13.13
@@ -225,7 +225,7 @@ jobs:
           git diff HEAD --stat
       - name: 📤 Upload release patch
         id: patch
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: release-patch
           path: ${{ runner.temp }}/release.patch
@@ -254,12 +254,12 @@ jobs:
       - name: 📩 Download release patch
         id: patch
         background: true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        uses: actions/download-artifact@v8.0.2
         with:
           artifact-ids: ${{ needs.assemble.outputs.artifact-id }}
           path: ${{ runner.temp }}/release-patch
       - name: 📥 Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -276,7 +276,7 @@ jobs:
         run: echo "name=${REPOSITORY#*/}" >>"$GITHUB_OUTPUT"
       - name: 🔑 Create release App token
         id: token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@v3.3.0
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
