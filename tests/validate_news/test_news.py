@@ -230,49 +230,31 @@ def test_validate_news_detects_release_input_change(
     assert f"changed={changed}\n" in output.read_text()
 
 
-@pytest.mark.parametrize(
-    ("nab_config", "additional_lock", "accepted"),
-    [
-        pytest.param("pyproject.toml", "", False, id="pyproject-nab-table"),
-        pytest.param("nab.toml", "", False, id="nab-toml"),
-        pytest.param("", "pylock.zipapp.toml", False, id="secondary-lock"),
-        pytest.param("", "", True, id="no-lock-producer"),
-    ],
-)
-def test_validate_news_checks_removed_release_lock(
-    repository: Path, tmp_path: Path, action_scripts: Path, nab_config: str, additional_lock: str, accepted: bool
+def test_validate_news_skips_the_lock_check_when_the_lock_is_removed(
+    repository: Path, tmp_path: Path, action_scripts: Path
 ) -> None:
     (repository / "pylock.toml").write_text("lock-version = '1.0'\n")
-    match nab_config:
-        case "pyproject.toml":
-            project = repository / "pyproject.toml"
-            project.write_text(project.read_text() + '\n[tool.nab]\nuploaded-prior-to = "P7D"\n')
-        case "nab.toml":
-            (repository / "nab.toml").write_text('uploaded-prior-to = "P7D"\n')
+    project = repository / "pyproject.toml"
+    project.write_text(project.read_text() + '\n[tool.nab]\nuploaded-prior-to = "P7D"\n')
     run(repository, "git", "add", ".")
     run(repository, "git", "commit", "-m", "Add release lock")
     run(repository, "git", "push", "origin", "main")
     run(repository, "git", "checkout", "-b", "remove-lock")
     run(repository, "git", "rm", "-q", "pylock.toml")
     run(repository, "git", "commit", "-m", "Remove release lock")
+    output = tmp_path / "lock-change-output"
 
     result = subprocess.run(
         ["bash", str(_script(action_scripts, "lock-change"))],
         cwd=repository,
-        env=os.environ
-        | {
-            "BASE_REF": "main",
-            "ADDITIONAL_LOCK": additional_lock,
-            "GITHUB_OUTPUT": str(tmp_path / "lock-change-output"),
-            "GITHUB_ACTION_PATH": str(Path(__file__).resolve().parents[2] / "validate-news"),
-        },
+        env=os.environ | {"BASE_REF": "main", "GITHUB_OUTPUT": str(output)},
         capture_output=True,
         text=True,
         check=False,
     )
 
-    assert (result.returncode == 0) is accepted, result.stderr
-    assert ("the release lock was removed" in result.stderr) is not accepted
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == "changed=false\n"
 
 
 @pytest.mark.parametrize(

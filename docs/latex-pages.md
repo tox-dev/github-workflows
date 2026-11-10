@@ -35,7 +35,5 @@ Input `root-file` (default `main.tex`): the root TeX file latexmk compiles. The 
 
 Setup: enable GitHub Pages for the `gh-pages` branch, and create a `release` environment that allows `main`.
 
-Runs are grouped per ref; a newer run cancels an older one except on `main`. The `deploy` job refuses `pull_request`,
-`pull_request_target`, `workflow_run`, `issue_comment`, and `merge_group` callers before it checks out the repository,
-and it runs only when the ref is `main`, so the `pull_request` trigger in the example builds the PDF without deploying
-it.
+Runs are grouped per ref; a newer run cancels an older one except on `main`. The `deploy` job runs only when the ref is
+`main`, so the `pull_request` trigger in the example builds the PDF without deploying it.

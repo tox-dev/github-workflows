@@ -52,12 +52,12 @@ An attacker who controls any of these already has what github-workflows could gi
 
 ## Untrusted inputs
 
-| Input                              | Comes from                                       | What github-workflows guarantees                                                                                                                                                            |
-| ---------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pull request files                 | Any contributor                                  | Read by read-only jobs only; inputs reach shells through environment variables.                                                                                                             |
-| Artifacts from read-only jobs      | Jobs that ran project code                       | The writer accepts only the changelog and fragment deletions, or the paths the caller's `allowed-paths` names, as regular files or deletions.                                               |
-| Files already on PyPI              | A partial or earlier upload                      | Digests and attestations must match before the GitHub Release is published.                                                                                                                 |
-| Repository hooks and LaTeX sources | The caller's repository, including pull requests | LaTeX and pre-commit hook code runs in jobs without a write token, except the mirror job, which refuses pull request and other untrusted caller events before it checks out the repository. |
+| Input                              | Comes from                                       | What github-workflows guarantees                                                                                                                   |
+| ---------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pull request files                 | Any contributor                                  | Read by read-only jobs only; inputs reach shells through environment variables.                                                                    |
+| Artifacts from read-only jobs      | Jobs that ran project code                       | The writer accepts only the changelog and fragment deletions, or the paths the caller's `allowed-paths` names, as regular files or deletions.      |
+| Files already on PyPI              | A partial or earlier upload                      | Digests and attestations must match before the GitHub Release is published.                                                                        |
+| Repository hooks and LaTeX sources | The caller's repository, including pull requests | LaTeX and pre-commit hook code runs in jobs without a write token, except the mirror job, which a fork's pull request runs with a read-only token. |
 
 ## Threats and controls
 
@@ -65,11 +65,11 @@ An attacker who controls any of these already has what github-workflows could gi
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Tampering              | A compromised build job smuggles a workflow change into the release commit.                                                                            | `validate-release-patch` path and mode allowlist.                                                                                                                                                                                      |
 | Tampering              | A maintenance patch from a job that ran project code changes a path or mode outside the caller's allowlist, or replaces a reviewed maintenance branch. | `open-maintenance-pr` checks paths and modes in a read-only job, then verifies the digest of that patch before minting the App token. Each run force-pushes only its own branch with a lease, and the pull request still needs review. |
-| Elevation of privilege | PR code reads the release App token.                                                                                                                   | The token is minted only in the writer job, which runs no project code and refuses pull request and other untrusted caller events before it checks out the repository.                                                                 |
+| Elevation of privilege | PR code reads the release App token.                                                                                                                   | The token is minted only in the writer job, which runs no project code.                                                                                                                                                                |
 | Tampering              | A freshly published malicious tool version enters the release toolchain.                                                                               | Hash-checked locks resolved with a seven-day upload cooldown, and the same cutoff for helper tools.                                                                                                                                    |
 | Repudiation            | Release commits cannot be traced to an approved run.                                                                                                   | Commits and tags are authored by the App from a recorded workflow run.                                                                                                                                                                 |
 | Tampering              | A pull request replaces the Pages PDF or moves a published mirror tag.                                                                                 | The deploy job runs only on `main` and is the only job with write permission. The mirror compares a published tag's tree, refuses different content, and pushes without force.                                                         |
-| Elevation of privilege | Pull request hook code runs with the mirror job's write token.                                                                                         | The mirror job refuses `pull_request`, `pull_request_target`, `workflow_run`, `issue_comment`, and `merge_group` callers before it checks out the repository, so hook code from a pull request never runs with its write token.        |
+| Elevation of privilege | Pull request hook code runs with the mirror job's write token.                                                                                         | A fork's pull request runs with a read-only token and no secrets; a caller adds another trigger only through a reviewed pull request.                                                                                                  |
 
 ## Release chain
 
@@ -98,8 +98,8 @@ Callers pin the full commit SHA of a release.
 ## Accepted risks
 
 - The build job runs the project's own build backend; its outputs, not its behavior, are verified.
-- The mirror job runs the caller's pre-commit hooks while it holds `contents: write`. It refuses pull request and other
-  untrusted caller events, so hooks run only for pushes, schedules, dispatches and releases.
+- The mirror job runs the caller's pre-commit hooks while it holds `contents: write`. It runs for whichever events its
+  caller workflow triggers on.
 
 ## Keeping this current
 

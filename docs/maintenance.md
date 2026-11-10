@@ -18,9 +18,7 @@ All three need the same setup:
   `RELEASE_APP_CLIENT_ID` variable (a repository variable works too).
 - The caller passes the secret by name. GitHub requires this mapping even when the key exists only in the writer job's
   environment.
-- Trigger the caller on `push`, `schedule`, `workflow_dispatch`, or `release`. The writer job refuses `pull_request`,
-  `pull_request_target`, `workflow_run`, `issue_comment`, and `merge_group` callers: its first step fails with an error
-  naming the event, before the checkout and before the App token exists.
+- Trigger the caller on `push`, `schedule`, `workflow_dispatch`, or `release`.
 
 ## Refresh the release lock: `upgrade-release-tools.yaml`
 

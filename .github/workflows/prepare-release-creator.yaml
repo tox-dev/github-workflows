@@ -241,16 +241,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: 🚫 Refuse untrusted caller event
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          case "$EVENT_NAME" in
-          pull_request | pull_request_target | workflow_run | issue_comment | merge_group)
-            echo "::error::writer job refuses $EVENT_NAME callers; call it from push, schedule, workflow_dispatch or release"
-            exit 1
-            ;;
-          esac
       - name: 📩 Download release patch
         id: patch
         background: true

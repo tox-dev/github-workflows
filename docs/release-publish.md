@@ -287,10 +287,6 @@ with title `<title-prefix><tag>`. Run it after the PyPI job. The `release` envir
 | `exclude-newer`                    | `7 days` | Cutoff for `pypi-attestations`.                                                                                                            |
 | `exclude-newer-package`            | empty    | Newline-separated `name=date` overrides.                                                                                                   |
 
-The job refuses `pull_request`, `pull_request_target`, `workflow_run`, `issue_comment`, and `merge_group` callers: its
-first step fails with an error naming the event, before any artifact is downloaded or the Release is written. Trigger
-the caller on `push`, `schedule`, `workflow_dispatch`, or `release`.
-
 ## Building-block Actions
 
 ### `render-release-notes`
