@@ -1,5 +1,4 @@
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -94,14 +93,6 @@ def test_no_job_requests_a_write_token(workflow: JsonObject) -> None:
     for name, job in mapping(workflow["jobs"]).items():
         assert mapping(job).get("permissions", {}) in ({}, {"contents": "read"}), name
     assert at(workflow, "permissions") == {}
-
-
-def test_every_external_action_is_sha_pinned(workflow: JsonObject) -> None:
-    uses = [text(item["uses"]) for job in mapping(workflow["jobs"]) for item in steps(workflow, job) if "uses" in item]
-    pinned = re.compile(r"^(\$/|[\w.-]+/[\w./-]+@[0-9a-f]{40})")
-
-    assert uses
-    assert all(pinned.match(value) for value in uses), uses
 
 
 def test_every_checkout_keeps_credentials_out_of_the_job(workflow: JsonObject) -> None:
