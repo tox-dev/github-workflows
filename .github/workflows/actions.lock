@@ -92,8 +92,6 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v7.0.2'
         - 'astral-sh/setup-uv@v10.3.2'
-    '.github/workflows/verify-actions-lock.yaml':
-        - 'actions/checkout@v7.0.1'
 dependencies:
     'actions-rust-lang/setup-rust-toolchain@v2.0.0':
         ref: 'v2.0.0'
