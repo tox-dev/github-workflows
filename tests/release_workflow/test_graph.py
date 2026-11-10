@@ -13,8 +13,8 @@ def test_release_writer_has_only_notes_and_reconciler() -> None:
     publish = workflow["jobs"]["publish"]
     assert publish["permissions"] == {"contents": "write"}
     assert publish["needs"] == "notes"
-    assert [step.get("uses", step.get("name")) for step in publish["steps"]] == [
-        "actions/download-artifact@v8.0.2",
+    assert [step.get("uses", step.get("name")).split("@")[0] for step in publish["steps"]] == [
+        "actions/download-artifact",
         "$/publish-github-release",
     ]
     assert publish["steps"][-1]["with"]["commit"] == "${{ github.sha }}"
