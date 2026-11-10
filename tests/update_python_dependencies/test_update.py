@@ -328,16 +328,6 @@ def test_open_job_hands_off_from_generate(workflow: JsonObject, key: str, expect
     assert at(workflow, "jobs", "open", key) == expected
 
 
-def test_external_actions_are_pinned_to_commit_shas() -> None:
-    workflow_text = (WORKFLOWS / _WORKFLOW).read_text()
-    unpinned = [
-        reference
-        for reference in re.findall(r"uses: (\S+)", workflow_text)
-        if not (reference.startswith("$/") or re.search(r"@[0-9a-f]{40}$", reference))
-    ]
-    assert unpinned == []
-
-
 @pytest.mark.parametrize(
     "forbidden",
     [

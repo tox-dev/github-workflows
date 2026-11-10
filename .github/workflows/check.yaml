@@ -51,7 +51,7 @@ jobs:
         include: ${{ fromJSON(inputs.include) }}
     steps:
       - name: 📥 Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -71,7 +71,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ${packages[@]+"${packages[@]}"}
       - name: 🐍 Install uv and Python
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: latest-known
           python-version: "3.15"
@@ -126,7 +126,7 @@ jobs:
         run: tox run --skip-pkg-install -e "$MATRIX_ENV"
       - name: 📤 Upload coverage data
         if: ${{ inputs.coverage }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        uses: actions/upload-artifact@v7.0.2
         with:
           include-hidden-files: true
           name: .coverage.${{ matrix.os || inputs.os }}.${{ matrix.env }}

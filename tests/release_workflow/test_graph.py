@@ -14,7 +14,7 @@ def test_release_writer_has_only_notes_and_reconciler() -> None:
     assert publish["permissions"] == {"contents": "write"}
     assert publish["needs"] == "notes"
     assert [step.get("uses", step.get("name")) for step in publish["steps"]] == [
-        "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
+        "actions/download-artifact@v8.0.2",
         "$/publish-github-release",
     ]
     assert publish["steps"][-1]["with"]["commit"] == "${{ github.sha }}"

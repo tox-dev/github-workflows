@@ -31,17 +31,15 @@ def test_push_passes_resolved_release_paths_to_the_validator(workflow: JsonObjec
     assert validate["with"] == {"allowed-paths": "${{ needs.assemble.outputs.release-paths }}"}
 
 
-def test_every_external_action_is_sha_pinned(workflow: JsonObject) -> None:
+def test_uses_its_own_actions(workflow: JsonObject) -> None:
     uses = [text(item["uses"]) for job in mapping(workflow["jobs"]) for item in steps(workflow, job) if "uses" in item]
-    local = {value for value in uses if value.startswith("$/")}
 
-    assert local == {
+    assert {value for value in uses if value.startswith("$/")} == {
         "$/install-locked-tools",
         "$/cooled-prek",
         "$/validate-release-patch",
         "$/commit-and-tag",
     }
-    assert all("@" in value and len(value.rsplit("@", 1)[1]) == 40 for value in uses if value not in local)
 
 
 def test_inputs_match_the_documented_contract(workflow: JsonObject) -> None:

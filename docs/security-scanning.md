@@ -15,11 +15,12 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    - cron: "0 9 * * 2"
+    - cron: 0 9 * * 2
   workflow_dispatch:
 permissions: {}
 concurrency:
-  group: codeql-${{ github.ref }}-${{ github.run_attempt > 1 && github.run_id || 'current' }}
+  group: codeql-${{ github.ref }}-${{ github.run_attempt > 1 && github.run_id ||
+    'current' }}
   cancel-in-progress: ${{ github.run_attempt == 1 }}
 jobs:
   analyze:
@@ -66,9 +67,9 @@ name: 🛡️ scorecard
 on:
   branch_protection_rule:
   schedule:
-    - cron: "30 7 * * 2"
+    - cron: 30 7 * * 2
   push:
-    branches: ["main"]
+    branches: [main]
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -104,3 +105,20 @@ runner. The caller workflow must keep the global rules:
 
 A repository with classic branch protection should consider moving to rulesets, which the Branch-Protection check can
 read without an admin token.
+
+## Workflow lockfile
+
+A [workflow lockfile](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles),
+`.github/workflows/actions.lock`, records the commit behind every action these workflows use, the actions those actions
+call included. The runner runs that commit and fails a job whose tag no longer matches it, so the workflows keep
+readable tags such as `actions/checkout@v7.0.1`. A repository calling these workflows gets the lock even without a
+lockfile of its own. Regenerate it with [gh-actions-lock](https://github.com/github/gh-actions-lock) (`gh actions-lock`)
+after changing a `uses:` line; Dependabot updates it in the pull request that bumps an action.
+
+The lockfile leaves three things to the workflow:
+
+- A reusable workflow call (`jobs.<id>.uses`) is not locked, so keep pinning it by full SHA.
+- Composite actions in this repository keep their SHA pins, since a lockfile covers workflows, not `action.yml` files.
+- Container images are not locked; pin them by digest.
+
+zizmor reads the lockfile from 1.32.0 on; older releases report every tag ref as `unpinned-uses`.
