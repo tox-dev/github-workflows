@@ -20,8 +20,6 @@ def test_unguarded_array_expansions_are_provably_non_empty() -> None:
         ("refresh-release-lock/action.yml", "selected_groups"): "used only inside the non-empty check",
         ("render-release-notes/action.yml", "args"): "starts with three options",
         ("stage-jetbrains-marketplace/action.yml", "args"): "starts with the marketplace subcommand",
-        ("tools/install_live_tools.sh", "options"): "starts with --exclude-newer",
-        ("tools/install_live_tools.sh", "overrides"): "expanded only inside the :+ alternative",
     }
     found = {(path, name) for path, script in _run_scripts() for name in _unguarded_names(script)}
 
@@ -34,8 +32,6 @@ def _run_scripts() -> Iterator[tuple[str, str]]:
         for step in step_list(at(load_yaml(action), "runs", "steps")):
             if "run" in step:
                 yield action.relative_to(root).as_posix(), text(step["run"])
-    for script in sorted((root / "tools").glob("*.sh")):
-        yield script.relative_to(root).as_posix(), script.read_text()
     for workflow in sorted(WORKFLOWS.glob("*.y*ml")):
         for job_value in mapping(at(load_yaml(workflow), "jobs")).values():
             job = mapping(job_value)

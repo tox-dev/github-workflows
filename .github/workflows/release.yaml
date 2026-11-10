@@ -33,7 +33,7 @@ jobs:
           # Temporary: release-creator 4.3.2 is younger than seven days. Delete after 2026-11-06.
           EXCLUDE_NEWER_PACKAGE: release-creator=2026-10-30T15:13:19Z
         run: |
-          tools/install_live_tools.sh .venv 'release-creator>=4.3'
+          tools/install_live_tools.py .venv 'release-creator>=4.3'
           uv run --no-project --python .venv python tools/expose_locked_commands.py .venv
       - name: 📝 Render release notes
         uses: $/render-release-notes

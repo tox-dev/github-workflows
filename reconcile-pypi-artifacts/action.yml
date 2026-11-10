@@ -25,7 +25,7 @@ runs:
         EXCLUDE_NEWER: ${{ inputs.exclude-newer }}
         EXCLUDE_NEWER_PACKAGE: ${{ inputs.exclude-newer-package }}
       run: >-
-        "$GITHUB_ACTION_PATH/../tools/install_live_tools.sh" "$RUNNER_TEMP/pypi-attestations" 'certifi>=2026.7.22' 'pypi-attestations>=0.0.30'
+        "$GITHUB_ACTION_PATH/../tools/install_live_tools.py" "$RUNNER_TEMP/pypi-attestations" 'certifi>=2026.7.22' 'pypi-attestations>=0.0.30'
     - name: 🔍 Compare published files
       shell: bash
       env:

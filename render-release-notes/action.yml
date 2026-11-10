@@ -53,8 +53,6 @@ runs:
         PACKAGE: ${{ inputs.package }}
       run: |
         set -euo pipefail
-        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
-        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         args=(--changelog "$CHANGELOG" --tag "$TAG" --repository "$GITHUB_REPOSITORY")
         if [[ -n "$PREVIOUS" ]]; then
           args+=(--previous "$PREVIOUS")
@@ -80,4 +78,4 @@ runs:
         release-creator notes "${args[@]}" >"$RUNNER_TEMP/release-notes.md"
         entries=$(grep -c '^- ' "$RUNNER_TEMP/release-notes.md" || true)
         categories=$(grep -c '^### ' "$RUNNER_TEMP/release-notes.md" || true)
-        echo "Release notes for $TAG: $(plural "$entries" entry entries) in $(plural "$categories" category categories) from $CHANGELOG -> $RUNNER_TEMP/release-notes.md"
+        echo "Release notes for $TAG: $(python3 "$GITHUB_ACTION_PATH/../tools/plural.py" "$entries" entry entries) in $(python3 "$GITHUB_ACTION_PATH/../tools/plural.py" "$categories" category categories) from $CHANGELOG -> $RUNNER_TEMP/release-notes.md"

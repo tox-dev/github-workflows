@@ -90,7 +90,7 @@ runs:
         *) formatter=mdformat ;;
         esac
         echo "Changelog formatter: $formatter ($FORMAT changelog $CHANGELOG)"
-        prek=$GITHUB_ACTION_PATH/../tools/cooled_prek.sh
+        prek=$GITHUB_ACTION_PATH/../tools/cooled_prek.py
         if ! "$prek" run "$formatter" --files "$CHANGELOG"; then
           echo "$formatter rewrote $CHANGELOG, running it again to confirm the result is stable"
           "$prek" run "$formatter" --files "$CHANGELOG"
