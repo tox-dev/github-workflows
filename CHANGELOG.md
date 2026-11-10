@@ -2,6 +2,27 @@
 
 <!-- towncrier release notes start -->
 
+<a name="release-6-8-0"></a>
+
+## 6.8.0 (2026-11-10)
+
+<a name="release-6-8-0-added"></a>
+
+### Added
+
+- The shared workflows lock every action to a commit in `.github/workflows/actions.lock`, which also applies to callers
+  without a lockfile of their own ([#62](https://github.com/tox-dev/github-workflows/pull/62)) by
+  [@gaborbernat](https://github.com/gaborbernat).
+
+<a name="release-6-8-0-changes"></a>
+
+### Changes
+
+- Writer jobs no longer refuse `pull_request`, `pull_request_target`, `workflow_run`, `issue_comment` and `merge_group`
+  callers, and `validate-news` no longer fails a pull request that deletes `pylock.toml` while Nab is configured; review
+  of the pull request covers both ([#63](https://github.com/tox-dev/github-workflows/pull/63)) by
+  [@gaborbernat](https://github.com/gaborbernat).
+
 <a name="release-6-7-3"></a>
 
 ## 6.7.3 (2026-11-10)
