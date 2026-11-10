@@ -2,6 +2,18 @@
 
 <!-- towncrier release notes start -->
 
+<a name="release-6-7-3"></a>
+
+## 6.7.3 (2026-11-10)
+
+<a name="release-6-7-3-fixed"></a>
+
+### Fixed
+
+- `cooled-prek` admits exact PyPI pins built from static f-strings in hook `setup.py` files, so a Dependabot bump of
+  `typos` can install while the pinned release is younger than the seven-day cutoff
+  ([#61](https://github.com/tox-dev/github-workflows/pull/61)) by [@gaborbernat](https://github.com/gaborbernat).
+
 <a name="release-6-7-2"></a>
 
 ## 6.7.2 (2026-11-07)
