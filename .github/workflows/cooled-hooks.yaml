@@ -30,7 +30,7 @@ jobs:
           # A changed hook or cutoff exception misses the cache, so its environment builds under the cutoff again.
           key: prek-cooled-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.pre-commit-config.yaml', 'pyproject.toml') }}
       - name: 🐍 Install uv and Python
-        uses: astral-sh/setup-uv@v10.3.2
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
