@@ -14,4 +14,4 @@ runs:
       run: |
         set -euo pipefail
         read -ra arguments <<<"$ARGS"
-        "$GITHUB_ACTION_PATH/../tools/cooled_prek.sh" ${arguments[@]+"${arguments[@]}"}
+        "$GITHUB_ACTION_PATH/../tools/cooled_prek.py" ${arguments[@]+"${arguments[@]}"}

@@ -102,10 +102,8 @@ runs:
       env:
         BASE_REF: ${{ github.base_ref }}
       run: |
-        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
-        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         release-creator validate-news --base "$BASE_REF" >"$RUNNER_TEMP/news-fragment-count"
-        echo "Changed fragments: $(plural "$(<"$RUNNER_TEMP/news-fragment-count")" fragment) valid against origin/$BASE_REF"
+        echo "Changed fragments: $(python3 "$GITHUB_ACTION_PATH/../tools/plural.py" "$(<"$RUNNER_TEMP/news-fragment-count")" fragment) valid against origin/$BASE_REF"
     - id: labels
       name: 🏷️ Read the current labels
       if: steps.opening.outputs.skip != 'true'
@@ -127,12 +125,10 @@ runs:
         SKIP_NEWS: ${{ steps.labels.outputs.skip }}
         BOT_AUTHOR: ${{ github.event.pull_request.user.type == 'Bot' }}
       run: |
-        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
-        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         fragments=0
         if [[ -f "$RUNNER_TEMP/news-fragment-count" ]]; then read -r fragments <"$RUNNER_TEMP/news-fragment-count"; fi
         if ((fragments)); then
-          echo "News requirement: met by $(plural "$fragments" fragment)"
+          echo "News requirement: met by $(python3 "$GITHUB_ACTION_PATH/../tools/plural.py" "$fragments" fragment)"
         elif [[ "$SKIP_NEWS" == true ]]; then
           echo 'News requirement: waived by the skip news label'
         elif [[ "$BOT_AUTHOR" == true ]]; then

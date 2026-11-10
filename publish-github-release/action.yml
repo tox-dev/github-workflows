@@ -151,8 +151,6 @@ runs:
         set -euo pipefail
         # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
         source "$GITHUB_ACTION_PATH/retry.sh"
-        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
-        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         if [[ "$MODE" == publish ]]; then
           echo 'Asset upload skipped: mode publish only publishes the staged draft'
         elif [[ -z "$ASSETS_DIRECTORY" ]]; then
@@ -223,7 +221,7 @@ runs:
                 uploaded=$((uploaded + 1))
               fi
             done
-            echo "GitHub Release $TAG: uploaded $(plural "$uploaded" asset), $present already present"
+            echo "GitHub Release $TAG: uploaded $(python3 "$GITHUB_ACTION_PATH/../tools/plural.py" "$uploaded" asset), $present already present"
           fi
         fi
     - name: 🔍 Verify the complete asset set

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import re
 import shlex
@@ -14,7 +12,7 @@ import yaml
 from conftest import action
 from pytest_httpserver import HTTPServer
 
-SCRIPT = Path(__file__).resolve().parents[2] / "tools/cooled_prek.sh"
+SCRIPT = Path(__file__).resolve().parents[2] / "tools/cooled_prek.py"
 
 
 def _fake_uv(directory: Path, httpserver: HTTPServer) -> None:
@@ -42,7 +40,10 @@ def _fake_uv(directory: Path, httpserver: HTTPServer) -> None:
             """
         )
     )
-    code = f"import sys; sys.path.insert(0, {str(site)!r}); import sitecustomize; exec(sys.stdin.read())"
+    code = (
+        f"import coverage, sys; coverage.process_startup(); sys.path.insert(0, {str(site)!r}); "
+        f"import sitecustomize; exec(compile(sys.stdin.read(), {str(SCRIPT.with_name('hook_pin_cutoffs.py'))!r}, 'exec'))"
+    )
     fake = directory / "uv"
     fake.write_text(f"#!/bin/sh\nexec {sys.executable!r} -I -c {shlex.quote(code)}\n")
     fake.chmod(0o755)
@@ -111,6 +112,7 @@ def test_cooled_prek_action_passes_each_argument(tmp_path: Path, action_scripts:
     ("arguments", "install"),
     [
         pytest.param(["run", "--all-files"], ["install-hooks"], id="every-hook"),
+        pytest.param(["run", "mdformat"], ["install-hooks", "mdformat"], id="named-hook-without-options"),
         pytest.param(["run", "mdformat", "--files", "CHANGELOG.md"], ["install-hooks", "mdformat"], id="named-hook"),
     ],
 )
@@ -126,7 +128,7 @@ def test_cooled_prek_builds_hooks_cooled_and_runs_them_with_the_caller_environme
     leaked = dict.fromkeys(("UV_INDEX_URL", "UV_EXCLUDE_NEWER_PACKAGE", "UV_SYSTEM_CERTS", "SSL_CERT_FILE"), "leak")
 
     subprocess.run(
-        [str(Path(__file__).resolve().parents[2] / "tools/cooled_prek.sh"), *arguments],
+        [str(Path(__file__).resolve().parents[2] / "tools/cooled_prek.py"), *arguments],
         cwd=tmp_path,
         env=os.environ | leaked | {"PATH": f"{tmp_path}:{os.environ['PATH']}", "UV_EXCLUDE_NEWER": "1 day"},
         check=True,
@@ -153,6 +155,25 @@ def test_cooled_prek_builds_hooks_cooled_and_runs_them_with_the_caller_environme
     assert leaked.items() <= run_env.items()
 
 
+def test_cooled_prek_stops_when_pin_discovery_fails(tmp_path: Path) -> None:
+    for name, body in (("uv", "exit 7"), ("prek", "touch ran")):
+        executable = tmp_path / name
+        executable.write_text(f"#!/bin/sh\n{body}\n")
+        executable.chmod(0o755)
+
+    result = subprocess.run(
+        [str(SCRIPT), "run", "--all-files"],
+        cwd=tmp_path,
+        env=os.environ | {"PATH": f"{tmp_path}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 7
+    assert not (tmp_path / "ran").exists()
+
+
 def test_cooled_prek_admits_nab_cutoff_exceptions(tmp_path: Path, httpserver: HTTPServer) -> None:
     fake = tmp_path / "prek"
     fake.write_text('#!/bin/sh\ncat "$UV_CONFIG_FILE" >config\n')
@@ -164,7 +185,7 @@ def test_cooled_prek_admits_nab_cutoff_exceptions(tmp_path: Path, httpserver: HT
     )
 
     subprocess.run(
-        [str(Path(__file__).resolve().parents[2] / "tools/cooled_prek.sh"), "install-hooks"],
+        [str(Path(__file__).resolve().parents[2] / "tools/cooled_prek.py"), "install-hooks"],
         cwd=tmp_path,
         env=os.environ | {"PATH": f"{tmp_path}:{os.environ['PATH']}"},
         check=True,
@@ -185,7 +206,7 @@ def test_cooled_prek_without_exceptions_sets_no_config_file(tmp_path: Path, http
     (tmp_path / "pyproject.toml").write_text('[tool.nab]\nuploaded-prior-to = "P7D"\n')
 
     subprocess.run(
-        [str(Path(__file__).resolve().parents[2] / "tools/cooled_prek.sh"), "install-hooks"],
+        [str(Path(__file__).resolve().parents[2] / "tools/cooled_prek.py"), "install-hooks"],
         cwd=tmp_path,
         env=os.environ | {"PATH": f"{tmp_path}:{os.environ['PATH']}", "UV_CONFIG_FILE": "/leak/uv.toml"},
         check=True,
@@ -257,6 +278,13 @@ PIN_SOURCES = [
         id="setup-py-fstring",
     ),
     pytest.param(
+        {
+            "setup.py": 'VERSION = SIMPLINT_VERSION = "0.7.1"\nsetup(install_requires=[f"simplint=={SIMPLINT_VERSION}"])\n'
+        },
+        {"language": "python"},
+        id="setup-py-chained-fstring",
+    ),
+    pytest.param(
         {"setup.cfg": "[options]\ninstall_requires =\n    simplint==0.7.1\n"}, {"language": "python"}, id="setup-cfg"
     ),
     pytest.param(
@@ -310,6 +338,31 @@ def test_cooled_prek_admits_pin_up_to_its_upload(
             {"setup.py": 'setup(install_requires=["simplint==0.7.1"])\n'},
             {"language": "system"},
             id="non-python-metadata",
+        ),
+        pytest.param(
+            {"setup.py": 'VERSION = "0.7.1"\nsetup(install_requires=[VERSION])\n'},
+            {"language": "python"},
+            id="nonliteral-requirement",
+        ),
+        pytest.param(
+            {"setup.py": 'setup(install_requires=[f"simplint=={VERSION}"])\n'},
+            {"language": "python"},
+            id="unknown-fstring-value",
+        ),
+        pytest.param(
+            {"setup.py": 'settings.VERSION = "0.7.1"\nsetup(install_requires=[f"simplint=={VERSION}"])\n'},
+            {"language": "python"},
+            id="attribute-constant",
+        ),
+        pytest.param(
+            {"setup.py": 'setup(install_requires=[f"simplint=={version()}"])\n'},
+            {"language": "python"},
+            id="dynamic-fstring-value",
+        ),
+        pytest.param(
+            {"setup.py": 'VERSION = "0.7.1"\nsetup(install_requires=[f"simplint=={VERSION!r}"])\n'},
+            {"language": "python"},
+            id="formatted-fstring-value",
         ),
         pytest.param(
             {"setup.py": 'setup(extras_require={"test": ["simplint==0.7.1"]}, tests_require=["simplint==0.7.1"])\n'},
@@ -414,6 +467,18 @@ def test_cooled_prek_keeps_nab_duration_without_pin(tmp_path: Path, httpserver: 
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "config").read_text().splitlines() == ["[exclude-newer-package]", '"sphinx" = "P3D"']
+
+
+def test_cooled_prek_ignores_local_hooks(tmp_path: Path, httpserver: HTTPServer) -> None:
+    (tmp_path / ".pre-commit-config.yaml").write_text(
+        yaml.safe_dump({"repos": [{"repo": "local", "hooks": []}, {"repo": "meta", "hooks": []}]})
+    )
+
+    result = _cooled_prek(tmp_path, httpserver)
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "config").read_text() == ""
+    assert httpserver.log == []
 
 
 @pytest.mark.parametrize(

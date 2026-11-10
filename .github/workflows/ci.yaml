@@ -40,7 +40,7 @@ jobs:
         env:
           EXCLUDE_NEWER: 7 days
         run: |
-          tools/install_live_tools.sh .release-tools 'prek>=0.2' 'yq>=4.4.5'
+          tools/install_live_tools.py .release-tools 'prek>=0.2' 'yq>=4.4.5'
           uv run --no-project --python .release-tools python tools/expose_locked_commands.py .release-tools
       - name: 🧹 Check inline shell
         run: |
@@ -60,8 +60,8 @@ jobs:
           done
           scripts=("$script_dir"/*.sh)
           echo "Checking ${#scripts[@]} run blocks from the workflows and Actions with shellcheck and shfmt"
-          tools/cooled_prek.sh run shellcheck --files "$script_dir"/*.sh
-          tools/cooled_prek.sh run shfmt --files "$script_dir"/*.sh
+          tools/cooled_prek.py run shellcheck --files "$script_dir"/*.sh
+          tools/cooled_prek.py run shfmt --files "$script_dir"/*.sh
   test:
     name: 🧪 Test actions
     runs-on: ubuntu-26.04

@@ -43,9 +43,12 @@ def lock_project(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def fake_installer(tmp_path: Path) -> Path:
-    installer = tmp_path / "tools/install_live_tools.sh"
+    installer = tmp_path / "tools/install_live_tools.py"
     installer.parent.mkdir()
-    installer.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$RUNNER_TEMP/installed"\n')
+    installer.write_text(
+        "#!/usr/bin/env python3\nimport os, pathlib, sys\n"
+        'pathlib.Path(os.environ["RUNNER_TEMP"], "installed").write_text("\\n".join(sys.argv[1:]) + "\\n")\n'
+    )
     installer.chmod(0o755)
     (tmp_path / "action").mkdir()
     return installer

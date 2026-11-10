@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import os
 import subprocess
@@ -10,7 +8,14 @@ from typing import Any, Final
 import pytest
 from pytest_httpserver import HTTPServer
 
-_SCRIPT: Final = Path(__file__).resolve().parents[2] / "tools/install_live_tools.sh"
+_SCRIPT: Final = Path(__file__).resolve().parents[2] / "tools/install_live_tools.py"
+
+
+def test_install_live_tools_requires_arguments() -> None:
+    result = subprocess.run([sys.executable, str(_SCRIPT)], capture_output=True, text=True, check=False)
+
+    assert result.returncode != 0
+    assert "usage: install_live_tools.py" in result.stderr
 
 
 @pytest.fixture
@@ -24,18 +29,6 @@ def fake_uv(tmp_path: Path) -> Path:
     )
     executable.chmod(0o755)
     return executable
-
-
-def _install(tmp_path: Path, fake_uv: Path, **environment: str) -> list[dict[str, Any]]:
-    calls = tmp_path / "calls.jsonl"
-    subprocess.run(
-        [str(_SCRIPT), str(tmp_path / "tools"), "nab>=0.0.22", "packaging>=26.3"],
-        env=os.environ
-        | {"PATH": f"{fake_uv.parent}{os.pathsep}{os.environ['PATH']}", "UV_CALLS": str(calls)}
-        | environment,
-        check=True,
-    )
-    return [json.loads(line) for line in calls.read_text().splitlines()]
 
 
 def test_install_live_tools_applies_the_cutoff(tmp_path: Path, fake_uv: Path) -> None:
@@ -52,6 +45,18 @@ def test_install_live_tools_applies_the_cutoff(tmp_path: Path, fake_uv: Path) ->
         "nab>=0.0.22",
         "packaging>=26.3",
     ]
+
+
+def _install(tmp_path: Path, fake_uv: Path, **environment: str) -> list[dict[str, Any]]:
+    calls = tmp_path / "calls.jsonl"
+    subprocess.run(
+        [str(_SCRIPT), str(tmp_path / "tools"), "nab>=0.0.22", "packaging>=26.3"],
+        env=os.environ
+        | {"PATH": f"{fake_uv.parent}{os.pathsep}{os.environ['PATH']}", "UV_CALLS": str(calls)}
+        | environment,
+        check=True,
+    )
+    return [json.loads(line) for line in calls.read_text().splitlines()]
 
 
 def test_install_live_tools_passes_each_package_cutoff(tmp_path: Path, fake_uv: Path) -> None:
@@ -95,7 +100,7 @@ def test_install_live_tools_requires_a_cutoff(tmp_path: Path, fake_uv: Path) -> 
     )
 
     assert result.returncode != 0
-    assert "EXCLUDE_NEWER: unbound variable" in result.stderr
+    assert "EXCLUDE_NEWER is required" in result.stderr
 
 
 def test_install_live_tools_ignores_inherited_uv_settings(tmp_path: Path, fake_uv: Path) -> None:

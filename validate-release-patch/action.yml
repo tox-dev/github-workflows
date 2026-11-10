@@ -22,8 +22,6 @@ runs:
         FRAGMENTS: ${{ steps.config.outputs.fragments }}
       run: |
         set -euo pipefail
-        # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
-        source "$GITHUB_ACTION_PATH/../tools/plural.sh"
         patterns=()
         while IFS= read -r pattern; do
           if [[ -n "$pattern" ]]; then
@@ -90,8 +88,8 @@ runs:
           count=$((count + 1))
         done <"$RUNNER_TEMP/release-changes"
         if [[ -n "$ALLOWED_PATHS" ]]; then
-          echo "Release patch paths: $(plural "$count" path) within the allowlist"
+          echo "Release patch paths: $(python3 "$GITHUB_ACTION_PATH/../tools/plural.py" "$count" path) within the allowlist"
         else
-          echo "Release patch paths: $(plural "$removed" fragment) removed from $FRAGMENTS"
+          echo "Release patch paths: $(python3 "$GITHUB_ACTION_PATH/../tools/plural.py" "$removed" fragment) removed from $FRAGMENTS"
         fi
-        echo "Release patch file modes: $(plural "$count" path), each a non-executable regular file or a deletion"
+        echo "Release patch file modes: $(python3 "$GITHUB_ACTION_PATH/../tools/plural.py" "$count" path), each a non-executable regular file or a deletion"

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess
@@ -101,8 +99,7 @@ def test_install_locked_tools_keeps_reader_after_nab_sync(tmp_path: Path, action
 
 
 def test_install_locked_tools_exposes_release_commands(tmp_path: Path, action_scripts: Path, caller: Path) -> None:
-    environment = tmp_path / "tools"
-    result = install(caller, action_scripts, tmp_path, groups="release-check", venv=environment)
+    result = install(caller, action_scripts, tmp_path, groups="release-check", venv=tmp_path / "tools")
 
     assert result.returncode == 0, result.stderr
     overlay = Path((tmp_path / "github-path").read_text().splitlines()[-1])
@@ -292,9 +289,12 @@ def test_install_locked_tools_installs_reader_under_cutoff(tmp_path: Path, actio
 
 
 def test_install_locked_tools_installs_only_binary_reader(tmp_path: Path, action_scripts: Path) -> None:
-    installer = tmp_path / "tools/install_live_tools.sh"
+    subprocess.run(["uv", "venv", "--python", "3.15", str(tmp_path / "lock-reader")], check=True, capture_output=True)
+    installer = tmp_path / "tools/install_live_tools.py"
     installer.parent.mkdir()
-    installer.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$RUNNER_TEMP/installed"\n')
+    installer.write_text(
+        'import os, pathlib, sys\npathlib.Path(os.environ["RUNNER_TEMP"], "installed").write_text("\\n".join(sys.argv[1:]) + "\\n")\n'
+    )
     installer.chmod(0o755)
     (tmp_path / "action").mkdir()
     steps = yaml.safe_load((Path(__file__).resolve().parents[2] / "install-locked-tools/action.yml").read_text())
