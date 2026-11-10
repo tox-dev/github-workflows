@@ -40,7 +40,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
       - name: 🐍 Install uv and Python
-        uses: astral-sh/setup-uv@v10.3.2
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"

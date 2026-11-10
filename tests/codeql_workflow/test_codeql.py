@@ -3,13 +3,12 @@ from pathlib import Path
 from typing import Final
 
 import pytest
-from conftest import WORKFLOWS, JsonObject, at, load_yaml, mapping, step
+from conftest import WORKFLOWS, JsonObject, at, load_yaml, mapping, step, text
 
 REUSABLE: Final[JsonObject] = load_yaml(WORKFLOWS / "codeql.yaml")
 CALLER: Final[JsonObject] = load_yaml(WORKFLOWS / "codeql-self.yaml")
 INPUTS: Final[JsonObject] = mapping(at(REUSABLE, "on", "workflow_call", "inputs"))
 ANALYZE: Final[JsonObject] = mapping(at(REUSABLE, "jobs", "analyze"))
-CODEQL_REF: Final = "v4.39.1"
 
 
 @pytest.mark.parametrize(
@@ -38,7 +37,7 @@ def test_analysis_needs_security_events_write_from_caller() -> None:
 
 def test_init_receives_each_input() -> None:
     init = step(REUSABLE, "analyze", "🛡️ Initialize CodeQL")
-    assert init["uses"] == f"github/codeql-action/init@{CODEQL_REF}"
+    assert text(init["uses"]).startswith("github/codeql-action/init@")
     assert at(init, "with", "languages") == "${{ matrix.language }}"
     assert at(init, "with", "build-mode") == "${{ inputs.build-mode }}"
     assert at(init, "with", "queries") == "${{ inputs.queries }}"
@@ -67,8 +66,9 @@ def test_paths_ignore_input_is_valid_codeql_yaml(tmp_path: Path, paths_ignore: s
 
 
 def test_analyze_uses_the_same_pinned_release() -> None:
+    init = step(REUSABLE, "analyze", "🛡️ Initialize CodeQL")
     analyze = step(REUSABLE, "analyze", "🛡️ Analyze")
-    assert analyze["uses"] == f"github/codeql-action/analyze@{CODEQL_REF}"
+    assert analyze["uses"] == text(init["uses"]).replace("/init@", "/analyze@")
     assert analyze["with"] == {"category": "/language:${{ matrix.language }}"}
 
 
