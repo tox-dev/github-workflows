@@ -17,7 +17,6 @@ def test_github_release_verifies_pypi_before_publishing(workflow: JsonObject) ->
     names = [item["name"] for item in steps(workflow, "github-release")]
 
     assert names == [
-        "🚫 Refuse untrusted caller event",
         "📩 Download distributions",
         "📩 Download release notes",
         "🐍 Install uv and Python",

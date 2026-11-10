@@ -22,9 +22,6 @@ Behaviour shared by both workflows:
   changelog, prek installs only that formatter's hook, under the seven-day cutoff, so a hook the release never runs
   cannot fail it. It needs `contents: read` and `pull-requests: read` to resolve pull request authors.
 - `push` checks out with `fetch-depth: 1`. Every job uses `persist-credentials: false`.
-- `push` refuses `pull_request`, `pull_request_target`, `workflow_run`, `issue_comment`, and `merge_group` callers. Its
-  first step fails with an error naming the event, before the patch is downloaded and before the App token exists.
-  Trigger the caller on `push`, `schedule`, `workflow_dispatch`, or `release`.
 - One dispatch prepares one tag; run separate dispatches for separate packages. Put repository-specific checks in a
   preceding caller job and make the prepare job depend on it.
 - The caller passes `RELEASE_APP_PRIVATE_KEY` by name; the client ID comes from the `release-auth` environment's

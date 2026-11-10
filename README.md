@@ -9,9 +9,8 @@ the checks that guard its keys.
 Two rules run through all of them:
 
 - **Keys stay away from project code.** Jobs that run hooks, tests, or builds hold read-only tokens. A writer job gets
-  the App key or `contents: write`, checks the patch or artifact it was handed, and refuses `pull_request`,
-  `pull_request_target`, `workflow_run`, `issue_comment`, and `merge_group` triggers. Writer jobs run no project code,
-  except the pre-commit mirror, which runs the repository's hooks and refuses those triggers for that reason.
+  the App key or `contents: write`, and checks the patch or artifact it was handed. Writer jobs run no project code,
+  except the pre-commit mirror, which runs the repository's hooks.
 - **Tools arrive cooled.** Release tools install hash-checked from the caller's `pylock.toml`; tools the Actions need
   for themselves install from PyPI only once a release is seven days old, by default. See
   [Locked tools and cutoffs](docs/locked-tools.md).

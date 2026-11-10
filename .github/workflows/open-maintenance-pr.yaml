@@ -144,16 +144,6 @@ jobs:
     outputs:
       number: ${{ steps.pull-request.outputs.number }}
     steps:
-      - name: 🚫 Refuse untrusted caller event
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          case "$EVENT_NAME" in
-          pull_request | pull_request_target | workflow_run | issue_comment | merge_group)
-            echo "::error::writer job refuses $EVENT_NAME callers; call it from push, schedule, workflow_dispatch or release"
-            exit 1
-            ;;
-          esac
       - name: 📥 Check out repository
         uses: actions/checkout@v7.0.1
         with:

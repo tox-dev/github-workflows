@@ -48,5 +48,4 @@ Behaviour worth knowing:
   moved tag changes the rev users have pinned; bump the package version to publish new content.
 - On a ref other than `main` the workflow generates and commits locally but pushes nothing.
 - The job runs the repository's hooks while it holds `contents: write`. Trigger it on pushes to `main`, schedules, and
-  manual dispatches. It refuses `pull_request`, `pull_request_target`, `workflow_run`, `issue_comment`, and
-  `merge_group` callers before it checks out the repository, so no pull request's hook code runs with that token.
+  manual dispatches.

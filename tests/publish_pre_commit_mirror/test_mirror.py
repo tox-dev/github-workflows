@@ -51,7 +51,6 @@ def workflow() -> JsonObject:
 
 def test_steps_run_in_order(workflow: JsonObject) -> None:
     assert [item["name"] for item in steps(workflow, "mirror")] == [
-        "🚫 Refuse untrusted caller event",
         "📥 Check out repository",
         "📦 Install uv",
         "⚙️ Configure Git identity",

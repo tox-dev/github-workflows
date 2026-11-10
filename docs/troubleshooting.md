@@ -5,13 +5,6 @@ Errors the shared workflows and Actions report, keyed by the text in the job log
 
 ## Any writer job
 
-**`writer job refuses pull_request callers; call it from push, schedule, workflow_dispatch or release`**
-
-A job that holds the App key or `contents: write` was called from an event that can run untrusted code: `pull_request`,
-`pull_request_target`, `workflow_run`, `issue_comment`, or `merge_group`. Trigger the caller workflow on `push`,
-`schedule`, `workflow_dispatch`, or `release`. For a release rehearsal on pull requests, pass `dry-run: true`, which
-skips the writer job; see [Dry run on pull requests](release-prepare.md#dry-run-on-pull-requests).
-
 **A dispatched check workflow prepared a real release.** The dry-run input was derived from `github.event_name`. A
 called workflow sees its caller's event, so derive nothing: pass `dry-run: true` from the gate workflow.
 
@@ -29,11 +22,6 @@ cancels its runs.
 **`allow-skipped names a job that is not in needs`**
 
 An `allow-skipped` entry of `required-checks` is not a job ID in the gate's `needs`. Fix the typo; the message names it.
-
-**`the release lock was removed`**
-
-The pull request deletes `pylock.toml` while `[tool.nab]`, `nab.toml`, or `additional-lock` still configures Nab.
-Restore the lock, or remove the Nab configuration in the same pull request.
 
 ## Locks and cutoffs
 
