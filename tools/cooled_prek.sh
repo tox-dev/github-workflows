@@ -15,6 +15,7 @@ cooled() (
   # runner's PYTHONPATH and keeps the repository directory off sys.path.
   exceptions=$(
     uv run --no-project --with pyyaml python -I - <<'PY'
+import ast
 import configparser
 import datetime
 import json
@@ -32,8 +33,6 @@ HOOK_LANGUAGES = {"python", "python_venv"}
 NAME = r"[A-Za-z0-9][A-Za-z0-9._-]*"
 VERSION = r"[A-Za-z0-9][A-Za-z0-9.+!_-]*"
 REQUIREMENT = re.compile(rf"\s*({NAME})(?:\[[^\]]*\])?==({VERSION})\s*")
-SETUP_PY_INSTALL_REQUIRES = re.compile(r"install_requires\s*=\s*\[((?:[^\[\]]|\[[^\]]*\])*)\]")
-QUOTED = re.compile(r"[\"']([^\"']+)[\"']")
 SEVEN_DAYS_AGO = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=7)
 
 
@@ -50,8 +49,38 @@ def exact_pins(requirements):
 
 
 def setup_py_pins(text):
-    match = SETUP_PY_INSTALL_REQUIRES.search(text)
-    return exact_pins(QUOTED.findall(match[1])) if match else set()
+    tree = ast.parse(text)
+    constants = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    constants[target.id] = node.value.value
+    pins = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id != "setup":
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "install_requires" or not isinstance(keyword.value, (ast.List, ast.Tuple)):
+                continue
+            for requirement in keyword.value.elts:
+                if isinstance(requirement, ast.Constant) and isinstance(requirement.value, str):
+                    pins |= exact_pins([requirement.value])
+                elif isinstance(requirement, ast.JoinedStr):
+                    parts = []
+                    for part in requirement.values:
+                        if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                            parts.append(part.value)
+                        elif isinstance(part, ast.FormattedValue) and isinstance(part.value, ast.Name):
+                            value = constants.get(part.value.id)
+                            if value is None or part.conversion != -1 or part.format_spec is not None:
+                                break
+                            parts.append(value)
+                        else:
+                            break
+                    else:
+                        pins |= exact_pins(["".join(parts)])
+    return pins
 
 
 def setup_cfg_pins(text):

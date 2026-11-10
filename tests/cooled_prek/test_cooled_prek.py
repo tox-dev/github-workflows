@@ -252,6 +252,11 @@ def _admitted(uploaded: datetime) -> str:
 PIN_SOURCES = [
     pytest.param({"setup.py": 'setup(install_requires=["simplint==0.7.1"])\n'}, {"language": "python"}, id="setup-py"),
     pytest.param(
+        {"setup.py": 'SIMPLINT_VERSION = "0.7.1"\nsetup(install_requires=[f"simplint=={SIMPLINT_VERSION}"])\n'},
+        {"language": "python"},
+        id="setup-py-fstring",
+    ),
+    pytest.param(
         {"setup.cfg": "[options]\ninstall_requires =\n    simplint==0.7.1\n"}, {"language": "python"}, id="setup-cfg"
     ),
     pytest.param(
