@@ -2,6 +2,18 @@
 
 <!-- towncrier release notes start -->
 
+<a name="release-6-8-1"></a>
+
+## 6.8.1 (2026-11-10)
+
+<a name="release-6-8-1-fixed"></a>
+
+### Fixed
+
+- `install-locked-tools` installs the lock reader on Windows again: it ran the installer from the lock reader's own
+  interpreter, and Windows refused to replace that running `python.exe` when the installer recreated the environment
+  ([#66](https://github.com/tox-dev/github-workflows/pull/66)) by [@gaborbernat](https://github.com/gaborbernat).
+
 <a name="release-6-8-0"></a>
 
 ## 6.8.0 (2026-11-10)
