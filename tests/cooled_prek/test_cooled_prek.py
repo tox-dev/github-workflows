@@ -45,7 +45,10 @@ def _fake_uv(directory: Path, httpserver: HTTPServer) -> None:
         f"import sitecustomize; exec(compile(sys.stdin.read(), {str(SCRIPT.with_name('hook_pin_cutoffs.py'))!r}, 'exec'))"
     )
     fake = directory / "uv"
-    fake.write_text(f"#!/bin/sh\nexec {sys.executable!r} -I -c {shlex.quote(code)}\n")
+    fake.write_text(
+        f'#!/bin/sh\ncase "$*" in *--refresh*) set -- --refresh ;; *) set -- ;; esac\n'
+        f'exec {sys.executable!r} -I -c {shlex.quote(code)} "$@"\n'
+    )
     fake.chmod(0o755)
 
 
@@ -239,6 +242,16 @@ def _cooled_prek(root: Path, httpserver: HTTPServer) -> subprocess.CompletedProc
     fake.write_text('#!/bin/sh\ncat "${UV_CONFIG_FILE:-/dev/null}" >config\n')
     fake.chmod(0o755)
     _fake_uv(root, httpserver)
+    refreshed = subprocess.run(
+        [str(SCRIPT), "refresh-pins"],
+        cwd=root,
+        env=os.environ | {"PATH": f"{root}{os.pathsep}{os.environ['PATH']}", "NO_PROXY": "localhost,127.0.0.1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if refreshed.returncode:
+        return refreshed
     return subprocess.run(
         [str(SCRIPT), "install-hooks"],
         cwd=root,
@@ -425,6 +438,105 @@ def test_cooled_prek_does_not_write_pin_older_than_window(tmp_path: Path, httpse
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "config").read_text() == ""
+
+
+def test_cooled_prek_uses_committed_pin_dates_without_metadata_requests(tmp_path: Path, httpserver: HTTPServer) -> None:
+    uploaded = _uploaded(1)
+    _simple(httpserver, {"0.7.1": uploaded})
+    repo = _hook_repo(tmp_path, {"setup.py": 'setup(install_requires=["simplint==0.7.1"])\n'})
+    _config(tmp_path, repo, {"language": "python"})
+    assert _cooled_prek(tmp_path, httpserver).returncode == 0
+    requests = len(httpserver.log)
+    for path in repo.iterdir():
+        if path.is_file():
+            path.unlink()
+
+    result = subprocess.run(
+        [str(SCRIPT), "install-hooks"],
+        cwd=tmp_path,
+        env=os.environ | {"PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len(httpserver.log) == requests
+    assert (tmp_path / "config").read_text().splitlines() == ["[exclude-newer-package]", _admitted(uploaded)]
+
+
+def test_cooled_prek_rejects_stale_pin_dates(tmp_path: Path, httpserver: HTTPServer) -> None:
+    _config(tmp_path, _hook_repo(tmp_path, {}), {"language": "python"})
+    assert _cooled_prek(tmp_path, httpserver).returncode == 0
+    (tmp_path / ".pre-commit-config.yaml").write_text("repos: []\n")
+
+    result = subprocess.run(
+        [str(SCRIPT), "install-hooks"],
+        cwd=tmp_path,
+        env=os.environ | {"PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "is stale; run cooled-prek refresh-pins" in result.stderr
+
+
+def test_cooled_prek_refresh_keeps_unchanged_manifest(tmp_path: Path, httpserver: HTTPServer) -> None:
+    (tmp_path / ".pre-commit-config.yaml").write_text("repos: []\n")
+    assert _cooled_prek(tmp_path, httpserver).returncode == 0
+    path = tmp_path / ".github/hook-pin-cutoffs.json"
+    previous = path.stat().st_mtime_ns
+
+    result = subprocess.run(
+        [str(SCRIPT), "refresh-pins"],
+        cwd=tmp_path,
+        env=os.environ | {"PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert path.stat().st_mtime_ns == previous
+
+
+def test_cooled_prek_requires_manifest(tmp_path: Path, httpserver: HTTPServer) -> None:
+    (tmp_path / ".pre-commit-config.yaml").write_text("repos: []\n")
+    _fake_uv(tmp_path, httpserver)
+
+    result = subprocess.run(
+        [str(SCRIPT), "install-hooks"],
+        cwd=tmp_path,
+        env=os.environ | {"PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "is missing; run cooled-prek refresh-pins" in result.stderr
+
+
+def test_cooled_prek_rejects_invalid_manifest(tmp_path: Path, httpserver: HTTPServer) -> None:
+    (tmp_path / ".pre-commit-config.yaml").write_text("repos: []\n")
+    _fake_uv(tmp_path, httpserver)
+    path = tmp_path / ".github/hook-pin-cutoffs.json"
+    path.parent.mkdir()
+    path.write_text("{")
+
+    result = subprocess.run(
+        [str(SCRIPT), "install-hooks"],
+        cwd=tmp_path,
+        env=os.environ | {"PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "cannot read .github/hook-pin-cutoffs.json" in result.stderr
 
 
 @pytest.mark.parametrize(

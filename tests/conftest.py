@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -125,6 +126,12 @@ def repository(tmp_path: Path, github_api: tuple[HTTPServer, dict[str, str]], mo
         "      - id: mdformat\n        name: mdformat\n        entry: mdformat --wrap 120\n"
         "        language: system\n        types: [markdown]\n",
     )
+    (worktree / ".github").mkdir()
+    manifest = {
+        "config_sha256": hashlib.sha256((worktree / ".pre-commit-config.yaml").read_bytes()).hexdigest(),
+        "pins": {},
+    }
+    (worktree / ".github/hook-pin-cutoffs.json").write_text(f"{json.dumps(manifest, indent=2, sort_keys=True)}\n")
     (worktree / "CHANGELOG.md").write_text("# Changelog\n\n<!-- towncrier release notes start -->\n")
     (worktree / "changelog.d").mkdir()
     run(worktree, "git", "add", ".")

@@ -75,7 +75,7 @@ The check runs in three places:
   and takes no inputs:
 
   ```yaml
-  - uses: tox-dev/github-workflows/check-nab-exceptions@SHA
+    - uses: tox-dev/github-workflows/check-nab-exceptions@SHA
   ```
 
 ## Run prek under the cutoff: `cooled-prek`
@@ -100,8 +100,11 @@ cutoff, so a hook bumped to a release younger than seven days installs. The pin 
 read. Once the release is a week old, nothing is written and the normal cutoff applies. A newer release of the pinned
 package, uploaded after the pinned one, stays blocked in every hook environment. The pinned release's dependencies and
 any ranges stay cooled. A pin and a `packages.<name>.uploaded-prior-to` exception for the same package: the later date
-wins. `cooled-prek` fetches the hook repository and looks the pinned release up on PyPI; a failed fetch or lookup fails
-the run. Pitfall: hook environments read exceptions only from `pyproject.toml`, not from a standalone `nab.toml`.
+wins. `cooled-prek refresh-pins` fetches hook repositories and PyPI upload times and writes
+`.github/hook-pin-cutoffs.json`. Commit that file with `.pre-commit-config.yaml`; the normal check validates its hash
+and reads it without fetching metadata. The dependency update workflow refreshes it before installing hooks. A missing
+or stale file fails with a refresh instruction. Pitfall: hook environments read exceptions only from `pyproject.toml`,
+not from a standalone `nab.toml`.
 
 ## Install locked tools: `install-locked-tools`
 

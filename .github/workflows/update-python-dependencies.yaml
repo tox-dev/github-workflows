@@ -220,6 +220,10 @@ jobs:
           done <"$RUNNER_TEMP/file-groups"
       - name: ⏳ Wait for locked release tools
         wait: tools
+      - name: 🔒 Refresh hook pin cutoffs
+        uses: $/cooled-prek
+        with:
+          args: refresh-pins
       - id: install-hooks
         name: 🧹 Install prek hooks
         uses: $/cooled-prek

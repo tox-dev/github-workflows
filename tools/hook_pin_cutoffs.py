@@ -3,6 +3,7 @@
 import ast
 import configparser
 import datetime
+import hashlib
 import json
 import pathlib
 import re
@@ -21,6 +22,11 @@ class Hook(TypedDict):
     id: str
     language: NotRequired[str]
     additional_dependencies: NotRequired[list[str]]
+
+
+class PinManifest(TypedDict):
+    config_sha256: str
+    pins: dict[str, str]
 
 
 def normalize(name: str) -> str:
@@ -174,7 +180,47 @@ def as_datetime(value: str | datetime.datetime | None) -> datetime.datetime | No
     return value if isinstance(value, datetime.datetime) and value.tzinfo is not None else None
 
 
+def pin_manifest() -> PinManifest:
+    config_path = pathlib.Path(".pre-commit-config.yaml")
+    config_bytes = config_path.read_bytes() if config_path.is_file() else b""
+    config = yaml.safe_load(config_bytes) or {}
+    pins = {
+        f"{name}=={version}": upload_time(repo["repo"], name, version).isoformat()
+        for repo in config.get("repos", [])
+        if repo["repo"] not in {"local", "meta"}
+        for name, version in hook_pins(repo["repo"], repo["rev"], repo.get("hooks", []))
+    }
+    return {"config_sha256": hashlib.sha256(config_bytes).hexdigest(), "pins": pins}
+
+
+def refresh() -> None:
+    path = pathlib.Path(".github/hook-pin-cutoffs.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = f"{json.dumps(pin_manifest(), indent=2, sort_keys=True)}\n"
+    if not path.is_file() or path.read_text() != content:
+        path.write_text(content)
+
+
+def read_pin_manifest() -> dict[str, str]:
+    path = pathlib.Path(".github/hook-pin-cutoffs.json")
+    if not path.is_file():
+        if not pathlib.Path(".pre-commit-config.yaml").is_file():
+            return {}
+        sys.exit(f"cooled-prek: {path} is missing; run cooled-prek refresh-pins and commit it")
+    try:
+        manifest = json.loads(path.read_text())
+        config = pathlib.Path(".pre-commit-config.yaml")
+        if manifest["config_sha256"] != hashlib.sha256(config.read_bytes() if config.is_file() else b"").hexdigest():
+            sys.exit(f"cooled-prek: {path} is stale; run cooled-prek refresh-pins and commit it")
+        return manifest["pins"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        sys.exit(f"cooled-prek: cannot read {path}: {error}")
+
+
 def main() -> None:
+    if sys.argv[1:] == ["--refresh"]:
+        refresh()
+        return
     path = pathlib.Path("pyproject.toml")
     packages = (
         tomllib.loads(path.read_text()).get("tool", {}).get("nab", {}).get("packages", {}) if path.is_file() else {}
@@ -184,17 +230,13 @@ def main() -> None:
         for name, settings in packages.items()
         if settings.get("uploaded-prior-to") is not None
     }
-    path = pathlib.Path(".pre-commit-config.yaml")
-    config = (yaml.safe_load(path.read_text()) if path.is_file() else None) or {}
     seven_days_ago = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=7)
     pins = {}
-    for repo in config.get("repos", []):
-        if repo["repo"] in {"local", "meta"}:
-            continue
-        for name, version in hook_pins(repo["repo"], repo["rev"], repo.get("hooks", [])):
-            cutoff = upload_time(repo["repo"], name, version).replace(microsecond=0) + datetime.timedelta(seconds=1)
-            if cutoff > seven_days_ago:
-                pins[name] = max(pins.get(name, cutoff), cutoff)
+    for pin, uploaded in read_pin_manifest().items():
+        name, _, _ = pin.partition("==")
+        cutoff = datetime.datetime.fromisoformat(uploaded).replace(microsecond=0) + datetime.timedelta(seconds=1)
+        if cutoff > seven_days_ago:
+            pins[name] = max(pins.get(name, cutoff), cutoff)
     for name, cutoff in pins.items():
         if (current := as_datetime(cutoffs.get(name))) is None or current < cutoff:
             cutoffs[name] = cutoff

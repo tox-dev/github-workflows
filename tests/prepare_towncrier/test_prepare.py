@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import sys
 from pathlib import Path
 from textwrap import dedent
 
@@ -252,6 +251,7 @@ def test_prepare_formats_rst(
         "        name: docstrfmt\n        entry: sed -i s/Before/After/\n"
         "        language: system\n        files: CHANGELOG.rst\n"
     )
+    run(repository, sys.executable, str(Path(__file__).resolve().parents[2] / "tools/hook_pin_cutoffs.py"), "--refresh")
     run(repository, "git", "add", "-A")
     run(repository, "git", "commit", "-m", "Set RST hook")
     run(repository, "git", "push", "origin", "main")
@@ -290,6 +290,7 @@ def test_prepare_avoids_rst_conflict_marker(
         "        name: docstrfmt\n        entry: bash -c true\n"
         "        language: system\n        files: CHANGELOG.rst\n"
     )
+    run(repository, sys.executable, str(Path(__file__).resolve().parents[2] / "tools/hook_pin_cutoffs.py"), "--refresh")
     run(repository, "git", "add", "-A")
     run(repository, "git", "commit", "-m", "Set RST category")
     run(repository, "git", "push", "origin", "main")
