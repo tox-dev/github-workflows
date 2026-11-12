@@ -2,6 +2,20 @@
 
 <!-- towncrier release notes start -->
 
+<a name="release-6-8-2"></a>
+
+## 6.8.2 (2026-11-12)
+
+<a name="release-6-8-2-fixed"></a>
+
+### Fixed
+
+- `publish-github-release` creates the draft on the existing tag without naming a target commit. GitHub compared the
+  target's workflow files with the default branch tip and refused the job's token with
+  `Resource not accessible by integration` whenever a pull request that changed a workflow merged while the release was
+  building. The Action now fails before creating the draft if the tag is missing or points at another commit
+  ([#68](https://github.com/tox-dev/github-workflows/pull/68)) by [@gaborbernat](https://github.com/gaborbernat).
+
 <a name="release-6-8-1"></a>
 
 ## 6.8.1 (2026-11-10)
