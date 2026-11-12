@@ -51,6 +51,12 @@ def _expect_generated_notes(server: HTTPServer) -> None:
     )
 
 
+def _expect_tag(server: HTTPServer, commit: str) -> None:
+    server.expect_ordered_request(
+        "/api/v3/repos/tox-dev/fixture/commits/refs/tags/0.1.0", method="GET"
+    ).respond_with_json({"sha": commit})
+
+
 def _release_requests(server: HTTPServer) -> list[Request]:
     return [request for request, _ in server.log if request.path != _GENERATE_NOTES]
 
@@ -317,6 +323,7 @@ def test_missing_release_is_created_then_optionally_published(
     prefix = "/api/v3/repos/tox-dev/fixture"
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json([])
     _expect_generated_notes(server)
+    _expect_tag(server, commit)
     server.expect_ordered_request(f"{prefix}/releases", method="POST").respond_with_json(draft, status=201)
     server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(draft)
     if mode != "stage":
@@ -327,6 +334,7 @@ def test_missing_release_is_created_then_optionally_published(
     assert result.returncode == 0, result.stderr
     assert [request.method for request in _release_requests(server)] == [
         "GET",
+        "GET",
         "POST",
         "GET",
         *(["PATCH"] if mode != "stage" else []),
@@ -335,7 +343,6 @@ def test_missing_release_is_created_then_optionally_published(
     request = next(request for request in _release_requests(server) if request.method == "POST")
     assert request.get_json() == {
         "tag_name": "0.1.0",
-        "target_commitish": commit,
         "name": "0.1.0",
         "body": notes.read_text(),
         "draft": True,
@@ -758,6 +765,7 @@ def test_missing_release_explains_created_draft(
     prefix = "/api/v3/repos/tox-dev/fixture"
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json([])
     _expect_generated_notes(server)
+    _expect_tag(server, commit)
     server.expect_ordered_request(f"{prefix}/releases", method="POST").respond_with_json(draft, status=201)
     server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(draft)
 
@@ -806,6 +814,7 @@ def test_new_release_credits_first_time_contributors_above_the_links(
             "**Full Changelog**: https://github.com/tox-dev/fixture/compare/0.0.9...0.1.0\n"
         }
     )
+    _expect_tag(server, commit)
     server.expect_ordered_request(f"{prefix}/releases", method="POST").respond_with_json(draft, status=201)
     server.expect_ordered_request(f"{prefix}/releases/42", method="GET").respond_with_json(draft)
 
@@ -842,6 +851,7 @@ def test_server_error_on_generated_notes_is_retried(
         body, status=status, mimetype=mimetype
     )
     _expect_generated_notes(server)
+    _expect_tag(server, commit)
     server.expect_ordered_request(f"{prefix}/releases", method="POST").respond_with_json(
         _release(notes, draft=True), status=201
     )
@@ -871,6 +881,39 @@ def test_client_error_on_generated_notes_is_not_retried(
     assert len(_requests(server, "POST", _GENERATE_NOTES)) == 1
 
 
+@pytest.mark.parametrize(
+    ("status", "body", "found"),
+    [
+        pytest.param(200, {"sha": "0" * 40}, "0" * 40, id="other-commit"),
+        pytest.param(422, {"message": "No commit found for SHA: refs/tags/0.1.0"}, "no commit", id="missing"),
+    ],
+)
+def test_draft_creation_requires_the_tag_on_the_commit(
+    repository: Path,
+    tmp_path: Path,
+    action_scripts: Path,
+    github_api: tuple[HTTPServer, dict[str, str]],
+    release_cli: dict[str, str],
+    status: int,
+    body: dict[str, str],
+    found: str,
+) -> None:
+    server, environment = github_api
+    notes, commit = _notes_and_commit(repository, tmp_path)
+    prefix = "/api/v3/repos/tox-dev/fixture"
+    server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json([])
+    _expect_generated_notes(server)
+    server.expect_ordered_request(f"{prefix}/commits/refs/tags/0.1.0", method="GET").respond_with_json(
+        body, status=status
+    )
+
+    result = _request(repository, tmp_path, action_scripts, notes, commit, environment | release_cli, mode="stage")
+
+    assert result.returncode != 0
+    assert f"::error::tag 0.1.0 must exist and point at {commit}, found {found}" in result.stderr
+    assert not _requests(server, "POST", f"{prefix}/releases")
+
+
 def test_draft_creation_is_not_retried(
     repository: Path,
     tmp_path: Path,
@@ -883,6 +926,7 @@ def test_draft_creation_is_not_retried(
     prefix = "/api/v3/repos/tox-dev/fixture"
     server.expect_ordered_request(f"{prefix}/releases", query_string="per_page=100", method="GET").respond_with_json([])
     _expect_generated_notes(server)
+    _expect_tag(server, commit)
     server.expect_ordered_request(f"{prefix}/releases", method="POST").respond_with_data(status=502)
     result = _request(repository, tmp_path, action_scripts, notes, commit, environment | release_cli, mode="stage")
     assert result.returncode != 0

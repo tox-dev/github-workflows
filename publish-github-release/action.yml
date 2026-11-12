@@ -117,10 +117,18 @@ runs:
         # shellcheck disable=SC1091 # GitHub supplies this Action path at runtime.
         source "$GITHUB_ACTION_PATH/retry.sh"
         if jq -e 'length == 0' "$RUNNER_TEMP/release-existing.json" >/dev/null; then
-          jq -n --arg tag "$TAG" --arg commit "$COMMIT" --arg title "$TITLE" \
+          # The request names no target: GitHub checks a target's workflow files against the default branch tip and
+          # refuses a GITHUB_TOKEN, which never holds the workflows permission, once a later merge changed one. The tag
+          # must then exist, or publishing would create it at the default branch tip.
+          tagged=$(gh_api "repos/$GH_REPO/commits/refs/tags/$TAG" --jq .sha) || tagged=""
+          if [[ "$tagged" != "$COMMIT" ]]; then
+            echo "::error::tag $TAG must exist and point at $COMMIT, found ${tagged:-no commit}" >&2
+            exit 1
+          fi
+          jq -n --arg tag "$TAG" --arg title "$TITLE" \
             --rawfile body "$RUNNER_TEMP/release-body.md" --argjson prerelease "$PRERELEASE" \
-            '{tag_name: $tag, target_commitish: $commit, name: $title, body: $body,
-              draft: true, prerelease: $prerelease}' >"$RUNNER_TEMP/release-request.json"
+            '{tag_name: $tag, name: $title, body: $body, draft: true, prerelease: $prerelease}' \
+            >"$RUNNER_TEMP/release-request.json"
           # Not retried: if GitHub stored the draft before answering 5xx, a second POST could create another.
           gh api -X POST "repos/$GH_REPO/releases" --input "$RUNNER_TEMP/release-request.json" \
             >"$RUNNER_TEMP/release-created.json"

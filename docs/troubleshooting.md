@@ -87,6 +87,11 @@ A publish call failed, and reading the Release back did not show the expected st
 resumes the draft. A published Release with a different asset set needs manual inspection, because published releases
 are not rewritten.
 
+**`tag <tag> must exist and point at <commit>, found ...`**
+
+The Action creates the Release on an existing tag, and the tag is missing or names another commit than `commit`. Push
+the tag before publishing and pass the commit it points at, such as `github.sha` in a workflow triggered by the tag.
+
 **`release asset attestation could not be verified`**
 
 GitHub has no release attestation for a local asset. Check that immutable releases are enabled for the repository.
