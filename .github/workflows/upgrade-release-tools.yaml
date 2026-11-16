@@ -29,7 +29,7 @@ on:
       pull-request-title:
         description: Title for the dependency pull request
         type: string
-        default: "🔧 build(deps): refresh release tools"
+        default: "🔧 build(deps): refresh project lock"
       pull-request-body:
         description: Body for the dependency pull request
         type: string

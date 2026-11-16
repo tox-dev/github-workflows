@@ -54,18 +54,18 @@ jobs:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 ```
 
-| Input                               | Default                                 | Purpose                                                                                     |
-| ----------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `pull-request-title`                | `🔧 build(deps): refresh release tools` | Pull request title, also the commit subject.                                                |
-| `pull-request-body`                 | `Refresh the project lock.`             | Pull request body.                                                                          |
-| `additional-lock`                   | empty                                   | Basename of a secondary Nab lock, such as `pylock.build.toml`, refreshed in the same PR.    |
-| `additional-lock-groups`            | empty                                   | Dependency groups to select in the secondary lock; empty selects build requirements.        |
-| `additional-lock-selection`         | `build-or-groups`                       | Set `project` for a secondary lock that selects the project's runtime dependencies instead. |
-| `additional-matrix-python`          | empty                                   | Python range for the secondary lock.                                                        |
-| `additional-matrix-platforms`       | empty                                   | Space-separated Nab platform IDs for the secondary lock.                                    |
-| `additional-matrix-implementations` | empty                                   | Space-separated implementations for the secondary lock.                                     |
-| `exclude-newer`                     | `7 days`                                | Cutoff for the tools the Actions install from PyPI, see [cutoffs](locked-tools.md#cutoffs). |
-| `exclude-newer-package`             | empty                                   | Newline-separated `name=date` overrides of that cutoff.                                     |
+| Input                               | Default                                | Purpose                                                                                     |
+| ----------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `pull-request-title`                | `🔧 build(deps): refresh project lock` | Pull request title, also the commit subject.                                                |
+| `pull-request-body`                 | `Refresh the project lock.`            | Pull request body.                                                                          |
+| `additional-lock`                   | empty                                  | Basename of a secondary Nab lock, such as `pylock.build.toml`, refreshed in the same PR.    |
+| `additional-lock-groups`            | empty                                  | Dependency groups to select in the secondary lock; empty selects build requirements.        |
+| `additional-lock-selection`         | `build-or-groups`                      | Set `project` for a secondary lock that selects the project's runtime dependencies instead. |
+| `additional-matrix-python`          | empty                                  | Python range for the secondary lock.                                                        |
+| `additional-matrix-platforms`       | empty                                  | Space-separated Nab platform IDs for the secondary lock.                                    |
+| `additional-matrix-implementations` | empty                                  | Space-separated implementations for the secondary lock.                                     |
+| `exclude-newer`                     | `7 days`                               | Cutoff for the tools the Actions install from PyPI, see [cutoffs](locked-tools.md#cutoffs). |
+| `exclude-newer-package`             | empty                                  | Newline-separated `name=date` overrides of that cutoff.                                     |
 
 Secret: `RELEASE_APP_PRIVATE_KEY` (required). No outputs.
 
@@ -96,13 +96,15 @@ on:
   workflow_dispatch:
     inputs:
       cooldown:
-        description: Upload age a bumped release needs, such as 7 days; 0 days turns the cooldown off
+        description: Upload age a bumped release needs, such as 7 days; 0 days
+          turns the cooldown off
         type: string
         default: 7 days
       expedite:
-        description: Space-separated packages whose newest release skips the cooldown for this run
+        description: Space-separated packages whose newest release skips the
+          cooldown for this run
         type: string
-        default: ""
+        default: ''
   schedule:
     - cron: 0 8 * * 2
 permissions: {}
@@ -110,7 +112,8 @@ jobs:
   update:
     permissions:
       contents: read
-    uses: tox-dev/github-workflows/.github/workflows/update-python-dependencies.yaml@SHA
+    uses:
+      tox-dev/github-workflows/.github/workflows/update-python-dependencies.yaml@SHA
     with:
       files: |
         pyproject.toml tox.toml
@@ -189,7 +192,8 @@ jobs:
     needs: generate
     permissions:
       contents: read
-    uses: tox-dev/github-workflows/.github/workflows/open-maintenance-pr.yaml@SHA
+    uses:
+      tox-dev/github-workflows/.github/workflows/open-maintenance-pr.yaml@SHA
     with:
       artifact-id: ${{ needs.generate.outputs.artifact-id }}
       allowed-paths: |

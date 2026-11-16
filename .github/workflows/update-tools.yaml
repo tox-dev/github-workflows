@@ -13,7 +13,6 @@ jobs:
     secrets:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
     with:
-      pull-request-title: "🔧 build: refresh release tool lock"
       pull-request-body: "Refresh the locked tools used by release preparation and CI."
       # Temporary: release-creator 4.3.2 is younger than seven days. Delete after 2026-11-06.
       exclude-newer-package: release-creator=2026-10-30T15:13:19Z
