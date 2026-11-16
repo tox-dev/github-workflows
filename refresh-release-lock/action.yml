@@ -176,11 +176,11 @@ runs:
         else
           echo 'Secondary lock skipped: additional-lock input is empty'
         fi
-        read -ra dropped <<<"$DROPPED"
-        if ((${#dropped[@]})); then
+        read -ra dropped_files <<<"$DROPPED"
+        if ((${#dropped_files[@]})); then
           # Without the exceptions, only the refreshed created-at keeps the pinned releases under the cutoff.
-          echo "Lock created-at kept: ${dropped[*]} dropped cutoff exceptions"
-          paths+=("${dropped[@]}")
+          echo "Lock created-at kept: ${dropped_files[*]} dropped cutoff exceptions"
+          paths+=("${dropped_files[@]}")
         elif [[ "$MODE" != check ]]; then
           for lock in "${paths[@]}"; do
             git diff --quiet -- "$lock" && continue
