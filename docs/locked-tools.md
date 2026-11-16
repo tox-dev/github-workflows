@@ -53,7 +53,7 @@ A `[tool.nab]` exception that admits one package past the cutoff, `packages.<nam
 expiry date in a comment directly above the package table header or dotted key:
 
 ```toml
-# expires 2026-11-09
+# expires 2026-11-17
 [tool.nab.packages.release-creator]
 uploaded-prior-to = 2026-11-02T21:45:00Z
 ```
@@ -63,10 +63,18 @@ exception is valid. The check fails when an exception has no such comment, a mal
 and names the package. A standalone `nab.toml` is checked the same way. An exception in `[[tool.nab.package-rules]]` is
 rejected, since the check does not read those tables; move it to a package table.
 
+Pick a date that outlives the next weekly refresh and the merge of its pull request. A relative cutoff such as `P7D`
+counts from the committed lock's `created-at`, not from today, so the exception stays needed while the lock keeps its
+anchor, however old the package gets. Only a refresh moves the anchor. Take the upload date, add the cutoff, move to the
+next scheduled `upgrade-release-tools` run, and add a week to merge its pull request. For the example above, a
+2026-11-02 upload under `P7D` with a Tuesday schedule is first admitted by the 2026-11-10 refresh, so the comment says
+2026-11-17. That refresh deletes the exception itself, so you do not have to.
+
 The check runs in three places:
 
-- `upgrade-release-tools.yaml`, before it refreshes the lock. Every caller's scheduled run therefore fails on an expired
-  or undated exception, even when no release input changed.
+- `upgrade-release-tools.yaml`, after the refresh has dropped the exceptions the refreshed lock no longer needs. A
+  scheduled run fails on an undated exception, or an expired one the new anchor still needs, even when no release input
+  changed.
 
 - `refresh-release-lock` in `check` mode, which `validate-news` calls when a pull request changes `pyproject.toml`,
   `pylock.toml`, a root `pylock.*.toml`, or `nab.toml`.
@@ -166,6 +174,13 @@ token.
 - `mode: refresh` (default) installs the newest Nab under the cutoff, upgrades the full primary lock and the optional
   secondary lock, and writes `$RUNNER_TEMP/maintenance.patch` if a lock changes. A lock whose only change is Nab's
   `created-at` stamp is restored and produces no patch.
+- With `drop-redundant-exceptions: true` in refresh mode, it first deletes each `packages.<name>.uploaded-prior-to`
+  exception in `pyproject.toml` and `nab.toml` that the refreshed lock no longer needs: one dated at or before the
+  project's cutoff counted from now. The exception goes with the comment block directly above it, or only the value and
+  its `# expires` line when the package table holds other settings. An exception with a date but no time admits that
+  whole day, and one without a time zone, a relative exception, a cutoff other than `P<n>D` or a date, and an inline
+  table are left alone. The patch then also holds the changed file, and the lock keeps its new `created-at`, since
+  without the exception only that anchor keeps the pinned releases under the cutoff.
 - `mode: check` first runs [`check-nab-exceptions`](#expire-cutoff-exceptions), then regenerates the locks without
   upgrading and fails if anything other than Nab's recorded command line differs. The committed lock must carry a valid
   `created-at` that is not in the future. Check mode installs the Nab version that the committed `pylock.toml` records
@@ -174,17 +189,18 @@ token.
 
 Every Nab run unsets `SSL_CERT_FILE` and `SSL_CERT_DIR`, so Nab uses its own certificate store.
 
-| Input                               | Default           | Purpose                                                          |
-| ----------------------------------- | ----------------- | ---------------------------------------------------------------- |
-| `mode`                              | `refresh`         | `refresh` or `check`.                                            |
-| `additional-lock`                   | empty             | Basename of a secondary Nab lock for a separate build matrix.    |
-| `additional-lock-groups`            | empty             | Groups for the secondary lock; empty selects build requirements. |
-| `additional-lock-selection`         | `build-or-groups` | `project` selects the project's runtime dependencies instead.    |
-| `additional-matrix-python`          | empty             | Python range for the secondary lock.                             |
-| `additional-matrix-platforms`       | empty             | Space-separated Nab platform IDs.                                |
-| `additional-matrix-implementations` | empty             | Space-separated Python implementations.                          |
-| `exclude-newer`                     | `7 days`          | Cutoff for Nab in refresh mode and the other tools.              |
-| `exclude-newer-package`             | empty             | Newline-separated `name=date` overrides.                         |
+| Input                               | Default           | Purpose                                                                |
+| ----------------------------------- | ----------------- | ---------------------------------------------------------------------- |
+| `mode`                              | `refresh`         | `refresh` or `check`.                                                  |
+| `drop-redundant-exceptions`         | `false`           | In refresh mode, delete exceptions the refreshed lock no longer needs. |
+| `additional-lock`                   | empty             | Basename of a secondary Nab lock for a separate build matrix.          |
+| `additional-lock-groups`            | empty             | Groups for the secondary lock; empty selects build requirements.       |
+| `additional-lock-selection`         | `build-or-groups` | `project` selects the project's runtime dependencies instead.          |
+| `additional-matrix-python`          | empty             | Python range for the secondary lock.                                   |
+| `additional-matrix-platforms`       | empty             | Space-separated Nab platform IDs.                                      |
+| `additional-matrix-implementations` | empty             | Space-separated Python implementations.                                |
+| `exclude-newer`                     | `7 days`          | Cutoff for Nab in refresh mode and the other tools.                    |
+| `exclude-newer-package`             | empty             | Newline-separated `name=date` overrides.                               |
 
 Output `changed`: `true` only when refresh produces a patch. The resulting pull request's normal formatting job runs
 prek, and the writer checks patch paths and modes.

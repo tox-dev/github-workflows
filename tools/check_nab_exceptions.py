@@ -6,6 +6,7 @@ import sys
 import tomllib
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 
 
 def main() -> None:
@@ -30,8 +31,7 @@ class _Options(argparse.Namespace):
 
 def _problems(path: Path, today: date) -> list[str]:
     text = path.read_text(encoding="utf-8")
-    document = tomllib.loads(text)
-    config = document.get("tool", {}).get("nab", {}) if path.name == "pyproject.toml" else document
+    config = nab_config(path, text)
     problems = [
         f"{path}: [[package-rules]] {rule.get('match')} sets uploaded-prior-to, which expiry is not checked for;"
         " move it to a packages.<name> table"
@@ -45,9 +45,14 @@ def _problems(path: Path, today: date) -> list[str]:
     return problems
 
 
+def nab_config(path: Path, text: str) -> dict[str, Any]:
+    document = tomllib.loads(text)
+    return document.get("tool", {}).get("nab", {}) if path.name == "pyproject.toml" else document
+
+
 def _exception_problems(lines: list[str], path: Path, name: str, today: date) -> list[str]:
     where = f"{path}: packages.{name}"
-    start = _start_line(lines, name)
+    start = exception_line(lines, name)
     if start is None:
         return [f"{where} is not a table or dotted key that the expiry check can locate"]
     above = lines[start - 1] if start else ""
@@ -62,7 +67,7 @@ def _exception_problems(lines: list[str], path: Path, name: str, today: date) ->
     return []
 
 
-def _start_line(lines: list[str], name: str) -> int | None:
+def exception_line(lines: list[str], name: str) -> int | None:
     selector = rf'(?:"{re.escape(name)}"|{re.escape(name)})'
     header = re.compile(rf"\[\s*(?:tool\.nab\.)?packages\.{selector}\s*\]")
     dotted = re.compile(rf"(?:tool\.nab\.)?packages\.{selector}\.uploaded-prior-to\s*=")
@@ -77,5 +82,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "exception_line",
     "main",
+    "nab_config",
 ]

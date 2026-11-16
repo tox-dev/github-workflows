@@ -304,6 +304,10 @@
 - `upgrade-release-tools.yaml` checks cutoff exceptions before it refreshes the lock. A scheduled run now fails on an
   expired or undated exception and names the package, even when no release input changed
   ([#46](https://github.com/tox-dev/github-workflows/pull/46)) by [@gaborbernat](https://github.com/gaborbernat).
+- `upgrade-release-tools.yaml` no longer takes `commit-message`; the pull request title is the commit subject. Remove
+  the input from callers: GitHub refuses to start a run that still passes it, with
+  `Invalid input, commit-message is not defined in the referenced workflow`
+  ([#46](https://github.com/tox-dev/github-workflows/pull/46)) by [@gaborbernat](https://github.com/gaborbernat).
 
 <a name="release-6-4-0"></a>
 

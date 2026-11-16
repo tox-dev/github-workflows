@@ -15,6 +15,8 @@ def test_unguarded_array_expansions_are_provably_non_empty() -> None:
         ("prepare-towncrier/action.yml", "args"): "set to three options before the call",
         ("publish-github-release/action.yml", "request"): "starts with two -f pairs",
         ("publish-post-release-pr/action.yml", "paths"): "checked non-empty before any other use",
+        ("refresh-release-lock/action.yml", "dropped"): "used only inside the non-empty check",
+        ("refresh-release-lock/action.yml", "files"): "starts with pyproject.toml",
         ("refresh-release-lock/action.yml", "paths"): "starts with pylock.toml",
         ("refresh-release-lock/action.yml", "requirements"): "set to one requirement in every mode",
         ("refresh-release-lock/action.yml", "selected_groups"): "used only inside the non-empty check",

@@ -60,7 +60,7 @@ def test_upgrade_hands_the_patch_to_the_maintenance_writer(workflow: JsonObject)
         "uses": "$/.github/workflows/open-maintenance-pr.yaml",
         "with": {
             "artifact-id": "${{ needs.generate-lock.outputs.artifact-id }}",
-            "allowed-paths": "pylock.toml\n${{ inputs.additional-lock }}\n",
+            "allowed-paths": "pylock.toml\npyproject.toml\nnab.toml\n${{ inputs.additional-lock }}\n",
             "branch": "automation/update-release-tools",
             "title": "${{ inputs.pull-request-title }}",
             "body": "${{ inputs.pull-request-body }}",
@@ -70,11 +70,67 @@ def test_upgrade_hands_the_patch_to_the_maintenance_writer(workflow: JsonObject)
     }
 
 
-def test_upgrade_checks_cutoff_exceptions_before_refreshing_the_lock(workflow: JsonObject) -> None:
+def test_upgrade_checks_cutoff_exceptions_after_dropping_the_redundant_ones(workflow: JsonObject) -> None:
     names = [item["name"] for item in steps(workflow, "generate-lock")]
 
     assert step(workflow, "generate-lock", "📅 Check cutoff exception expiry")["uses"] == "$/check-nab-exceptions"
-    assert names.index("📅 Check cutoff exception expiry") < names.index("🔒 Refresh release lock")
+    assert at(step(workflow, "generate-lock", "🔒 Refresh release lock"), "with", "drop-redundant-exceptions") == "true"
+    assert (
+        names.index("🔒 Refresh release lock")
+        < names.index("📅 Check cutoff exception expiry")
+        < names.index("📤 Upload maintenance patch")
+    )
+
+
+def test_upgrade_restores_a_lock_whose_only_change_is_its_anchor(
+    anchored_lock: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    result = execute(
+        anchored_lock,
+        refresh_script(action_scripts, "lock"),
+        tmp_path,
+        MODE="refresh",
+        GITHUB_OUTPUT=str(tmp_path / "output"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "output").read_text() == "changed=false\n"
+    assert run(anchored_lock, "git", "status", "--porcelain").stdout == ""
+
+
+def test_upgrade_keeps_the_lock_anchor_that_dropped_exceptions_need(
+    anchored_lock: Path, tmp_path: Path, action_scripts: Path
+) -> None:
+    project = anchored_lock / "pyproject.toml"
+    project.write_text(project.read_text() + "\n")
+
+    result = execute(
+        anchored_lock,
+        refresh_script(action_scripts, "lock"),
+        tmp_path,
+        MODE="refresh",
+        DROPPED="pyproject.toml",
+        GITHUB_OUTPUT=str(tmp_path / "output"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "output").read_text() == "changed=true\n"
+    patch = (tmp_path / "maintenance.patch").read_text()
+    assert [line for line in patch.splitlines() if line.startswith("diff --git")] == [
+        "diff --git a/pylock.toml b/pylock.toml",
+        "diff --git a/pyproject.toml b/pyproject.toml",
+    ]
+    assert "+created-at = 2026-11-17T00:00:00Z" in patch
+
+
+@pytest.fixture
+def anchored_lock(lock_repository: Path) -> Path:
+    lock = lock_repository / "pylock.toml"
+    lock.write_text('lock-version = "1.0"\n[tool.nab]\ncreated-at = 2026-11-03T00:00:00Z\n')
+    run(lock_repository, "git", "add", ".")
+    run(lock_repository, "git", "commit", "-m", "Add lock")
+    lock.write_text(lock.read_text().replace("2026-11-03", "2026-11-17"))
+    return lock_repository
 
 
 def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) -> subprocess.CompletedProcess[str]:
@@ -91,6 +147,7 @@ def execute(repository: Path, script: Path, tmp_path: Path, **environment: str) 
             "MATRIX_PYTHON": "",
             "MATRIX_PLATFORMS": "",
             "MATRIX_IMPLEMENTATIONS": "",
+            "DROPPED": "",
         }
         | environment,
         text=True,

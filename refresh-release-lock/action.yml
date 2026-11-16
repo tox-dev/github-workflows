@@ -22,6 +22,9 @@ inputs:
   mode:
     description: Refresh the lock or check that the committed lock is current
     default: refresh
+  drop-redundant-exceptions:
+    description: In refresh mode, delete the cutoff exceptions the refreshed lock no longer needs
+    default: "false"
   exclude-newer:
     description: Upload cutoff for the tools this Action installs from PyPI
     default: 7 days
@@ -38,6 +41,16 @@ runs:
     - name: 📅 Check cutoff exception expiry
       if: inputs.mode == 'check'
       uses: $/check-nab-exceptions
+    - name: ✂️ Drop cutoff exceptions the refresh no longer needs
+      id: drop
+      if: inputs.mode == 'refresh' && inputs.drop-redundant-exceptions == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        files=(pyproject.toml)
+        if [[ -f nab.toml ]]; then files+=(nab.toml); fi
+        changed=$(python3 "$GITHUB_ACTION_PATH/../tools/drop_nab_exceptions.py" "${files[@]}")
+        echo "files=${changed//$'\n'/ }" >>"$GITHUB_OUTPUT"
     - name: 📦 Install Nab
       shell: bash
       env:
@@ -154,6 +167,7 @@ runs:
       env:
         MODE: ${{ inputs.mode }}
         ADDITIONAL_LOCK: ${{ inputs.additional-lock }}
+        DROPPED: ${{ steps.drop.outputs.files }}
       run: |
         set -euo pipefail
         paths=(pylock.toml)
@@ -162,7 +176,12 @@ runs:
         else
           echo 'Secondary lock skipped: additional-lock input is empty'
         fi
-        if [[ "$MODE" != check ]]; then
+        read -ra dropped <<<"$DROPPED"
+        if ((${#dropped[@]})); then
+          # Without the exceptions, only the refreshed created-at keeps the pinned releases under the cutoff.
+          echo "Lock created-at kept: ${dropped[*]} dropped cutoff exceptions"
+          paths+=("${dropped[@]}")
+        elif [[ "$MODE" != check ]]; then
           for lock in "${paths[@]}"; do
             git diff --quiet -- "$lock" && continue
             # Nab stamps created-at on every run; a lock that differs only there carries no dependency change.

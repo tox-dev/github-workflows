@@ -22,14 +22,17 @@ All three need the same setup:
 
 ## Refresh the release lock: `upgrade-release-tools.yaml`
 
-The read-only job first runs [`check-nab-exceptions`](locked-tools.md#expire-cutoff-exceptions), so every scheduled run
-fails on an expired or undated cutoff exception even when no release input changed. It then runs
-[`refresh-release-lock`](locked-tools.md#refresh-release-lock) in `refresh` mode, which rebuilds the universal
-`pylock.toml` with `nab lock --all-groups --all-extras --no-cache --upgrade`: runtime dependencies, all extras, and all
-dependency groups. The project's `[tool.nab]` table sets the cutoff and any per-package exception; the caller adds and
-removes those exceptions itself. uv only installs tools and never resolves the lock.
+The read-only job runs [`refresh-release-lock`](locked-tools.md#refresh-release-lock) in `refresh` mode with
+`drop-redundant-exceptions: true`. It deletes the cutoff exceptions that a lock anchored now no longer needs, then
+rebuilds the universal `pylock.toml` with `nab lock --all-groups --all-extras --no-cache --upgrade`: runtime
+dependencies, all extras, and all dependency groups. The project's `[tool.nab]` table sets the cutoff and any
+per-package exception; the caller adds them, and the refresh removes them once they are redundant. uv only installs
+tools and never resolves the lock. The job then runs [`check-nab-exceptions`](locked-tools.md#expire-cutoff-exceptions)
+on what is left, so a scheduled run fails on an undated exception or an expired one the refreshed lock still needs, even
+when no release input changed. An expired exception the refresh makes redundant no longer blocks that refresh.
 
-When the lock changes, the job uploads a patch that may change only `pylock.toml` and the configured secondary lock.
+When the lock changes, the job uploads a patch that may change only `pylock.toml`, the configured secondary lock, and
+the `pyproject.toml` or `nab.toml` exceptions it dropped.
 [`open-maintenance-pr`](#open-a-maintenance-pull-request-open-maintenance-pryaml) checks it before minting the App token
 and opens or updates one pull request from `automation/update-release-tools` to `main`, labelled `dependencies` and
 `skip news`. Create both labels and allow the App to push that branch.

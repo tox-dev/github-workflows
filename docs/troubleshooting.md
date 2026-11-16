@@ -3,6 +3,16 @@
 Errors the shared workflows and Actions report, keyed by the text in the job log. Search this page for a phrase from the
 `Error:` annotation.
 
+## Any shared workflow
+
+**`Invalid input, <name> is not defined in the referenced workflow`**
+
+The run ends in `startup_failure` with no jobs and no logs; the message shows only on the run's page, under
+`Invalid workflow file`. The caller passes an input the pinned release of the shared workflow does not declare, usually
+after bumping the pin past a release that removed it. `upgrade-release-tools.yaml` dropped `commit-message` in 6.5.0,
+since the pull request title is the commit subject: delete the `commit-message:` line from the caller's `with:` block.
+For any other input, compare the caller's `with:` keys with the `workflow_call` inputs of the release it pins.
+
 ## Any writer job
 
 **A dispatched check workflow prepared a real release.** The dry-run input was derived from `github.event_name`. A
@@ -29,9 +39,11 @@ An `allow-skipped` entry of `required-checks` is not a job ID in the gate's `nee
 
 **`... uploaded-prior-to exception needs a '# expires YYYY-MM-DD' comment directly above it`**
 
-A `[tool.nab]` cutoff exception has passed its date or has none. Delete the exception once the package is a week old, or
-add or extend the `# expires` comment. See [Expire cutoff exceptions](locked-tools.md#expire-cutoff-exceptions).
-Scheduled `upgrade-release-tools` runs fail on this even when nothing else changed.
+A `[tool.nab]` cutoff exception has passed its date or has none. Add or extend the `# expires` comment. A package being
+a week old is not enough to delete the exception: the relative cutoff counts from the committed lock's `created-at`, so
+the exception stays needed until a refresh re-anchors the lock, and `upgrade-release-tools` drops it in that refresh's
+pull request. See [Expire cutoff exceptions](locked-tools.md#expire-cutoff-exceptions). Scheduled
+`upgrade-release-tools` runs fail on an expired exception that the refreshed lock still needs.
 
 **`check mode needs the Nab version in pylock.toml [tool.nab] nab-version`**
 

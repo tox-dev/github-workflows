@@ -205,6 +205,41 @@ def test_refresh_writes_patch_for_stale_lock(
     assert "diff --git a/pyproject.toml" not in patch
 
 
+@pytest.mark.parametrize(
+    ("drop", "patched"),
+    [
+        pytest.param("false", ["pylock.toml"], id="kept-by-default"),
+        pytest.param("true", ["pylock.toml", "pyproject.toml"], id="dropped"),
+    ],
+)
+def test_refresh_drops_exceptions_the_refreshed_lock_no_longer_needs(
+    lock_project: Path, nab_executable: Path, tmp_path: Path, action_scripts: Path, drop: str, patched: list[str]
+) -> None:
+    project = lock_project / "pyproject.toml"
+    project.write_text(
+        project.read_text()
+        + "# expires 2000-01-01\n[tool.nab.packages.packaging]\nuploaded-prior-to = 2025-01-01T00:00:00Z\n"
+    )
+    _commit_lock(lock_project, nab_executable)
+    outputs: dict[str, str] = {}
+
+    result = action(
+        lock_project,
+        tmp_path,
+        action_scripts,
+        "refresh-release-lock",
+        outputs,
+        version="",
+        MODE="refresh",
+        DROP_REDUNDANT_EXCEPTIONS=drop,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert outputs["changed"] == "true"
+    patch = (tmp_path / "maintenance.patch").read_text()
+    assert [line.split(" b/")[1] for line in patch.splitlines() if line.startswith("diff --git")] == patched
+
+
 def test_refresh_installs_nab_under_cutoff(lock_project: Path, tmp_path: Path, action_scripts: Path) -> None:
     run(lock_project, "git", "add", ".")
     run(lock_project, "git", "commit", "-m", "Add the project")
