@@ -2,6 +2,19 @@
 
 <!-- towncrier release notes start -->
 
+<a name="release-6-8-5"></a>
+
+## 6.8.5 (2026-11-19)
+
+<a name="release-6-8-5-changes"></a>
+
+### Changes
+
+- The shared Scorecard workflow runs OpenSSF Scorecard v5.7.0, which recognizes GitHub immutable releases in the
+  Signed-Releases and Pinned-Dependencies checks. The job disables cache access and fails if the Scorecard API rejects
+  publication. It still uploads the scan to GitHub code scanning when the results file is available
+  ([#76](https://github.com/tox-dev/github-workflows/pull/76)) by [@gaborbernat](https://github.com/gaborbernat).
+
 <a name="release-6-8-4"></a>
 
 ## 6.8.4 (2026-11-17)
