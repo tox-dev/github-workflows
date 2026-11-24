@@ -55,10 +55,10 @@ analyze steps.
 
 ## OpenSSF Scorecard: `scorecard.yaml`
 
-Runs `ossf/scorecard-action` v2.6.0 (Scorecard v5.7.0), publishes the results to the Scorecard API (which feeds the
-public badge), and uploads the SARIF file to code scanning with the CodeQL Action. It takes no inputs and no secrets.
-The action is [free for public repositories](https://github.com/ossf/scorecard-action#scorecards-github-action); a
-private repository needs GitHub Advanced Security.
+Runs `ossf/scorecard-action` v2.5.0, publishes the results to the Scorecard API (which feeds the public badge), and
+uploads the SARIF file to code scanning with the CodeQL Action. It takes no inputs and no secrets. The action is
+[free for public repositories](https://github.com/ossf/scorecard-action#scorecards-github-action); a private repository
+needs GitHub Advanced Security.
 
 The caller must grant every permission the job requests; each comment says which Scorecard check needs it:
 
@@ -94,9 +94,8 @@ The `branch_protection_rule` trigger rescores the repository when its branch pro
 publish can guard the job with `if: github.repository == 'owner/name'`.
 
 The Scorecard API rejects results from workflows that break its
-[workflow restrictions](https://github.com/ossf/scorecard-action#workflow-restrictions). A rejection fails the job.
-Network errors, HTTP 408, 429, and server errors produce a warning after retries. If the results file exists, the job
-uploads it to code scanning even when publication fails.
+[workflow restrictions](https://github.com/ossf/scorecard-action#workflow-restrictions). The action logs a warning on
+publication failure. If the results file exists, the job uploads it to code scanning.
 
 The job disables cache access. It runs only approved actions, has no `run` steps, env, defaults, containers, or
 services, and uses a GitHub-hosted Ubuntu runner. The caller workflow must keep the global rules:
