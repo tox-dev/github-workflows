@@ -157,6 +157,9 @@ jobs:
         uses: jdx/mise-action@v5.2.9
       - name: ☕ Set up Gradle
         uses: gradle/actions/setup-gradle@v6.4.1
+        with:
+          # A split cache can retain metadata after the dependency archive is evicted.
+          cache-provider: basic
       - name: 🏗️ Build test IDE sandbox
         run: ./gradlew --console=plain buildPlugin compileTestKotlin
       - name: 🧪 Run UI tests
