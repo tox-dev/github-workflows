@@ -2,6 +2,17 @@
 
 <!-- towncrier release notes start -->
 
+<a name="release-6-8-8"></a>
+
+## 6.8.8 (2026-11-24)
+
+<a name="release-6-8-8-fixed"></a>
+
+### Fixed
+
+- Use OpenSSF Scorecard v2.6.0 again after OpenSSF restored the original release image in GitHub Container Registry
+  ([#82](https://github.com/tox-dev/github-workflows/pull/82)) by [@gaborbernat](https://github.com/gaborbernat).
+
 <a name="release-6-8-7"></a>
 
 ## 6.8.7 (2026-11-24)
