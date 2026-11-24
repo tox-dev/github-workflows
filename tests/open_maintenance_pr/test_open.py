@@ -173,6 +173,76 @@ def test_writer_rejects_patch_that_differs_from_validated_digest(repository: Pat
     assert result.returncode != 0
 
 
+@pytest.mark.parametrize(
+    ("checkout", "returncode", "diagnostic", "output_keys"),
+    [
+        pytest.param(("-b", "next"), 0, "", ("sha",), id="advanced"),
+        pytest.param(("--orphan", "replacement"), 1, "no longer in the target branch", (), id="rewritten"),
+    ],
+)
+def test_validate_selects_the_current_target(
+    repository: Path,
+    tmp_path: Path,
+    checkout: tuple[str, str],
+    returncode: int,
+    diagnostic: str,
+    output_keys: tuple[str, ...],
+) -> None:
+    source = run(repository, "git", "rev-parse", "HEAD").stdout.strip()
+    run(repository, "git", "checkout", *checkout)
+    run(repository, "git", "commit", "--allow-empty", "-m", "Advance base")
+    result, outputs = run_workflow_step(
+        _WORKFLOW,
+        "validate",
+        "🔍 Verify the patch source is in the target branch",
+        cwd=repository,
+        runner_temp=tmp_path,
+        values={"github.sha": source},
+        env={},
+    )
+    assert result.returncode == returncode, result.stderr
+    assert diagnostic in result.stderr
+    assert outputs == dict.fromkeys(output_keys, run(repository, "git", "rev-parse", "HEAD").stdout.strip())
+
+
+@pytest.mark.parametrize(
+    ("target", "returncode", "diagnostic", "published"),
+    [
+        pytest.param(
+            "HEAD^", 0, "Pushing automation/maintenance", "{commit}\trefs/heads/automation/maintenance\n", id="current"
+        ),
+        pytest.param("HEAD", 1, "target branch advanced", "", id="advanced"),
+    ],
+)
+def test_push_requires_the_validated_target(
+    repository: Path, tmp_path: Path, target: str, returncode: int, diagnostic: str, published: str
+) -> None:
+    remote = tmp_path / "remote.git"
+    run(repository, "git", "clone", "--bare", ".", str(remote))
+    run(repository, "git", "remote", "add", "origin", str(remote))
+    run(repository, "git", "switch", "-c", "maintenance")
+    (repository / "pylock.toml").write_text("lock-version = '2.0'\n")
+    run(repository, "git", "commit", "-am", "Update lock")
+    run(repository, "git", "push", "origin", f"{target}:refs/heads/main")
+    gh = tmp_path / "gh"
+    gh.write_text("#!/bin/sh\nexit 0\n")
+    gh.chmod(stat.S_IRWXU)
+    result, _ = run_workflow_step(
+        _WORKFLOW,
+        "open",
+        "⬆️ Push maintenance branch",
+        cwd=repository,
+        runner_temp=tmp_path,
+        values={"inputs.base": "main", "inputs.branch": "automation/maintenance"},
+        env={"GH_TOKEN": "", "PATH": f"{tmp_path}:{os.environ['PATH']}"},
+    )
+    remote_branch = run(repository, "git", "ls-remote", "origin", "refs/heads/automation/maintenance").stdout
+    assert result.returncode == returncode, result.stderr
+    assert diagnostic in result.stdout + result.stderr
+    commit = run(repository, "git", "rev-parse", "HEAD").stdout.strip()
+    assert remote_branch == published.format(commit=commit)
+
+
 def test_existing_pull_request_is_updated(repository: Path, tmp_path: Path) -> None:
     result, outputs, calls = open_pull_request(
         repository, tmp_path, [pull(17, repo="attacker/fork"), pull(18)], "skip news\n\ndependencies\n"
