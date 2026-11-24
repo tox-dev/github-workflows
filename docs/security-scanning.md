@@ -55,7 +55,7 @@ analyze steps.
 
 ## OpenSSF Scorecard: `scorecard.yaml`
 
-Runs `ossf/scorecard-action` v2.5.0, publishes the results to the Scorecard API (which feeds the public badge), and
+Runs `ossf/scorecard-action` v2.6.0, publishes the results to the Scorecard API (which feeds the public badge), and
 uploads the SARIF file to code scanning with the CodeQL Action. It takes no inputs and no secrets. The action is
 [free for public repositories](https://github.com/ossf/scorecard-action#scorecards-github-action); a private repository
 needs GitHub Advanced Security.
