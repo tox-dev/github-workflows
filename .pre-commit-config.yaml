@@ -11,16 +11,16 @@ repos:
         additional_dependencies:
           - "ruamel-yaml==0.19.1" # release-creator managed
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: c0f278f1254ccc8fb09676bcdb8d847e7db493e5 # v0.17.4
+    rev: 9026c9127e153371d7a78dfcb0c45ae2046a3d10 # v0.17.6
     hooks:
       - id: ruff-check
         args: ["--fix", "--unsafe-fixes", "--exit-non-zero-on-fix"]
         additional_dependencies:
-          - "ruff==0.17.4" # release-creator managed
+          - "ruff==0.17.6" # release-creator managed
       - id: ruff-format
         types_or: [python, pyi]
         additional_dependencies:
-          - "ruff==0.17.4" # release-creator managed
+          - "ruff==0.17.6" # release-creator managed
   - repo: local
     hooks:
       - id: mdformat
@@ -49,8 +49,8 @@ repos:
     hooks:
       - id: yamlfmt
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: 06a39750ec31860bb44f2acf67182c40016cd1e7 # v1.32.0
+    rev: c7d31dc612dffdd4d3b2f2b88b9660d3ab057ee8 # v1.33.1
     hooks:
       - id: zizmor
         additional_dependencies:
-          - "zizmor==1.32.0" # release-creator managed
+          - "zizmor==1.33.1" # release-creator managed
