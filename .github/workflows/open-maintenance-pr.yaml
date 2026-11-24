@@ -46,12 +46,25 @@ jobs:
       contents: read
     outputs:
       patch-sha256: ${{ steps.digest.outputs.sha256 }}
+      base-sha: ${{ steps.base.outputs.sha }}
     steps:
       - name: 📥 Check out repository
         uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: refs/heads/${{ inputs.base }}
+          fetch-depth: 0
           persist-credentials: false
+      - id: base
+        name: 🔍 Verify the patch source is in the target branch
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" HEAD; then
+            echo "::error::The commit that generated the patch is no longer in the target branch" >&2
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
       - name: 📩 Download maintenance patch
         uses: actions/download-artifact@v8.0.2
         with:
@@ -147,7 +160,7 @@ jobs:
       - name: 📥 Check out repository
         uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.validate.outputs.base-sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: 📩 Download maintenance patch
@@ -190,10 +203,16 @@ jobs:
       - name: ⬆️ Push maintenance branch
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          BASE: ${{ inputs.base }}
           BRANCH: ${{ inputs.branch }}
         run: |
           set -euo pipefail
           gh auth setup-git --hostname github.com --force
+          base_ref=$(git ls-remote --exit-code origin "refs/heads/$BASE")
+          if [[ "${base_ref%%$'\t'*}" != "$(git rev-parse HEAD^)" ]]; then
+            echo "::error::The target branch advanced after patch validation" >&2
+            exit 1
+          fi
           echo "Pushing $BRANCH, replacing any earlier maintenance commit (force with lease)"
           git push --force-with-lease origin "HEAD:refs/heads/$BRANCH"
       - name: 📝 Write maintenance pull request body
