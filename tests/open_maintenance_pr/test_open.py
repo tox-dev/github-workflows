@@ -206,16 +206,30 @@ def test_validate_selects_the_current_target(
 
 
 @pytest.mark.parametrize(
-    ("target", "returncode", "diagnostic", "published"),
+    ("target", "returncode", "diagnostic", "published", "rejection"),
     [
         pytest.param(
-            "HEAD^", 0, "Pushing automation/maintenance", "{commit}\trefs/heads/automation/maintenance\n", id="current"
+            "HEAD^",
+            0,
+            "Pushing automation/maintenance",
+            "{commit}\trefs/heads/automation/maintenance\n",
+            "",
+            id="current",
         ),
-        pytest.param("HEAD", 1, "target branch advanced", "", id="advanced"),
+        pytest.param("HEAD", 1, "target branch advanced", "", "", id="advanced"),
+        pytest.param(
+            "HEAD^",
+            0,
+            "Retrying in 1s",
+            "{commit}\trefs/heads/automation/maintenance\n",
+            "Internal Server Error",
+            id="server-error",
+        ),
+        pytest.param("HEAD^", 1, "Permission denied", "", "Permission denied", id="permission-denied"),
     ],
 )
 def test_push_requires_the_validated_target(
-    repository: Path, tmp_path: Path, target: str, returncode: int, diagnostic: str, published: str
+    repository: Path, tmp_path: Path, target: str, returncode: int, diagnostic: str, published: str, rejection: str
 ) -> None:
     remote = tmp_path / "remote.git"
     run(repository, "git", "clone", "--bare", ".", str(remote))
@@ -224,6 +238,10 @@ def test_push_requires_the_validated_target(
     (repository / "pylock.toml").write_text("lock-version = '2.0'\n")
     run(repository, "git", "commit", "-am", "Update lock")
     run(repository, "git", "push", "origin", f"{target}:refs/heads/main")
+    if rejection:
+        hook = remote / "hooks" / "pre-receive"
+        hook.write_text(f"#!/bin/sh\nif [ ! -e tried ]; then\n  touch tried\n  echo '{rejection}' >&2\n  exit 1\nfi\n")
+        hook.chmod(stat.S_IRWXU)
     gh = tmp_path / "gh"
     gh.write_text("#!/bin/sh\nexit 0\n")
     gh.chmod(stat.S_IRWXU)
