@@ -2,6 +2,17 @@
 
 <!-- towncrier release notes start -->
 
+<a name="release-6-8-9"></a>
+
+## 6.8.9 (2026-11-25)
+
+<a name="release-6-8-9-fixed"></a>
+
+### Fixed
+
+- Retry transient GitHub server errors when publishing a validated maintenance branch
+  ([#83](https://github.com/tox-dev/github-workflows/pull/83)) by [@gaborbernat](https://github.com/gaborbernat).
+
 <a name="release-6-8-8"></a>
 
 ## 6.8.8 (2026-11-24)
