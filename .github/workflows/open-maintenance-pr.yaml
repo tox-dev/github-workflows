@@ -208,13 +208,36 @@ jobs:
         run: |
           set -euo pipefail
           gh auth setup-git --hostname github.com --force
-          base_ref=$(git ls-remote --exit-code origin "refs/heads/$BASE")
-          if [[ "${base_ref%%$'\t'*}" != "$(git rev-parse HEAD^)" ]]; then
-            echo "::error::The target branch advanced after patch validation" >&2
-            exit 1
-          fi
-          echo "Pushing $BRANCH, replacing any earlier maintenance commit (force with lease)"
-          git push --force-with-lease origin "HEAD:refs/heads/$BRANCH"
+          parent=$(git rev-parse HEAD^)
+          commit=$(git rev-parse HEAD)
+          branch_ref="refs/heads/$BRANCH"
+          lease=$(git rev-parse --verify --quiet "refs/remotes/origin/$BRANCH" || true)
+          for delay in 1 2 4 0; do
+            base_ref=$(git ls-remote --exit-code origin "refs/heads/$BASE")
+            if [[ "${base_ref%%$'\t'*}" != "$parent" ]]; then
+              echo "::error::The target branch advanced after patch validation" >&2
+              exit 1
+            fi
+            echo "Pushing $BRANCH, replacing any earlier maintenance commit (force with lease)"
+            if output=$(git push --force-with-lease="$branch_ref:$lease" origin "HEAD:$branch_ref" 2>&1); then
+              printf '%s\n' "$output"
+              exit 0
+            else
+              status=$?
+            fi
+            printf '%s\n' "$output" >&2
+            if ! grep -Eq '^remote: Internal Server Error[[:space:]]*$|HTTP (500|502|503|504)([[:space:];]|$)' <<<"$output"; then
+              exit "$status"
+            fi
+            if remote_branch=$(git ls-remote origin "$branch_ref") && [[ "${remote_branch%%$'\t'*}" == "$commit" ]]; then
+              exit 0
+            fi
+            if ((delay == 0)); then
+              exit "$status"
+            fi
+            echo "GitHub returned a server error. Retrying in ${delay}s."
+            sleep "$delay"
+          done
       - name: 📝 Write maintenance pull request body
         env:
           BODY: ${{ inputs.body }}
